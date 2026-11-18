@@ -42,6 +42,7 @@ typedef struct {
 } GfxTexImage;
 
 extern GfxState gGfx;
+extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * PORT_GFX_SCALE), >= 1 */
 extern u8 gGfxTmem[4096];
 
 /* gfx_tmem.c */

@@ -1,0 +1,15 @@
+# Boot -> intro -> attract demo -> main menu (as title_to_menu.txt), then A through file select into a new game.
+# The intro story (maps 0x99/0xAC/0x98, wall-clock cues) must hand over to the Treehouse (0xAB, 171) on its own;
+# with --frames 21000 the final counters report map 171, mode 0.
+frame 900 press start
+frame 906 release start
+frame 1500 press start
+frame 1506 release start
+frame 2000 press a
+frame 2006 release a
+frame 2120 press a
+frame 2126 release a
+frame 2240 press a
+frame 2246 release a
+frame 2360 press a
+frame 2366 release a

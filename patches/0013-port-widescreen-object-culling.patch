@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 18 Nov 2026 10:10:21 -0700
+Subject: [PATCH] port: widescreen object culling
+
+
+diff --git a/src/global/55B20.c b/src/global/55B20.c
+index a9b2820..286c5c4 100644
+--- a/src/global/55B20.c
++++ b/src/global/55B20.c
+@@ -2710,6 +2710,7 @@ s16 top;
+ s16 right;
+ s16 bottom;
+ {
++    portGfxWideClipX(&left, &right); // PORT: Hor+ shows more at the sides; don't cull objects there
+     D_807F7358 = left;
+     D_807F735A = top;
+     D_807F735C = right;

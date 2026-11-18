@@ -56,3 +56,12 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)addr;
     (void)len;
 }
+
+f32 portGfxWideHalfYaw(f32 halfYawDeg) {
+    return halfYawDeg;
+}
+
+void portGfxWideClipX(s16 *left, s16 *right) {
+    (void)left;
+    (void)right;
+}

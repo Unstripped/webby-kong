@@ -25,6 +25,9 @@ GLuint gfxCompileProgram(const char *vs, const char *fs);
 typedef struct {
     u32 addr;
     u32 width, height; /* N64 pixels */
+    u32 physW, physH;  /* FBO size in GL pixels */
+    u32 ox;            /* GL x of the N64 image inside the FBO */
+    u32 sideTask;      /* gfx task that last blanked the side areas (gfx_gl.c) */
     GLuint fbo, color;
     int cpuDirty;      /* RDRAM newer than the texture */
     int gpuDirty;      /* texture drawn since the last RDRAM sync */
@@ -37,6 +40,8 @@ extern u32 gGfxDepthW, gGfxDepthH;
 
 void gfxFbInit(void);
 GfxFb *gfxFbFor(u32 addr, u32 width);
+void gfxFbSetWindowAspect(float aspect);
+u32 gfxFbPhysWidth(u32 width);
 GfxFb *gfxFbFind(u32 addr);
 void gfxFbBind(GfxFb *fb);
 void gfxFbUploadRdram(GfxFb *fb);

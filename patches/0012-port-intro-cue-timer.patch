@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 18 Nov 2026 09:29:25 -0700
+Subject: [PATCH] port: intro cue timer
+
+
+diff --git a/src/global/201B0.c b/src/global/201B0.c
+index 96057cd..87cb5c2 100644
+--- a/src/global/201B0.c
++++ b/src/global/201B0.c
+@@ -1156,6 +1156,13 @@ void camUpdate(Actor *camActor, f32 *eyeX, f32 *eyeY, f32 *eyeZ, f32 *focusX, f3
+     camUpdateFollowTargetDistance(camActor);
+     camActor->roll = mathAngleEaseToward(camActor->roll, target->roll, 20.0f);
+     camUpdatePlayerYaw(st);
++    // PORT: the intro story's map cues run on wall-clock time but were only checked during camera paths, which
++    // count game frames; at a steady 30 fps a path can end before its cue and leave the player stranded in the
++    // intro map, so keep checking while still in the map the previous cue went to.
++    if (gGameMode != 1 && camCueTimerIsRunning() &&
++        gCurrentMap == (gCamCueIndex != 0 ? gCamCueTable[gCamCueIndex - 1].map : 0x99)) {
++        camCueTimerTick();
++    }
+     switch (gGameMode) {
+     case 0:
+         if (!(st->unkAC & 0x100)) {

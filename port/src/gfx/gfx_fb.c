@@ -14,19 +14,25 @@ static GLuint sDepthFbo;
 static GLuint sStageTex, sStageFbo;
 static GLuint sDepthReadProg, sDepthReadVao, sDepthReadTarget, sDepthReadFbo;
 static u8 *sScratch;
+static u32 sDepthPhysW, sDepthPhysH, sDepthOx;
+static float sWinAspect = 4.0f / 3.0f;
+static GLint sMaxTex;
 
-static void ensureDepth(u32 w, u32 h) {
-    if (gGfxDepthTex != 0 && gGfxDepthW == w && gGfxDepthH == h) {
+static void ensureDepth(const GfxFb *fb) {
+    if (gGfxDepthTex != 0 && gGfxDepthW == fb->width && gGfxDepthH == fb->height && sDepthPhysW == fb->physW) {
         return;
     }
     if (gGfxDepthTex == 0) {
         glGenTextures(1, &gGfxDepthTex);
         glGenFramebuffers(1, &sDepthFbo);
     }
-    gGfxDepthW = w;
-    gGfxDepthH = h;
+    gGfxDepthW = fb->width;
+    gGfxDepthH = fb->height;
+    sDepthPhysW = fb->physW;
+    sDepthPhysH = fb->physH;
+    sDepthOx = fb->ox;
     glBindTexture(GL_TEXTURE_2D, gGfxDepthTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, w * PORT_GFX_SCALE, h * PORT_GFX_SCALE, 0, GL_DEPTH_COMPONENT,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, sDepthPhysW, sDepthPhysH, 0, GL_DEPTH_COMPONENT,
                  GL_UNSIGNED_INT, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -36,14 +42,13 @@ static void ensureDepth(u32 w, u32 h) {
         GLenum none = GL_NONE;
         glDrawBuffers(1, &none);
     }
-    /* reattach to existing colour FBOs */
+    /* attach to same-size colour FBOs; detach from the rest so they stay complete for blits and readbacks */
     {
         int i;
         for (i = 0; i < sFbCount; i++) {
-            if (sFbs[i].width == w) {
-                glBindFramebuffer(GL_FRAMEBUFFER, sFbs[i].fbo);
-                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, gGfxDepthTex, 0);
-            }
+            int same = sFbs[i].physW == fb->physW && sFbs[i].physH == fb->physH;
+            glBindFramebuffer(GL_FRAMEBUFFER, sFbs[i].fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, same ? gGfxDepthTex : 0, 0);
         }
     }
 }
@@ -75,6 +80,27 @@ void gfxFbInit(void) {
     glGenTextures(1, &sDepthReadTarget);
     glGenFramebuffers(1, &sDepthReadFbo);
     sScratch = malloc(640 * 480 * PORT_GFX_SCALE * PORT_GFX_SCALE * 4);
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &sMaxTex);
+}
+
+void gfxFbSetWindowAspect(float aspect) {
+    sWinAspect = aspect;
+}
+
+/* VI-sized images widen to the window aspect (Hor+); offscreen images keep their N64 size */
+u32 gfxFbPhysWidth(u32 width) {
+    u32 base = width * PORT_GFX_SCALE, h = width * 3 / 4 * PORT_GFX_SCALE, w;
+    if (width != gPortViWidth || sWinAspect <= 4.0f / 3.0f) {
+        return base;
+    }
+    w = (u32)(h * sWinAspect + 0.5f);
+    if (sMaxTex > 0 && w > (u32)sMaxTex) {
+        w = (u32)sMaxTex;
+    }
+    if (w <= base) {
+        return base;
+    }
+    return base + ((w - base) & ~1u); /* even margin keeps ox integral */
 }
 
 GfxFb *gfxFbFind(u32 addr) {
@@ -90,7 +116,8 @@ GfxFb *gfxFbFind(u32 addr) {
 GfxFb *gfxFbFor(u32 addr, u32 width) {
     GfxFb *fb = gfxFbFind(addr);
     u32 height = width * 3 / 4;
-    if (fb != NULL && fb->width == width) {
+    u32 physW = gfxFbPhysWidth(width);
+    if (fb != NULL && fb->width == width && fb->physW == physW) {
         return fb;
     }
     if (fb == NULL) {
@@ -105,13 +132,15 @@ GfxFb *gfxFbFor(u32 addr, u32 width) {
     fb->addr = addr;
     fb->width = width;
     fb->height = height;
+    fb->physW = physW;
+    fb->physH = height * PORT_GFX_SCALE;
+    fb->ox = (physW - width * PORT_GFX_SCALE) / 2;
     fb->cpuDirty = 1;
     fb->gpuDirty = 0;
     fb->everDrawn = 0;
-    ensureDepth(width, height);
+    ensureDepth(fb);
     glBindTexture(GL_TEXTURE_2D, fb->color);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width * PORT_GFX_SCALE, height * PORT_GFX_SCALE, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fb->physW, fb->physH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
@@ -141,17 +170,24 @@ void gfxFbUploadRdram(GfxFb *fb) {
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sStageTex, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb->fbo);
     glDisable(GL_SCISSOR_TEST);
-    glBlitFramebuffer(0, 0, w, h, 0, 0, w * PORT_GFX_SCALE, h * PORT_GFX_SCALE, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (fb->physW > w * PORT_GFX_SCALE) {
+        /* side areas of a CPU-written image are black */
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glBlitFramebuffer(0, 0, w, h, fb->ox, 0, fb->ox + w * PORT_GFX_SCALE, h * PORT_GFX_SCALE, GL_COLOR_BUFFER_BIT,
+                      GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
     fb->cpuDirty = 0;
 }
 
 void gfxFbBind(GfxFb *fb) {
+    ensureDepth(fb); /* the shared depth follows the bound image's size */
     if (fb->cpuDirty) {
         gfxFbUploadRdram(fb);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
-    glViewport(0, 0, fb->width * PORT_GFX_SCALE, fb->height * PORT_GFX_SCALE);
+    glViewport(0, 0, fb->physW, fb->physH);
 }
 
 void gfxFbClearDepth(void) {
@@ -184,18 +220,17 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH) {
     if (fb == NULL) {
         return;
     }
-    if (winW * 3 > winH * 4) {
+    if ((s64)winW * fb->physH > (s64)winH * fb->physW) {
         vh = winH;
-        vw = winH * 4 / 3;
+        vw = (int)((s64)winH * fb->physW / fb->physH);
     } else {
         vw = winW;
-        vh = winW * 3 / 4;
+        vh = (int)((s64)winW * fb->physH / fb->physW);
     }
     vx = (winW - vw) / 2;
     vy = (winH - vh) / 2;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->fbo);
-    glBlitFramebuffer(0, 0, fb->width * PORT_GFX_SCALE, fb->height * PORT_GFX_SCALE, vx, vy, vx + vw, vy + vh,
-                      GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 }
 
 void gfxFbCpuWrote(u32 addr, u32 len) {
@@ -231,10 +266,10 @@ static void syncDepth(u32 addr, u32 len) {
     u16 *dst = (u16 *)addr;
     u32 n = len / 2 < w * h ? len / 2 : w * h; /* RDRAM past the requested range belongs to someone else */
     glBindTexture(GL_TEXTURE_2D, sDepthReadTarget);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sw, sh, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sDepthPhysW, sh, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindFramebuffer(GL_FRAMEBUFFER, sDepthReadFbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sDepthReadTarget, 0);
-    glViewport(0, 0, sw, sh);
+    glViewport(0, 0, sDepthPhysW, sh);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
@@ -244,7 +279,7 @@ static void syncDepth(u32 addr, u32 len) {
     glUniform1i(glGetUniformLocation(sDepthReadProg, "uDepth"), 0);
     glBindVertexArray(sDepthReadVao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glReadPixels(0, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, sScratch);
+    glReadPixels(sDepthOx, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, sScratch);
     for (y = 0; y < h && y * w < n; y++) {
         for (x = 0; x < w && y * w + x < n; x++) {
             const u8 *p = &sScratch[(((sh - 1 - y * PORT_GFX_SCALE) * sw) + x * PORT_GFX_SCALE) * 4];
@@ -274,7 +309,7 @@ void gfxFbSyncRdram(u32 addr, u32 len) {
         lo = (addr > fb->addr ? addr - fb->addr : 0) / 2;
         hi = ((addr + len < end ? addr + len : end) - fb->addr + 1) / 2;
         glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
-        glReadPixels(0, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, sScratch);
+        glReadPixels(fb->ox, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, sScratch);
         dst = (u8 *)fb->addr;
         for (y = lo / w; y < h && y * w < hi; y++) {
             for (x = 0; x < w; x++) {

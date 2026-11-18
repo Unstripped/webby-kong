@@ -40,6 +40,9 @@ RSP tasks, map, overlay, audio peak).
 Headless: `node build/web/dk64_headless.js --rom decomp/donkey-kong.z64 --frames 2400 --input tests/title_to_menu.txt`
 prints those counters every 60 VI ticks and reaches the main menu (map 0x50) by the end. `--lax` logs asset tables
 without a byte-order swapper instead of aborting; `--trace-assets` logs every asset load with its RDRAM range.
+`tests/new_game_intro.txt` with `--frames 21000` starts a new game and must end in the Treehouse (map 171, mode 0):
+the intro story's map changes run on wall-clock cues, and patch 0012 keeps checking them after a camera path ends
+early (the port runs a steady 30 fps, so frame-counted paths finish sooner than on hardware).
 Configure with `-DPORT_SAFE_HEAP=ON` (separate build dir) to trap wild accesses.
 
 Controls: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, I/K/J/L = C-buttons, T/G/F/H = D-pad;
@@ -75,3 +78,12 @@ the first gamepad works too. Saves (EEPROM) persist in IndexedDB.
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the
   display list (4:3 is assumed), and RDRAM past the real image belongs to the heap.
+- Widescreen (Hor+): the canvas fills the browser window at device-pixel resolution. VI-sized colour images
+  are FBOs widened to the window aspect (uncapped: on very wide windows some backdrop meshes, e.g. the main
+  menu's, end before the screen edge), with the N64 image centred at `GfxFb.ox`; 3D clip x is divided by
+  `gGfxTargetWide`, so the original frustum covers the centre and the sides show more scene. 2D draws keep
+  their 4:3 place; scissors and fill rects spanning the width (overscan margins up to width/16 included)
+  reach the edges, and the side areas are blanked once per gfx task. RDRAM uploads and readbacks use only the
+  centred region. `portGfxWideHalfYaw` (patch 0011) widens the map-culling frustum and `portGfxWideClipX`
+  (patch 0013) the screen bounds objects are culled against. Map chunks seen through portals (doorways) are
+  still found in 4:3 screen space, so a room visible only through a doorway at the side edge may not draw.

@@ -1,6 +1,7 @@
 /* WebGL2 backend: SDL window + GLES 3.0 context, texture cache, RDP state -> GL state, draws. */
 #include "gfx/gfx_gl.h"
 #include <SDL2/SDL.h>
+#include <math.h>
 
 #define TEX_CACHE_SIZE 4096
 #define WIN_W 960
@@ -20,6 +21,7 @@ static int sTexCount;
 static GLuint sWhiteTex;
 static GfxFb *sTarget;
 static int sTargetIsDepth;
+static u32 sTaskSerial;
 
 void gfxBackendInit(void) {
     u8 white[4] = { 255, 255, 255, 255 };
@@ -31,7 +33,7 @@ void gfxBackendInit(void) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     sWindow = SDL_CreateWindow("Donkey Kong 64", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIN_W, WIN_H,
-                               SDL_WINDOW_OPENGL);
+                               SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (sWindow == NULL) {
         portAbort("PORT: SDL window failed: %s", SDL_GetError());
     }
@@ -56,7 +58,12 @@ void gfxBackendInit(void) {
 }
 
 void gfxBackendBeginTask(void) {
+    int w, h;
+    SDL_GL_GetDrawableSize(sWindow, &w, &h);
+    gfxFbSetWindowAspect(h > 0 ? (float)w / h : 4.0f / 3.0f);
+    sTaskSerial++;
     sTarget = NULL;
+    gGfxTargetWide = 1.0f;
     sTargetIsDepth = 0;
 }
 
@@ -69,11 +76,25 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     if (addr == gGfx.zimg) {
         sTargetIsDepth = 1;
         sTarget = NULL;
+        gGfxTargetWide = 1.0f;
         return;
     }
     sTargetIsDepth = 0;
     sTarget = gfxFbFor(addr, width);
     gfxFbBind(sTarget);
+    gGfxTargetWide = sTarget->physW / (float)(sTarget->width * PORT_GFX_SCALE);
+    if (sTarget->ox > 0 && sTarget->sideTask != sTaskSerial) {
+        /* the game only covers its 4:3 image; blank the side areas once per task so frames that draw no
+         * full-width clear don't show stale pixels there */
+        u32 sh = sTarget->physH, right = sTarget->ox + sTarget->width * PORT_GFX_SCALE;
+        sTarget->sideTask = sTaskSerial;
+        glEnable(GL_SCISSOR_TEST);
+        glClearColor(0, 0, 0, 1);
+        glScissor(0, 0, sTarget->ox, sh);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glScissor(right, 0, sTarget->physW - right, sh);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
 }
 
 /* ---------------------------------------------------------------- textures */
@@ -134,6 +155,27 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
 }
 
 /* ---------------------------------------------------------------- render state */
+
+/* x span covering the image up to overscan margins (<= width/16 per side) on a widened target: extends into
+ * the side areas. Unwidened targets (ox == 0) keep the game's exact scissors and rects. */
+static int spansWidth(float x0, float x1) {
+    float w = (float)sTarget->width;
+    return sTarget->ox > 0 && x0 <= w / 16.0f && x1 >= w - w / 16.0f;
+}
+
+/* N64 scissor (pixels, y down) -> GL scissor in the bound FBO */
+static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
+    s32 h = (s32)sTarget->height, px0, px1;
+    if (spansWidth((float)x0, (float)x1)) {
+        px0 = 0;
+        px1 = (s32)sTarget->physW;
+    } else {
+        px0 = (s32)sTarget->ox + x0 * PORT_GFX_SCALE;
+        px1 = (s32)sTarget->ox + x1 * PORT_GFX_SCALE;
+    }
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(px0, (h - y1) * PORT_GFX_SCALE, px1 - px0, (y1 - y0) * PORT_GFX_SCALE);
+}
 
 static void applyState(const GfxState *st, int forRect, int tile) {
     GfxProgramKey key;
@@ -221,10 +263,8 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     /* scissor (N64 pixels, y down) */
     if (sTarget != NULL) {
         s32 x0 = st->scissor[0], y0 = st->scissor[1], x1 = st->scissor[2], y1 = st->scissor[3];
-        s32 h = (s32)sTarget->height;
         if (x1 > x0 && y1 > y0) {
-            glEnable(GL_SCISSOR_TEST);
-            glScissor(x0 * PORT_GFX_SCALE, (h - y1) * PORT_GFX_SCALE, (x1 - x0) * PORT_GFX_SCALE, (y1 - y0) * PORT_GFX_SCALE);
+            scissorN64(x0, y0, x1, y1);
         } else {
             glDisable(GL_SCISSOR_TEST);
         }
@@ -252,8 +292,8 @@ void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
 }
 
 static void screenVtx(GfxVtx *o, float x, float y, float z, float s, float t, float r, float g, float b, float a) {
-    float w = (float)sTarget->width, h = (float)sTarget->height;
-    o->x = x / (w / 2) - 1.0f;
+    float h = (float)sTarget->height;
+    o->x = (sTarget->ox + x * PORT_GFX_SCALE) / (sTarget->physW * 0.5f) - 1.0f;
     o->y = 1.0f - y / (h / 2);
     o->z = z;
     o->w = 1.0f;
@@ -278,11 +318,8 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
     }
     if (cyc == 3) {
         u16 c = (u16)(st->fillColor >> 16);
-        s32 h = (s32)sTarget->height;
         gfxFbBind(sTarget);
-        glEnable(GL_SCISSOR_TEST);
-        glScissor((s32)ulx * PORT_GFX_SCALE, (h - (s32)lry) * PORT_GFX_SCALE, (s32)(lrx - ulx) * PORT_GFX_SCALE,
-                  (s32)(lry - uly) * PORT_GFX_SCALE);
+        scissorN64((s32)ulx, (s32)uly, (s32)lrx, (s32)lry);
         glClearColor(((c >> 11) & 0x1F) / 31.0f, ((c >> 6) & 0x1F) / 31.0f, ((c >> 1) & 0x1F) / 31.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         sTarget->gpuDirty = 1;
@@ -291,6 +328,11 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
     }
     {
         GfxVtx q[6];
+        if (spansWidth(ulx, lrx)) {
+            /* full-width fills (clears, fades) cover the side areas too */
+            ulx = -(float)sTarget->ox / PORT_GFX_SCALE;
+            lrx = (float)(sTarget->physW - sTarget->ox) / PORT_GFX_SCALE;
+        }
         applyState(st, 1, 0);
         screenVtx(&q[0], ulx, uly, 0, 0, 0, 1, 1, 1, 1);
         screenVtx(&q[1], lrx, uly, 0, 0, 0, 1, 1, 1, 1);
@@ -340,4 +382,28 @@ void gfxBackendCpuWrote(u32 addr, u32 len) {
 
 void gfxBackendSyncRdram(u32 addr, u32 len) {
     gfxFbSyncRdram(addr, len);
+}
+
+f32 portGfxWideHalfYaw(f32 halfYawDeg) {
+    float wide = gfxFbPhysWidth(gPortViWidth) / (float)(gPortViWidth * PORT_GFX_SCALE);
+    if (wide <= 1.0f || halfYawDeg >= 89.0f) {
+        return halfYawDeg;
+    }
+    /* tan form keeps the widened angle below 90 degrees */
+    return atanf(tanf(halfYawDeg * (float)M_PI / 180.0f) * wide) * 180.0f / (float)M_PI;
+}
+
+void portGfxWideClipX(s16 *left, s16 *right) {
+    s32 w = (s32)gPortViWidth;
+    s32 extra = ((s32)gfxFbPhysWidth(gPortViWidth) - w * PORT_GFX_SCALE) / 2 / PORT_GFX_SCALE + 1;
+    if (extra <= 1) {
+        return;
+    }
+    /* same overscan tolerance as spansWidth(): an edge within width/16 of the image edge is the image edge */
+    if (*left <= w / 16) {
+        *left -= extra;
+    }
+    if (*right >= w - w / 16) {
+        *right += extra;
+    }
 }

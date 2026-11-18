@@ -11,6 +11,7 @@
 #define BATCH_MAX 3 * 1024
 
 GfxState gGfx;
+float gGfxTargetWide = 1.0f;
 
 typedef struct {
     float x, y, z, w;      /* clip space */
@@ -257,8 +258,8 @@ static void loadVertices(u32 addr, int n, int dst) {
             d->a = f / 255.0f;
         }
         d->clip = 0;
-        if (d->x < -d->w) d->clip |= 1;
-        if (d->x > d->w) d->clip |= 2;
+        if (d->x < -d->w * gGfxTargetWide) d->clip |= 1;
+        if (d->x > d->w * gGfxTargetWide) d->clip |= 2;
         if (d->y < -d->w) d->clip |= 4;
         if (d->y > d->w) d->clip |= 8;
         if (d->z < -d->w) d->clip |= 16;
@@ -284,8 +285,8 @@ static void emitVertex(const RspVtx *v) {
         flush();
     }
     o = &sBatch[sBatchCount++];
-    /* screen_x = x/w*sx + tx ; ndc = screen_x/(W/2) - 1 */
-    o->x = v->x * (sx / (fbW / 2)) + v->w * (tx / (fbW / 2) - 1.0f);
+    /* screen_x = x/w*sx + tx ; ndc = screen_x/(W/2) - 1, squeezed into the centre of a wide target */
+    o->x = (v->x * (sx / (fbW / 2)) + v->w * (tx / (fbW / 2) - 1.0f)) / gGfxTargetWide;
     o->y = v->y * (sy / (fbH / 2)) + v->w * (1.0f - ty / (fbH / 2));
     o->z = v->z;
     o->w = v->w;
