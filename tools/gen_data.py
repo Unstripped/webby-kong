@@ -1483,7 +1483,9 @@ def infer_pointee_types(per_seg, syms, index, overrides):
         progress = False
         for sym, (spelling, pointee, typed) in found.items():
             offs = starts[sym] | {0}
-            if all(o % pointee[0] == 0 for o in offs):
+            # a per-file layout describes one record per label; several pointer targets mean several records
+            multi = len(offs) > 1 and ("@file:" + by_name[sym].file) in overrides
+            if all(o % pointee[0] == 0 for o in offs) and not multi:
                 # a C type (or a file layout) already describes it
                 if not typed and 0 in starts[sym]:
                     index.var_types[sym] = (None, pointee[1], None, pointee)
