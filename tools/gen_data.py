@@ -340,6 +340,7 @@ class Index:
         self.func_defined = {}       # name -> (seg, static)
         self.declared = set()        # every file-scope variable name C declares
         self.pointee_types = {}      # pointee type spelling -> typeinfo (for typing untyped pointer targets)
+        self.record_types = {}       # name -> typeinfo of variable-size record runs (beats file layouts)
 
     def build(self):
         files = [str(p) for p in game_sources()]
@@ -911,6 +912,8 @@ class Emitter:
 
     def type_for(self, label):
         ov = self.overrides.get(label.name)
+        if ov is None and label.name in self.index.record_types:
+            return self.index.record_types[label.name]
         if ov is None:
             ov = self.overrides.get("@file:" + label.file)  # per-file layouts beat placeholder C types (u8 x;)
         if ov == "raw":
@@ -1412,12 +1415,36 @@ def gen_ovl_entry(elves, syms, index):
     write_if_changed(GEN / "ovl_entry.c", "\n".join(lines) + "\n")
 
 
+def record_run_leaves(pointee, starts, n):
+    """Leaves for a label packing variable-size records of a struct ending in a one-element array (`s16 data[1]`):
+    each record is the struct header followed by trailing elements up to the next record start."""
+    size, align, lv, _ = pointee
+    tail_off, tail_size, tail_kind = max(lv)
+    if size - (tail_off + tail_size) >= align:  # the last member must be the trailing array (plus padding)
+        return None
+    header = [l for l in lv if l[0] < tail_off]
+    bounds = sorted(starts) + [n]
+    out = []
+    for s, e in zip(bounds, bounds[1:]):
+        if any(s + o + w > e for o, w, _ in header):
+            return None
+        out.extend((s + o, w, k) for o, w, k in header)
+        pos = s + tail_off
+        while pos + tail_size <= e:
+            out.append((pos, tail_size, tail_kind))
+            pos += tail_size
+    return (n, align, out, None)
+
+
 def infer_pointee_types(per_seg, syms, index, overrides):
     """Untyped labels that a typed pointer points at (addend 0) take the pointee type, as an array filling
-    the label (e.g. `u16 *D_8074E218[]` types each list it points at as u16[]). Repeats to a fixpoint."""
+    the label (e.g. `u16 *D_8074E218[]` types each list it points at as u16[]). Pointers into a label off the
+    struct's stride mean variable-size records (a trailing `data[1]`): those are typed record by record.
+    Repeats to a fixpoint."""
     by_name = {l.name: l for ls in per_seg.values() for l in ls}
     for _ in range(8):
         found = {}
+        starts = defaultdict(set)  # sym -> offsets typed pointers point at
         for seg, labels in per_seg.items():
             em = Emitter(seg, syms, index, overrides)
             # continuation labels carry their head array's element types, so their pointers type pointees too
@@ -1438,9 +1465,9 @@ def infer_pointee_types(per_seg, syms, index, overrides):
                             continue
                         sym, addend = c[0], c[1]
                     target = by_name.get(sym)
-                    if addend != 0 or target is None or target.kind == "bss":
+                    if target is None or target.kind == "bss":
                         continue
-                    if index.var_types.get(sym) is not None or sym in overrides:
+                    if sym in overrides or sym in index.record_types:
                         continue
                     pointee = index.pointee_types.get(kind[2:])
                     if pointee is None or pointee[0] is None or pointee[0] <= 0:
@@ -1449,12 +1476,30 @@ def infer_pointee_types(per_seg, syms, index, overrides):
                     if prev is not None and prev[0] != kind[2:]:
                         REPORT.note(f"{sym}: pointed at as {prev[0]} and {kind[2:]}; keeping the first")
                         continue
-                    found[sym] = (kind[2:], pointee)
+                    found[sym] = (kind[2:], pointee, index.var_types.get(sym) is not None)
+                    starts[sym].add(addend)
         if not found:
             return
-        for sym, (spelling, pointee) in found.items():
-            index.var_types[sym] = (None, pointee[1], None, pointee)
-            REPORT.note(f"{sym}: typed as {spelling}[] from a typed pointer to it")
+        progress = False
+        for sym, (spelling, pointee, typed) in found.items():
+            offs = starts[sym] | {0}
+            if all(o % pointee[0] == 0 for o in offs):
+                # a C type (or a file layout) already describes it
+                if not typed and 0 in starts[sym]:
+                    index.var_types[sym] = (None, pointee[1], None, pointee)
+                    REPORT.note(f"{sym}: typed as {spelling}[] from a typed pointer to it")
+                    progress = True
+                continue
+            # pointers off the stride: variable-size records, which no C type or per-label layout describes
+            ti = record_run_leaves(pointee, offs, by_name[sym].size)
+            if ti is None:
+                REPORT.error(f"{sym}: pointers into it break the {spelling} stride and do not fit as records")
+                continue
+            index.record_types[sym] = ti
+            REPORT.note(f"{sym}: typed as {len(offs)} variable-size {spelling} records")
+            progress = True
+        if not progress:
+            return
 
 def run_full(elves):
     sys.setrecursionlimit(10000)
