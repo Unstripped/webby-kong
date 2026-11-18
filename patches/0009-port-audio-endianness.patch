@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 17 Nov 2026 23:12:08 -0700
+Subject: [PATCH] port: audio endianness
+
+
+diff --git a/src/global/5A50.c b/src/global/5A50.c
+index ae2f09c..618f806 100644
+--- a/src/global/5A50.c
++++ b/src/global/5A50.c
+@@ -72,6 +72,7 @@ void audioInit(void) {
+     dmaReadAssetDecompress(gSegmentTable[15].romStart, tmp, &len, 0xD, 0, 2, 0);
+     bankA = alHeapDBAlloc(NULL, 0, &D_8076D1E8, 1, len);
+     dmaReadAssetDecompress(gSegmentTable[15].romStart, bankA, &len, 0xD, 0, 2, 0);
++    portSwapBankFile(bankA);
+     alBnkfNew(bankA, (u8 *)gSegmentTable[14].romStart);
+     D_8076D1FC = bankA->bankArray[0];
+     len = gSegmentTable[16].romEnd - gSegmentTable[16].romStart;
+@@ -79,6 +80,7 @@ void audioInit(void) {
+     heapFree(tmp);
+     bankB = alHeapDBAlloc(NULL, 0, &D_8076D1E8, 1, len);
+     dmaReadAssetDecompress(gSegmentTable[16].romStart, bankB, &len, 0xD, 0, 2, 0);
++    portSwapBankFile(bankB);
+     alBnkfNew(bankB, (u8 *)gSegmentTable[17].romStart);
+     D_8076D1F8 = bankB->bankArray[0];
+     seqp.maxVoices = 0x2C;
+diff --git a/src/global/7130.c b/src/global/7130.c
+index 64339d0..72c8603 100644
+--- a/src/global/7130.c
++++ b/src/global/7130.c
+@@ -2174,6 +2174,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
+         dmaReadAssetDecompress(addr, D_8076BF38[seqIndex], &len, 0x80, 0, 1, buf);
+     }
+     heapFree(buf);
++    portSwapSeqHeader(D_8076BF38[seqIndex]);
+     n_alCSeqNew(&D_8076BF48[seqIndex], D_8076BF38[seqIndex]);
+     alSeqpSetSeq((ALSeqPlayer *)gSeqPlayers[seqIndex], (ALSeq *)&D_8076BF48[seqIndex]);
+     resetCSPChannelStates(gSeqPlayers[seqIndex]);

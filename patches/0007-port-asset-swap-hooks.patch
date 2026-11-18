@@ -1,0 +1,168 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 17 Nov 2026 23:13:08 -0700
+Subject: [PATCH] port: asset swap hooks
+
+
+diff --git a/src/bonus/0.c b/src/bonus/0.c
+index f13a5de..bcfef6e 100644
+--- a/src/bonus/0.c
++++ b/src/bonus/0.c
+@@ -185,7 +185,7 @@ tail:
+             do {
+                 if (gActorGlobalState.volumeTriggerQueueOp[i] == 3) {
+                     endOnTrigger = 1;
+-                    triggerKind = ((u8 *)gActorGlobalState.volumeTriggerQueueId[i])[3]; // unk278[] points at script data read as s16 (1295B0, 80150) and as bytes here
++                    triggerKind = (u8)((s16 *)gActorGlobalState.volumeTriggerQueueId[i])[1]; // low byte of the native s16[1]
+                     switch (challengeType) {
+                     case 0:
+                         if (counter->countLeft != 0) {
+diff --git a/src/global/12E800.c b/src/global/12E800.c
+index 2744bd6..9df3371 100644
+--- a/src/global/12E800.c
++++ b/src/global/12E800.c
+@@ -241,8 +241,8 @@ void behaviourPickRandomTargetY(void) {
+     s32 rnd;
+     s32 minY;
+ 
+-    if (gBehaviourExtraState->unkAWide != 0) {
+-        maxY = gBehaviourExtraState->y + gCurrentActor->eyeHeight + gBehaviourExtraState->unkAWide;
++    if (portReadBE16(&gBehaviourExtraState->unkAWide) != 0) { /* spawn-node field kept big-endian: also read as two bytes */
++        maxY = gBehaviourExtraState->y + gCurrentActor->eyeHeight + (s16)portReadBE16(&gBehaviourExtraState->unkAWide);
+     } else {
+         maxY = (s16)gCurrentActor->waterY - gCurrentActor->eyeHeight;
+     }
+diff --git a/src/global/450.c b/src/global/450.c
+index 20156a2..e918686 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -411,6 +411,9 @@ void mainResetEngineState(void) {
+     osInvalDCache((void *)0x80000000, 0x800000);
+     D_8076A080 = &D_807FF100;
+     dmaReadAssetDecompress(D_8000DDE4, D_8076A080, &D_8076A084, 0, 0, 0, 0);
++    /* segment 1: two Vp (s16) at 0x00-0x1F, then display lists */
++    portSwap16(D_8076A080, 0x20 / 2);
++    portSwap32((u8 *)D_8076A080 + 0x20, (D_8076A084 - 0x20) / 4);
+     D_8076A0A4 = 0;
+     controllerWaitRead();
+     gFrameCounter = 0;
+diff --git a/src/global/6AD90.c b/src/global/6AD90.c
+index 8251833..2a041a9 100644
+--- a/src/global/6AD90.c
++++ b/src/global/6AD90.c
+@@ -74,6 +74,7 @@ void collisionBuildCellTable(MapFileHeader *header) {
+         dst = data;
+         src = compressed;
+         gunzip(&src, &dst, window);
++        portAssetSwap(3, gCurrentMap, data, (u32)(dst - data));
+         heapFree(window);
+         assetSetImmediateFree();
+         assetFreeBuffer(compressed, 0x9D, 0x3A);
+@@ -1074,6 +1075,7 @@ void dynamicBufferAllocateEntry(s32 index) {
+             sCollisionCells[index].tris = heapAlloc(size);
+             sCollisionCells[index].trisEnd = sCollisionCells[index].tris + size / sizeof(CollisionStaticTri);
+             dmaReadAssetDecompress(sCollisionCells[index].romAddr, sCollisionCells[index].tris, &size, 0, 0, 0, 0);
++            portSwapCollisionTris(sCollisionCells[index].tris, size);
+         }
+     }
+     sCollisionCells[index].lastUsedFrame = gFrameCounter;
+@@ -2029,6 +2031,7 @@ void dmaDrainQueueAndFreeBuffer(void) {
+             if (sDmaQueue[i].compressed != 0) {
+                 assetInflateAndFree(sDmaQueue[i].dmaDst, sDmaQueue[i].buffer);
+             }
++            portAssetDrained(i);
+         } while (++i < sDmaQueueCount);
+     }
+     if (D_80748E14 != NULL) {
+@@ -2120,6 +2123,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+         } else {
+             dmaReadAssetDecompress(romAddr, buffer, &size, 0, 0, 0, 0);
+         }
++        portAssetSwap(table, index, buffer, allocSize);
+     } else {
+         if (sDmaQueueCount == 0xC0) {
+             faultSetMessage(6, 0, 0, 0);
+@@ -2134,6 +2138,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+         }
+         osInvalDCache(sDmaQueue[sDmaQueueCount].dmaDst, size);
+         osPiStartDma(&D_807F9688[sDmaQueueCount], 0, 0, romAddr, sDmaQueue[sDmaQueueCount].dmaDst, size, &D_807656D0);
++        portAssetQueued(sDmaQueueCount, table, index, buffer, allocSize);
+         sDmaQueueCount += 1;
+     }
+     assetSetTableEntry(table, index, (s32)buffer);
+diff --git a/src/global/70FD0.c b/src/global/70FD0.c
+index 0eb7e5d..3766c59 100644
+--- a/src/global/70FD0.c
++++ b/src/global/70FD0.c
+@@ -248,6 +248,7 @@ void collisionInitStaticCache(MapFileHeader *header) {
+         gzOut = data;
+         gzIn = compressed;
+         gunzip(&gzIn, &gzOut, gzWork);
++        portAssetSwap(2, gCurrentMap, data, (u32)(gzOut - data));
+         heapFree(gzWork);
+         assetSetImmediateFree();
+         assetFreeBuffer(compressed, 0x14C, 0xA);
+@@ -321,6 +322,7 @@ void collisionLoadStaticCell(s32 cell) {
+             if (sStaticCollisionResident == 0) {
+                 sStaticCollisionCells[cell].rawTris = heapAlloc(size);
+                 dmaReadAssetDecompress(sStaticCollisionCells[cell].romAddr, sStaticCollisionCells[cell].rawTris, &size, 0, 0, 0, 0);
++                portSwapCollisionTris(sStaticCollisionCells[cell].rawTris, size);
+             }
+             cnt = sStaticCollisionCells[cell].triCount;
+             sStaticCollisionCells[cell].tris = heapAlloc(cnt * sizeof(CollisionStaticTriOut));
+diff --git a/src/global/BA790.c b/src/global/BA790.c
+index b935076..b1596a7 100644
+--- a/src/global/BA790.c
++++ b/src/global/BA790.c
+@@ -239,7 +239,7 @@ void func_806B640C(void) {
+     behaviourFrameBegin();
+     if (!(gCurrentActor->flags & 0x10)) {
+         actorClearNodeFlag(gCurrentActor, 3);
+-        *countdown = -gBehaviourExtraState->unkAWide;
++        *countdown = -(s16)portReadBE16(&gBehaviourExtraState->unkAWide);
+     }
+     if (gGameMode == 1) {
+         for (i = 0; i < gActorGlobalState.volumeTriggerQueueCount; i++) {
+diff --git a/src/global/BC3B0.c b/src/global/BC3B0.c
+index b518320..350f5e2 100644
+--- a/src/global/BC3B0.c
++++ b/src/global/BC3B0.c
+@@ -135,10 +135,10 @@ void actorUpdateLockOnCursor(void) {
+     if (!(gCurrentActor->flags & 0x10)) {
+         gBehaviourAnimState->flags |= 0x60;
+         gGlobalOverlayFlags |= 2;
+-        hudSpawnCountdownTimer(0xDC, 0x2A, gBehaviourExtraState->unkAWide ? gBehaviourExtraState->unkAWide : 10);
+-        gBehaviourWorkState->unk2E = gBehaviourExtraState->unkAWide != 0 ? 0xF : 0x78;
+-        if (gBehaviourExtraState->unkAWide != 0) {
+-            c->beepInterval = gBehaviourExtraState->unkAWide;
++        hudSpawnCountdownTimer(0xDC, 0x2A, portReadBE16(&gBehaviourExtraState->unkAWide) ? (s16)portReadBE16(&gBehaviourExtraState->unkAWide) : 10);
++        gBehaviourWorkState->unk2E = portReadBE16(&gBehaviourExtraState->unkAWide) != 0 ? 0xF : 0x78;
++        if (portReadBE16(&gBehaviourExtraState->unkAWide) != 0) {
++            c->beepInterval = (s16)portReadBE16(&gBehaviourExtraState->unkAWide);
+         } else {
+             c->beepInterval = 10.0f;
+         }
+@@ -194,8 +194,8 @@ void actorUpdateLockOnCursor(void) {
+         } else {
+             actorCursorFireProjectile(c);
+             gBehaviourWorkState->unk2E = 0x64;
+-            if (gBehaviourExtraState->unkAWide != 0) {
+-                c->beepInterval = gBehaviourExtraState->unkAWide;
++            if (portReadBE16(&gBehaviourExtraState->unkAWide) != 0) {
++                c->beepInterval = (s16)portReadBE16(&gBehaviourExtraState->unkAWide);
+             } else {
+                 c->beepInterval = 10.0f;
+             }
+diff --git a/src/global/C2A90.c b/src/global/C2A90.c
+index 3f57405..9dea155 100644
+--- a/src/global/C2A90.c
++++ b/src/global/C2A90.c
+@@ -56,7 +56,7 @@ u8 func_806BDD90(void) {
+     actorUpdateFloorContactAndTilt(gCurrentActor, 0.0f);
+     for (i = 0; i < gActorGlobalState.volumeTriggerQueueCount; i++) {
+         if (gActorGlobalState.volumeTriggerQueueOp[i] == 3) {
+-            return ((u8 *)gActorGlobalState.volumeTriggerQueueId[i])[3];
++            return (u8)((s16 *)gActorGlobalState.volumeTriggerQueueId[i])[1];
+         }
+     }
+     return 0;

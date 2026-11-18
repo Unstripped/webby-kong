@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 17 Nov 2026 23:04:35 -0700
+Subject: [PATCH] port: overlays
+
+
+diff --git a/src/global/15050.c b/src/global/15050.c
+index f75c971..0795869 100644
+--- a/src/global/15050.c
++++ b/src/global/15050.c
+@@ -216,14 +216,7 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
+     gRdpOutputBufferSize = (bufferSize == 0) ? 0x28000 : bufferSize;
+     gRdpOutputBuffer = heapAlloc(gRdpOutputBufferSize + 0x80);
+     heapLockBlock(gRdpOutputBuffer);
+-    if (size != 0) {
+-        if (bssStart) {
+-            bzero((void *)bssStart, bssSize);
+-        }
+-        dmaReadAssetDecompress(romStart, (void *)vram, &size, 1, 1, 1, NULL);
+-        osWritebackDCache((void *)vram, size);
+-        osInvalICache((void *)vram, size);
+-    }
++    portOverlayActivate(overlayId);
+     for (id = 0; id < 2; id++) {
+         q = (u8 *)gFramebuffers[id];
+         p = (u32 *)(q + (gHiResScale * 0x12C00 * gHiResScale) / 2 * 4);
+diff --git a/src/global/450.c b/src/global/450.c
+index 1849f4b..37fb7fc 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -60,7 +60,6 @@
+ #include "proto/global/FCCD0.h"
+ #include "proto/global/FE40.h"
+ 
+-void func_80024000(void);
+ void func_80026FD0(void *);
+ void func_8002EC08(s32);
+ 
+@@ -468,10 +467,10 @@ void mainThreadLoop(void *arg) {
+                 transitionRunFrame(gInitialMap, gInitialExit);
+                 break;
+             case 3:
+-                func_80024000();
++                portOverlayEntry();
+                 break;
+             case 4:
+-                func_80024000();
++                portOverlayEntry();
+                 break;
+             case 5:
+                 break;

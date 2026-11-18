@@ -1,0 +1,8 @@
+# Boot (logos/title, map 0x28) -> intro (0x4C): START skips to the attract demo (Japes, map 7);
+# START in the demo returns to the main menu (0x50); A then opens the file select (still map 0x50).
+frame 900 press start
+frame 906 release start
+frame 1500 press start
+frame 1506 release start
+frame 2000 press a
+frame 2006 release a

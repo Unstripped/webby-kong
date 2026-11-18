@@ -1,0 +1,17 @@
+# Type overrides for generated asm-only data (tools/gen_data.py): `NAME = <C type>`, `NAME raw`, or
+# `file <asm path> = layout <items>` (items: iN = N-byte int, bN = N bytes, sN/s* = s16 x N or to the end,
+# wN/w* = 32-bit words, pN = pointers) for every label of that file without a NAME entry.
+# Use when the C declaration is missing, incomplete or describes a different view than the bytes need.
+
+# gPlayerStateHandlers[state] is {fn, s32} with stride 8 (CEAE0.c PlayerStateFn); splat split the table at
+# the 4-byte label gPlayerStateHandlers, so the rest of it lives here: {u16 flags, u16, fn} entries, the last
+# one cut after its flags.
+gPlayerStateFlags = struct { unsigned short flags; unsigned short pad; void (*fn)(void); }[138]
+
+# global .text 0x8071FA80-0x80721560 (asm/global/124780.s) holds EffectGridAsset records (render.h):
+# s32 id, 10 bytes, s16 cellW/cellH/frameCount, then s16 asset ids. C names them as `extern u8 x;`.
+file asm/global/124780.s = layout i4 b10 s*
+
+# EffectTableEntry D_80748A90[9] (63EC0.c) is split by interior labels; spimdisasm emitted the first fn0 as
+# bytes, so the 4-byte head label needs a pointer type to resolve effectInitTextureTableRGBA32.
+D_80748A90 = void (*)(void)

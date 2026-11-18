@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 17 Nov 2026 23:05:01 -0700
+Subject: [PATCH] port: thread spins
+
+
+diff --git a/src/global/0.c b/src/global/0.c
+index 63618bf..09f0f5e 100644
+--- a/src/global/0.c
++++ b/src/global/0.c
+@@ -120,6 +120,7 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
+         audioThreadStop(1);
+         gMainThreadHalted = 1;
+         while (1) {
++            portIdleWait();
+         }
+     }
+     osRecvMesg(queue, &receivedMsg, 1);
+@@ -129,11 +130,13 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
+     osSetThreadPri(NULL, 0xB);
+     sHaltStartTime = osGetTime();
+     while (osGetTime() < sHaltStartTime + 0x22ADD7) {
++        portIdleWait();
+     }
+     osViBlack(1);
+     __osSpSetStatus(0xAAAA82);
+     osDpSetStatus(0x1D6);
+     rumbleShutdown();
+     while (1) {
++        portIdleWait();
+     }
+ }
+diff --git a/src/global/450.c b/src/global/450.c
+index b67b825..1849f4b 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -454,6 +454,7 @@ void mainThreadLoop(void *arg) {
+     while (1) {
+         D_8074682C = 0xC8;
+         while (gMainThreadHalted != 0) {
++            portIdleWait();
+         }
+         if ((gScreenRenderFlags & 1) && D_8076A0B2 == 0) {
+             mapLoadLevel();
+diff --git a/src/global/5230.c b/src/global/5230.c
+index 3c92c37..683bf1b 100644
+--- a/src/global/5230.c
++++ b/src/global/5230.c
+@@ -118,6 +118,7 @@ void frameTimingUpdate(void) {
+             p = &gScheduler.retraceCount;
+             limit = D_8076AF10 + gFrameDelta;
+             while (*p < limit) {
++                portIdleWait();
+             }
+         }
+         D_8076AF10 = SCHED_RETRACE_COUNT;

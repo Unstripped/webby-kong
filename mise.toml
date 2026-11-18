@@ -1,0 +1,6 @@
+[tools]
+python = "3.12.14"
+node = "24.22.0"
+cmake = "4.5.0"
+ninja = "1.13.2"
+emsdk = "6.0.13"

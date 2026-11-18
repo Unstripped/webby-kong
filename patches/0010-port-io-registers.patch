@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 17 Nov 2026 23:11:06 -0700
+Subject: [PATCH] port: io registers
+
+
+diff --git a/src/global/13980.c b/src/global/13980.c
+index 66818b6..649b65d 100644
+--- a/src/global/13980.c
++++ b/src/global/13980.c
+@@ -129,11 +129,11 @@ void schedMain(void *arg) {
+                 if (D_8074682C < -159 && D_8074682C >= -256) {
+                     for (i = 0; i < 2; i++) {
+                         faultFontInit(gFramebuffers[i & 1], 2, 2);
+-                        faultPrintf("CURRENT=%x\n", IO_READ(DPC_CURRENT_REG));
+-                        faultPrintf("START=%x\n", IO_READ(DPC_START_REG));
+-                        faultPrintf("END=%x\n", IO_READ(DPC_END_REG));
+-                        faultPrintf("DPSTAT=%x\n", IO_READ(DPC_STATUS_REG));
+-                        faultPrintf("SPSTAT=%x\n", IO_READ(SP_STATUS_REG));
++                        faultPrintf("CURRENT=%x\n", portIoRead(DPC_CURRENT_REG));
++                        faultPrintf("START=%x\n", portIoRead(DPC_START_REG));
++                        faultPrintf("END=%x\n", portIoRead(DPC_END_REG));
++                        faultPrintf("DPSTAT=%x\n", portIoRead(DPC_STATUS_REG));
++                        faultPrintf("SPSTAT=%x\n", portIoRead(SP_STATUS_REG));
+                         faultPrintf("MAIN-PC=%x\n", D_8076154C);
+                     }
+                 }
+diff --git a/src/global/6710.c b/src/global/6710.c
+index 4113b82..abd621a 100644
+--- a/src/global/6710.c
++++ b/src/global/6710.c
+@@ -227,7 +227,7 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {
+ 
+     physSampleBuf = (s16 *)osVirtualToPhysical(task->sampleBuffer);
+     audioDmaFrameUpdate();
+-    aiLen = IO_READ(AI_LEN_REG) >> 2;
++    aiLen = osAiGetLength() >> 2;
+     if (prevTask != NULL) {
+         osAiSetNextBuffer(prevTask->sampleBuffer, prevTask->sampleCount * 4);
+     }

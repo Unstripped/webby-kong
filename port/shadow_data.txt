@@ -1,0 +1,5 @@
+# NAME SIZE: read-only snapshots of the original big-endian bytes at NAME's N64 address (tools/gen_data.py).
+# F56F0.c reads s8 "tables" indexed by animId that sit inside gPlayerStateCallbacks (a function-pointer
+# table); on the N64 those bytes are the code addresses, which wasm function indices cannot reproduce.
+D_80752CBF 0x200
+D_80752D4E 0x200
