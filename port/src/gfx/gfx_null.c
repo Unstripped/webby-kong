@@ -65,3 +65,10 @@ void portGfxWideClipX(s16 *left, s16 *right) {
     (void)left;
     (void)right;
 }
+
+int gfxBackendQsRanges(QsRange *out) {
+    (void)out;
+    return 0;
+}
+
+void gfxBackendQsRestored(void) {}

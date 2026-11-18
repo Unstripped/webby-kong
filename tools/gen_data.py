@@ -218,7 +218,7 @@ def flatten_type(t, report):
             for i in range(n):
                 base = i * el[0]
                 leaves.extend((base + o, s, kk) for o, s, kk in el[2])
-            res = (el[0] * n, el[1], leaves, None)
+            res = (el[0] * n, el[1], leaves, el)  # elem: lets labels splat cut off its tail continue it
     elif k == K.INCOMPLETEARRAY:
         el = flatten_type(t.element_type, report)
         if el is not None:
@@ -1235,17 +1235,18 @@ class Emitter:
                    + " ".join(fields) + f" }} {c_ident(label.name)} "
                    f'__asm__("{self.syms.asm_name(label.name, self.seg)}") = {{ ' + ", ".join(inits) + " };")
 
-    def emit(self, labels):
-        body = []
+    def mark_continuations(self, labels):
+        """Registers `labels` as local and sets `label.cont` on untyped labels that continue a typed array
+        declared on an earlier label of the same file. -> labels grouped by file, each sorted by vram."""
         by_file = defaultdict(list)
         for l in labels:
             by_file[l.file].append(l)
-        for l in labels:
             self.local[l.name] = l
         for file, ls in by_file.items():
             ls.sort(key=lambda l: l.vram)
             head = None
             for l in ls:
+                l.cont = None
                 if self.type_for(l) is not None:
                     ext = self.array_type_extent(l)
                     head = None if ext is False else (l, ext)
@@ -1258,6 +1259,12 @@ class Emitter:
                         l.cont = (head[0], l.vram - head[0].vram)
                 else:
                     head = None
+        return by_file
+
+    def emit(self, labels):
+        body = []
+        by_file = self.mark_continuations(labels)
+        for file, ls in by_file.items():
             sect_kind = "bss" if all(l.kind == "bss" for l in ls) else "data"
             tag = re.sub(r"\W", "_", file)
             body.append(f"\n/* ---- {file} ---- */")
@@ -1413,15 +1420,23 @@ def infer_pointee_types(per_seg, syms, index, overrides):
         found = {}
         for seg, labels in per_seg.items():
             em = Emitter(seg, syms, index, overrides)
+            # continuation labels carry their head array's element types, so their pointers type pointees too
+            em.mark_continuations(labels)
             for l in labels:
-                em.local[l.name] = l
-            for l in labels:
-                if l.kind == "bss" or em.type_for(l) is None:
+                if l.kind == "bss" or (em.type_for(l) is None and l.cont is None):
                     continue
                 for off, size, kind in em.leaves_for(l):
-                    if not kind.startswith("p|") or off not in l.relocs:
+                    if not kind.startswith("p|") or size != 4:
                         continue
-                    sym, addend = l.relocs[off]
+                    if off in l.relocs:
+                        sym, addend = l.relocs[off]
+                    else:
+                        # N64 data pointers often carry no relocation; resolve the raw value like _emit_def does
+                        val = int.from_bytes(l.data[off:off + 4], "big")
+                        c = syms.find_container(val, seg) if 0x80000000 <= val < 0x80800000 else None
+                        if c is None:
+                            continue
+                        sym, addend = c[0], c[1]
                     target = by_name.get(sym)
                     if addend != 0 or target is None or target.kind == "bss":
                         continue

@@ -2,6 +2,7 @@
  * Every switch goes through the host context, which picks the highest-priority runnable thread
  * (ties: FIFO by the time the thread became runnable). */
 #include "port_internal.h"
+#include <emscripten.h>
 #include <emscripten/fiber.h>
 
 #define MAX_THREADS 12
@@ -266,4 +267,82 @@ void osYieldThread(void) {
 
 OSThread *__osGetCurrFaultedThread(void) {
     return NULL;
+}
+
+/* ---- quicksave: a suspended fiber's asyncify rewind id names a JS function interned per page load.
+ * In a snapshot it is stored as -(export index + 1), which is stable for the same wasm. ---- */
+EM_JS(int, port_asyncify_id_to_export, (int id), {
+    var orig = Asyncify.callStackIdToFunc.get(id);
+    if (!orig) return -1;
+    var wrapper = Asyncify.funcWrappers.get(orig);
+    var names = Object.keys(wasmExports);
+    for (var i = 0; i < names.length; i++) if (wasmExports[names[i]] === wrapper) return i;
+    return -1;
+});
+
+EM_JS(int, port_asyncify_export_to_id, (int idx), {
+    var names = Object.keys(wasmExports);
+    if (idx < 0 || idx >= names.length) return -1;
+    var wrapper = wasmExports[names[idx]], orig = null;
+    Asyncify.funcWrappers.forEach(function (w, o) { if (w === wrapper) orig = o; });
+    return orig ? Asyncify.getCallStackId(orig) : -1;
+});
+
+static int sQsLiveIds[MAX_THREADS];
+
+/* started and suspended: resumes by rewinding (sHost is rewritten on every swap-out before use) */
+static int qsEligible(const PortThread *t) {
+    return t->state != TS_FREE && t->fiberInit && t->fiber.entry == NULL;
+}
+
+int portThreadsQsEncode(void) {
+    int i, j;
+    for (i = 0; i < MAX_THREADS; i++) {
+        PortThread *t = &sThreads[i];
+        int idx;
+        if (!qsEligible(t)) {
+            continue;
+        }
+        sQsLiveIds[i] = t->fiber.asyncify_data.rewind_id;
+        idx = port_asyncify_id_to_export(sQsLiveIds[i]);
+        if (idx < 0) {
+            for (j = 0; j < i; j++) {
+                if (qsEligible(&sThreads[j])) {
+                    sThreads[j].fiber.asyncify_data.rewind_id = sQsLiveIds[j];
+                }
+            }
+            return 0;
+        }
+        t->fiber.asyncify_data.rewind_id = -(idx + 1);
+    }
+    return 1;
+}
+
+void portThreadsQsRestoreLive(void) {
+    int i;
+    for (i = 0; i < MAX_THREADS; i++) {
+        if (qsEligible(&sThreads[i])) {
+            sThreads[i].fiber.asyncify_data.rewind_id = sQsLiveIds[i];
+        }
+    }
+}
+
+int portThreadsQsDecode(void) {
+    int i;
+    for (i = 0; i < MAX_THREADS; i++) {
+        PortThread *t = &sThreads[i];
+        int id;
+        if (!qsEligible(t)) {
+            continue;
+        }
+        if (t->fiber.asyncify_data.rewind_id >= 0) {
+            return 0;
+        }
+        id = port_asyncify_export_to_id(-t->fiber.asyncify_data.rewind_id - 1);
+        if (id < 0) {
+            return 0;
+        }
+        t->fiber.asyncify_data.rewind_id = id;
+    }
+    return 1;
 }

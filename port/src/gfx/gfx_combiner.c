@@ -12,6 +12,12 @@ typedef struct {
 static ProgramEntry sPrograms[MAX_PROGRAMS];
 static int sProgramCount;
 
+int gfxCombinerQsRanges(QsRange *out) {
+    out[0] = QS_RANGE(sPrograms);
+    out[1] = QS_RANGE(sProgramCount);
+    return 2;
+}
+
 static const char *kVertex =
     "#version 300 es\n"
     "in vec4 aPos;\n"

@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 18 Nov 2026 11:05:56 -0700
+Subject: [PATCH] port: debug trace hooks
+
+
+diff --git a/src/global/201B0.c b/src/global/201B0.c
+index 87cb5c2..0af082b 100644
+--- a/src/global/201B0.c
++++ b/src/global/201B0.c
+@@ -815,6 +815,7 @@ u16 camStartPath(Actor *actor, s16 pathIndex, u8 flags) {
+         ret = camPathGetLength(pathIndex);
+     }
+     gCamPathLengthRequested = 0;
++    PORT_TRACE(PORT_TRACE_CAM, "camStartPath map=0x%x path=%d flags=0x%x", (int)gCurrentMap, (int)pathIndex, (int)flags);
+     if (pathIndex == 0 && gCurrentMap == 0x99) {
+         setRandomSeed(0x8E32B6F7);
+         gCamCueStartTime = osGetTime();
+@@ -983,6 +984,7 @@ void camEndPath(Actor *camActor) {
+     CamState *cam = camActor->customState;
+ 
+     if (gGameMode == 1) {
++        PORT_TRACE(PORT_TRACE_CAM, "camEndPath map=0x%x", (int)gCurrentMap);
+         if (gCamPathFlags & 4) {
+             gCamActivePaths = &gCamMapPaths;
+         }
+diff --git a/src/global/3C10.c b/src/global/3C10.c
+index 9e776e1..5bb5601 100644
+--- a/src/global/3C10.c
++++ b/src/global/3C10.c
+@@ -243,6 +243,8 @@ void mapExecuteVoidTransition(void) {
+ }
+ 
+ void mapRequestTransition(s32 map, s32 exitIndex) {
++    PORT_TRACE(PORT_TRACE_MAP, "mapRequestTransition map=0x%x exit=%d from=0x%x mode=%d", (int)map, (int)exitIndex,
++               (int)gCurrentMap, (int)gGameMode);
+     gridFreeAllActiveNodes();
+     if ((gGameMode == 6) || (menuIsTransitionActive() == 0)) {
+         menuCheckCutsceneTransition(&map, &exitIndex);
+@@ -270,6 +272,8 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
+ }
+ 
+ void mapRequestTransitionFast(s32 map, s32 exitIndex) {
++    PORT_TRACE(PORT_TRACE_MAP, "mapRequestTransitionFast map=0x%x exit=%d from=0x%x mode=%d", (int)map, (int)exitIndex,
++               (int)gCurrentMap, (int)gGameMode);
+     gridFreeAllActiveNodes();
+     gGlobalPauseFlags |= 0x100;
+     gInitialMap = map;
+diff --git a/src/global/7CA80.c b/src/global/7CA80.c
+index 468b3d1..c6d0a83 100644
+--- a/src/global/7CA80.c
++++ b/src/global/7CA80.c
+@@ -163,6 +163,7 @@ s32 actorSpawn(s32 type, s32 spawnArg) {
+     if (actorAllocate((u16)type)) {
+         initIndex = gActorTypeInitIndex[type];
+         if (gActorInitFuncs[initIndex](&spawnArg)) {
++            PORT_TRACE(PORT_TRACE_ACTOR, "actorSpawn type=%d arg=%d", (int)type, (int)spawnArg);
+             return 1;
+         }
+     }
+@@ -271,6 +272,7 @@ u16 type;
+ }
+ 
+ s32 actorDespawn(Actor *actor) {
++    PORT_TRACE(PORT_TRACE_ACTOR, "actorDespawn type=%u", actor->actorType);
+     actorListRemoveByActor(actor);
+     return actorQueueOrDespawn(actor);
+ }

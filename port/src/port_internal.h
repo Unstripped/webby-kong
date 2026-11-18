@@ -77,9 +77,26 @@ extern int gPortCurrentOverlay;
 extern u32 gPortStatVi, gPortStatFrames, gPortStatGfxTasks, gPortStatAudTasks;
 void portAudioPeakFeed(const s16 *samples, u32 count);
 void portAudioPeakTick(void);
+extern int gPortTracePrint; /* headless --trace: echo trace events to stdout */
 
 /* main.c */
 void portInit(void);
 void port_frame_step(double elapsedMs);
 void portGenLayoutCheck(void);
+
+/* quicksave (port/src/qs.c): host-only statics kept from the live session across a restore */
+typedef struct { void *p; u32 n; } QsRange;
+#define QS_RANGE(v) ((QsRange){ (void *)&(v), (u32)sizeof(v) })
+int portMainQsRanges(QsRange *out);
+int portSaveQsRanges(QsRange *out);
+int portInputQsRanges(QsRange *out);
+int portAiQsRanges(QsRange *out);
+int portDebugQsRanges(QsRange *out);
+int portOverlayQsRanges(QsRange *out);
+int gfxTmemQsRanges(QsRange *out);
+int gfxBackendQsRanges(QsRange *out);
+void gfxBackendQsRestored(void);
+int portThreadsQsEncode(void);
+void portThreadsQsRestoreLive(void);
+int portThreadsQsDecode(void);
 #endif

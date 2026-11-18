@@ -65,4 +65,30 @@ void portIoWrite(u32 reg, u32 value);
 f32 portGfxWideHalfYaw(f32 halfYawDeg); /* horizontal half-FOV widened by window aspect / (4:3); identity when not wide */
 void portGfxWideClipX(s16 *left, s16 *right); /* screen x bounds reaching the image edge move out to the wide edge */
 
+/* ---- debug trace (port/src/debug.c) ---- */
+#define PORT_TRACE_MAP 0x1u   /* map transitions */
+#define PORT_TRACE_CAM 0x2u   /* camera path start/end */
+#define PORT_TRACE_ACTOR 0x4u /* actor spawn/despawn (noisy) */
+extern u32 gPortTraceMask;
+void portTrace(u32 cat, const char *fmt, ...);
+#define PORT_TRACE(cat, ...) do { if (gPortTraceMask & (cat)) portTrace((cat), __VA_ARGS__); } while (0)
+
+/* ---- quicksave resume point (port/src/qs.c; captured and applied by game code) ---- */
+typedef struct {
+    s32 pending;   /* set by port_resume_request; the game clears it when it starts the resume */
+    s32 slot;      /* EEPROM file slot (gEepromCurrentSlot) */
+    s32 kong;      /* gPlayerCharacterId[0], 0..4 */
+    s32 map;
+    s32 exit;
+    s32 hasPos;    /* 1: x/y/z/yaw replace the exit's spawn point */
+    f32 x, y, z;
+    s32 yaw;       /* 0..4095 */
+    s32 spawnArmed; /* game-internal: the position override survives until mapRequestTransition loads the map */
+} PortResumePoint;
+extern PortResumePoint gPortResume;
+/* D_8076AEE2 (spawn override flags) bit set by a resume spawn: playerWarpToSpawnPoint faces D_8076AEF0 exactly */
+#define PORT_SPAWN_EXACT_YAW 0x4000
+s32 mapCaptureResumePoint(PortResumePoint *out, const char **reason); /* src/global/3C10.c */
+void menuStartGameAtResume(void);                                      /* src/global/117190.c */
+
 #endif

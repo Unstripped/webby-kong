@@ -1,0 +1,158 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 18 Nov 2026 13:47:29 -0700
+Subject: [PATCH] port: quicksave resume
+
+
+diff --git a/src/global/117190.c b/src/global/117190.c
+index b1fd6e1..7579b5e 100644
+--- a/src/global/117190.c
++++ b/src/global/117190.c
+@@ -908,6 +908,23 @@ void menuStartGameFromSave(s8 saveSlot) {
+     gMenuTargetMode = 6;
+ }
+ 
++/* port quicksave: start the save in gPortResume.slot straight at the captured map/exit/position */
++void menuStartGameAtResume(void) {
++    D_807445B8 = osGetTime();
++    gMenuBonusTimer.active = 0;
++    playerResetSpawnGlobals();
++    flagsClearAllBank2();
++    eepromLoadPlayerData(gPortResume.slot, 1);
++    gPlayerCharacterId[0] = gPortResume.kong;
++    controllerSetActiveMask(1);
++    /* mapLoadSavedSlotSpawn applies x/y/z/yaw until the transition's mapRequestTransition loads the map */
++    gPortResume.spawnArmed = gPortResume.hasPos;
++    mapRequestTransitionFast(gPortResume.map, gPortResume.exit);
++    gMenuTargetMode = 6;
++    PORT_TRACE(PORT_TRACE_MAP, "resume slot=%d kong=%d map=0x%x exit=%d pos=%d", (int)gPortResume.slot,
++               (int)gPortResume.kong, (int)gPortResume.map, (int)gPortResume.exit, (int)gPortResume.hasPos);
++}
++
+ 
+ 
+ void mpStartMatch(void) {
+diff --git a/src/global/3C10.c b/src/global/3C10.c
+index 5bb5601..68e8120 100644
+--- a/src/global/3C10.c
++++ b/src/global/3C10.c
+@@ -264,6 +264,7 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
+             }
+             flagTempsPruneUnloadedMaps();
+             mapLoadSavedSlotSpawn(map);
++            gPortResume.spawnArmed = 0; /* port quicksave: the resume spawn applied to this load only */
+             if (gGlobalOverlayFlags & 1) {
+                 func_8002920C();
+             }
+@@ -303,6 +304,14 @@ void mapLoadSavedSlotSpawn(s32 map) {
+         D_8076AEE8 = D_8076A160[idx].y;
+         D_8076AEEC = D_8076A160[idx].z;
+         D_8076AEF0 = D_8076A160[idx].yaw;
++    } else if (gPortResume.spawnArmed && map == gPortResume.map) {
++        /* port quicksave resume: armed by menuStartGameAtResume through mapRequestTransitionFast and the
++         * transition's mapRequestTransition */
++        D_8076AEE2 = 1 | PORT_SPAWN_EXACT_YAW;
++        D_8076AEE4 = gPortResume.x;
++        D_8076AEE8 = gPortResume.y;
++        D_8076AEEC = gPortResume.z;
++        D_8076AEF0 = gPortResume.yaw;
+     } else {
+         D_8076AEE2 = 0;
+     }
+@@ -364,6 +373,50 @@ s32 mapFindPreviousSavedMap(s32 *outMap, s32 *outExitIndex) {
+     return found;
+ }
+ 
++extern u8 gMenuCurrentMode;
++extern u8 gEepromCurrentSlot;
++
++/* port quicksave: where a reload should resume. Inside a sub-area (barrel minigame etc.), the parent map's
++ * return slot: the sub-area cannot be re-entered without it. */
++s32 mapCaptureResumePoint(PortResumePoint *out, const char **reason) {
++    s32 i;
++
++    if (gMenuCurrentMode != 6) {
++        *reason = "not in adventure mode";
++        return 0;
++    }
++    if (gGameMode != 0 && gGameMode != 1) {
++        *reason = "map transition in progress";
++        return 0;
++    }
++    out->slot = gEepromCurrentSlot;
++    out->kong = gPlayerCharacterId[0] < 5 ? gPlayerCharacterId[0] : 0;
++    for (i = 0; i < 18; i++) {
++        if (D_8076A160[i].inUse != 0 && (D_8076A160[i].flags & 2)) {
++            out->map = D_8076A160[i].map;
++            out->exit = D_8076A160[i].returnExitIndex;
++            out->hasPos = D_8076A160[i].flags & 1;
++            out->x = D_8076A160[i].x;
++            out->y = D_8076A160[i].y;
++            out->z = D_8076A160[i].z;
++            out->yaw = D_8076A160[i].yaw;
++            return 1;
++        }
++    }
++    if (gPrimaryPlayerActor == NULL) {
++        *reason = "no player";
++        return 0;
++    }
++    out->map = gCurrentMap;
++    out->exit = gInitialExit;
++    out->hasPos = 1;
++    out->x = gPrimaryPlayerActor->x;
++    out->y = gPrimaryPlayerActor->y;
++    out->z = gPrimaryPlayerActor->z;
++    out->yaw = gPrimaryPlayerActor->yaw;
++    return 1;
++}
++
+ void mapTransitionToPreviousOrExit(void) {
+     s32 targetMap;
+     s32 exitIndex;
+diff --git a/src/global/450.c b/src/global/450.c
+index 203d0fd..36a4a70 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -467,6 +467,12 @@ void mainThreadLoop(void *arg) {
+                 D_80744504 = 8;
+             }
+         }
++        /* port quicksave: start a requested resume once the EEPROM is read and no transition is pending */
++        if (gPortResume.pending && D_807467CC == 1 && (gGameMode == 0 || gGameMode == 1) && !(gScreenRenderFlags & 1)
++            && !(gGlobalPauseFlags & 0x100)) {
++            gPortResume.pending = 0;
++            menuStartGameAtResume();
++        }
+         switch (gGameMode) {
+             case 6:
+                 transitionRunFrame(gInitialMap, gInitialExit);
+diff --git a/src/global/CC800.c b/src/global/CC800.c
+index 8f6232a..b481f74 100644
+--- a/src/global/CC800.c
++++ b/src/global/CC800.c
+@@ -585,11 +585,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+ }
+ 
+ extern s16 D_8076AEE2;
++extern s16 D_8076AEF0;
+ extern u8 gAmbientIndoors;
+ 
+ void playerWarpToSpawnPoint(s32 spawnIndex) {
+     PlayerState *ps = gActivePlayerActor->customState;
+     G01Pos *spawn = raceGridSpawnPoint(spawnIndex);
++    /* port quicksave resume: G01Pos.yaw is a byte (encoded x360, decoded x4095/255), so face the exact yaw */
++    s32 exactYaw = (D_8076AEE2 & PORT_SPAWN_EXACT_YAW) ? D_8076AEF0 : -1;
+ 
+     D_8076AEE2 = 0;
+     gGlobalPauseFlags &= ~0x400;
+@@ -610,6 +613,9 @@ void playerWarpToSpawnPoint(s32 spawnIndex) {
+         gActivePlayerActor->z = spawn->z;
+         gActivePlayerActor->yaw = (spawn->yaw / 255.0) * 4095.0;
+         gActivePlayerActor->moveYaw = gActivePlayerActor->yaw;
++        if (exactYaw >= 0) {
++            gActivePlayerActor->yaw = gActivePlayerActor->moveYaw = exactYaw;
++        }
+         break;
+     case 1:
+         playerWaypointPathStartLineFromPoint(gActivePlayerActor, spawn, 0x32);

@@ -9,6 +9,12 @@ extern u8 gPortEeprom[0x800];
 static int sDirty;
 static double sDirtySince;
 
+int portSaveQsRanges(QsRange *out) {
+    out[0] = QS_RANGE(sDirty);
+    out[1] = QS_RANGE(sDirtySince);
+    return 2;
+}
+
 #ifndef PORT_HEADLESS
 EM_JS(void, port_save_sync, (void), {
     if (typeof FS !== 'undefined' && FS.syncfs) {

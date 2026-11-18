@@ -96,6 +96,38 @@ static int sEventCount;
 static u16 sHeldButtons;
 /* gPortHeadlessButtons lives in input.c */
 
+int portMainQsRanges(QsRange *out) {
+    (void)out;
+    return 0;
+}
+
+/* snapshot bytes <-> wasm memory, in port_qs_table order (JS: the RDRAM range starts at address 0) */
+EM_JS(void, port_qs_copy_out, (u8 *dst, const u32 *t), {
+    var o = dst;
+    for (var k = 0; k < 6; k += 2) {
+        var s = HEAPU32[(t >> 2) + k], n = HEAPU32[(t >> 2) + k + 1];
+        HEAPU8.copyWithin(o, s, s + n);
+        o += n;
+    }
+});
+
+EM_JS(void, port_qs_copy_in, (const u8 *src, const u32 *t), {
+    var o = src;
+    for (var k = 0; k < 6; k += 2) {
+        var s = HEAPU32[(t >> 2) + k], n = HEAPU32[(t >> 2) + k + 1];
+        HEAPU8.copyWithin(s, o, o + n);
+        o += n;
+    }
+});
+
+u32 *port_qs_table(void);
+u32 port_qs_size(void);
+int port_qs_save_begin(void);
+void port_qs_save_end(void);
+u8 *port_qs_load_begin(void);
+int port_qs_load_end(u8 *stash);
+void port_resume_request(s32 slot, s32 kong, s32 map, s32 exit, s32 hasPos, f32 x, f32 y, f32 z, s32 yaw);
+
 static u16 buttonByName(const char *s) {
     static const struct { const char *n; u16 b; } map[] = {
         { "a", A_BUTTON }, { "b", B_BUTTON }, { "z", Z_TRIG }, { "start", START_BUTTON },
@@ -138,6 +170,10 @@ int main(int argc, char **argv) {
     const char *rom = NULL, *input = NULL;
     u32 frames = 600, i;
     int a, e;
+    u8 *qsBuf = NULL;
+    u32 qsAt = 0, qsLoadAt = 0;
+    int qsLoaded = 0;
+    const char *resume = NULL;
     for (a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--rom") == 0 && a + 1 < argc) {
             rom = argv[++a];
@@ -149,16 +185,34 @@ int main(int argc, char **argv) {
             gPortAssetStrict = 0;
         } else if (strcmp(argv[a], "--trace-assets") == 0) {
             gPortAssetTrace = 1;
+        } else if (strcmp(argv[a], "--trace") == 0 && a + 1 < argc) {
+            gPortTraceMask = (u32)strtoul(argv[++a], NULL, 0);
+            gPortTracePrint = 1;
+        } else if (strcmp(argv[a], "--qs-save") == 0 && a + 1 < argc) {
+            qsAt = (u32)strtoul(argv[++a], NULL, 0);
+        } else if (strcmp(argv[a], "--qs-load") == 0 && a + 1 < argc) {
+            qsLoadAt = (u32)strtoul(argv[++a], NULL, 0);
+        } else if (strcmp(argv[a], "--resume") == 0 && a + 1 < argc) {
+            resume = argv[++a];
         }
     }
     if (rom == NULL || !port_node_load_rom(rom)) {
-        printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax]\n");
+        printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
+               "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw]\n");
         return 2;
     }
     if (input != NULL) {
         loadInputFile(input);
     }
     portInit();
+    if (resume != NULL) {
+        int rs, rk, rm, re, rp, ryaw;
+        float rx, ry, rz;
+        if (sscanf(resume, "%d,%d,%i,%d,%d,%f,%f,%f,%d", &rs, &rk, &rm, &re, &rp, &rx, &ry, &rz, &ryaw) != 9) {
+            portAbort("PORT: bad --resume %s", resume);
+        }
+        port_resume_request(rs, rk, rm, re, rp, rx, ry, rz, ryaw);
+    }
     for (i = 0; i < frames; i++) {
         for (e = 0; e < sEventCount; e++) {
             if (sEvents[e].frame == i) {
@@ -175,6 +229,30 @@ int main(int argc, char **argv) {
             printf("frame %u %s\n", i + 1, port_debug_stats());
             fflush(stdout);
         }
+        if (qsAt != 0 && i + 1 == qsAt) {
+            if (!port_qs_save_begin()) {
+                portAbort("PORT: qs save failed");
+            }
+            qsBuf = malloc(port_qs_size());
+            port_qs_copy_out(qsBuf, port_qs_table());
+            port_qs_save_end();
+            printf("QS save at frame %u\n", i + 1);
+            fflush(stdout);
+        }
+        if (qsLoadAt != 0 && i + 1 == qsLoadAt && !qsLoaded && qsBuf != NULL) {
+            u8 *stash = port_qs_load_begin();
+            if (stash == NULL) {
+                portAbort("PORT: qs load failed");
+            }
+            port_qs_copy_in(qsBuf, port_qs_table());
+            if (!port_qs_load_end(stash)) {
+                portAbort("PORT: qs load failed");
+            }
+            qsLoaded = 1;
+            printf("QS load at frame %u -> %u\n", i + 1, qsAt);
+            fflush(stdout);
+            i = qsAt - 1;
+        }
     }
     return 0;
 }
@@ -183,6 +261,12 @@ int main(int argc, char **argv) {
 #include <SDL2/SDL.h>
 
 static double sLastMs;
+
+int portMainQsRanges(QsRange *out) {
+    out[0] = QS_RANGE(sAccumMs);
+    out[1] = QS_RANGE(sLastMs);
+    return 2;
+}
 
 static void port_frame(void) {
     double now = emscripten_get_now();

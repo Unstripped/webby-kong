@@ -7,6 +7,11 @@ u8 gGfxTmem[4096];
 /* port-only, never game-visible: lives above 16 MB (see memory model) */
 static u8 *sDecoded;
 
+int gfxTmemQsRanges(QsRange *out) {
+    out[0] = QS_RANGE(sDecoded);
+    return 1;
+}
+
 static u32 texelBytesX2(u32 siz) {
     /* bytes per texel times two (4b = 1) */
     return siz == G_IM_SIZ_4b ? 1 : siz == G_IM_SIZ_8b ? 2 : siz == G_IM_SIZ_16b ? 4 : 8;

@@ -14,6 +14,18 @@ static SDL_AudioDeviceID sDev;
 static u32 sFakeQueued;
 #endif
 
+/* headless keeps nothing live: sFakeQueued/sLastLen are restored for determinism */
+int portAiQsRanges(QsRange *out) {
+#ifndef PORT_HEADLESS
+    out[0] = QS_RANGE(sDev);
+    out[1] = QS_RANGE(sLastLen);
+    return 2;
+#else
+    (void)out;
+    return 0;
+#endif
+}
+
 void portAudioOutInit(void) {
 #ifndef PORT_HEADLESS
     SDL_AudioSpec want, have;

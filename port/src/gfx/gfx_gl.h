@@ -49,4 +49,9 @@ void gfxFbClearDepth(void);
 void gfxFbPresent(u32 addr, int black, int winW, int winH);
 void gfxFbCpuWrote(u32 addr, u32 len);
 void gfxFbSyncRdram(u32 addr, u32 len);
+
+/* quicksave: host statics kept across a restore, and post-restore invalidation */
+int gfxFbQsRanges(QsRange *out);
+int gfxCombinerQsRanges(QsRange *out);
+void gfxFbQsRestored(void);
 #endif

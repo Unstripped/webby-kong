@@ -1,7 +1,9 @@
 /* WebGL2 backend: SDL window + GLES 3.0 context, texture cache, RDP state -> GL state, draws. */
 #include "gfx/gfx_gl.h"
 #include <SDL2/SDL.h>
+#include <emscripten.h>
 #include <math.h>
+#include <stdlib.h>
 
 #define TEX_CACHE_SIZE 4096
 #define WIN_W 960
@@ -22,6 +24,51 @@ static GLuint sWhiteTex;
 static GfxFb *sTarget;
 static int sTargetIsDepth;
 static u32 sTaskSerial;
+
+/* frame grab for web/debug.js: requested from JS, filled after the next present */
+static int sCaptureReq, sCaptureW, sCaptureH;
+static u32 sCaptureSeq;
+static u8 *sCapturePx;
+static size_t sCaptureCap;
+
+int gfxBackendQsRanges(QsRange *out) {
+    int n = 0;
+    out[n++] = QS_RANGE(sWindow);
+    out[n++] = QS_RANGE(sContext);
+    out[n++] = QS_RANGE(sVao);
+    out[n++] = QS_RANGE(sVbo);
+    out[n++] = QS_RANGE(sTexCache);
+    out[n++] = QS_RANGE(sTexCount);
+    out[n++] = QS_RANGE(sWhiteTex);
+    out[n++] = QS_RANGE(sTarget);
+    out[n++] = QS_RANGE(sTargetIsDepth);
+    out[n++] = QS_RANGE(sTaskSerial);
+    out[n++] = QS_RANGE(sCaptureReq);
+    out[n++] = QS_RANGE(sCaptureW);
+    out[n++] = QS_RANGE(sCaptureH);
+    out[n++] = QS_RANGE(sCaptureSeq);
+    out[n++] = QS_RANGE(sCapturePx);
+    out[n++] = QS_RANGE(sCaptureCap);
+    n += gfxFbQsRanges(out + n);
+    n += gfxCombinerQsRanges(out + n);
+    return n;
+}
+
+static void texCacheFlush(void) {
+    int i;
+    for (i = 0; i < sTexCount; i++) {
+        glDeleteTextures(1, &sTexCache[i].tex);
+    }
+    sTexCount = 0;
+}
+
+/* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
+void gfxBackendQsRestored(void) {
+    texCacheFlush();
+    sTarget = NULL;
+    sTargetIsDepth = 0;
+    gfxFbQsRestored();
+}
 
 void gfxBackendInit(void) {
     u8 white[4] = { 255, 255, 255, 255 };
@@ -132,10 +179,7 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
         }
         if (i == sTexCount) {
             if (sTexCount == TEX_CACHE_SIZE) {
-                for (i = 0; i < sTexCount; i++) {
-                    glDeleteTextures(1, &sTexCache[i].tex);
-                }
-                sTexCount = 0;
+                texCacheFlush();
             }
             glGenTextures(1, &tex);
             glBindTexture(GL_TEXTURE_2D, tex);
@@ -374,6 +418,44 @@ void gfxBackendPresent(u32 fb, int black) {
     int w, h;
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
     gfxFbPresent(fb, black, w, h);
+    if (sCaptureReq && w > 0 && h > 0) {
+        size_t need = (size_t)w * (size_t)h * 4;
+        if (sCaptureCap < need) {
+            u8 *px = realloc(sCapturePx, need);
+            if (px == NULL) {
+                sCaptureReq = 0;
+                return;
+            }
+            sCapturePx = px;
+            sCaptureCap = need;
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sCapturePx);
+        sCaptureW = w;
+        sCaptureH = h;
+        sCaptureReq = 0;
+        sCaptureSeq++;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void port_debug_capture_request(void) {
+    sCaptureReq = 1;
+}
+
+EMSCRIPTEN_KEEPALIVE u32 port_debug_capture_seq(void) {
+    return sCaptureSeq;
+}
+
+EMSCRIPTEN_KEEPALIVE u8 *port_debug_capture_pixels(void) {
+    return sCapturePx;
+}
+
+EMSCRIPTEN_KEEPALIVE int port_debug_capture_width(void) {
+    return sCaptureW;
+}
+
+EMSCRIPTEN_KEEPALIVE int port_debug_capture_height(void) {
+    return sCaptureH;
 }
 
 void gfxBackendCpuWrote(u32 addr, u32 len) {

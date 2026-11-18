@@ -42,23 +42,44 @@ async function start(romBytes) {
   }
   started = true;
   setStatus('Starting…');
-  const module = await createDk64({
-    canvas,
-    preRun: [(m) => {
-      m.FS.mkdir('/saves');
-      m.FS.mount(m.IDBFS, {}, '/saves');
-      m.addRunDependency('syncfs');
-      m.FS.syncfs(true, (err) => {
-        if (err) console.warn('save load failed', err);
-        m.removeRunDependency('syncfs');
-      });
-    }],
-    print: (t) => console.log(t),
-    printErr: (t) => console.warn(t),
-  });
+  let module;
+  try {
+    // the build id names the exact wasm this page runs: the same bytes are instantiated (quicksave.js)
+    const wasmBytes = await fetch('dk64.wasm', { cache: 'no-cache' }).then((r) => {
+      if (!r.ok) throw new Error(`dk64.wasm HTTP ${r.status}`);
+      return r.arrayBuffer();
+    });
+    const buildId = await sha1Hex(wasmBytes);
+    const wasmModule = await WebAssembly.compile(wasmBytes);
+    module = await createDk64({
+      canvas,
+      // instantiate the hashed bytes (Module.wasmBinary is not in this build's INCOMING_MODULE_JS_API)
+      instantiateWasm: (imports, done) => {
+        WebAssembly.instantiate(wasmModule, imports).then(done, (err) => setStatus(`Start failed: ${err.message}`));
+        return {};
+      },
+      preRun: [(m) => {
+        m.FS.mkdir('/saves');
+        m.FS.mount(m.IDBFS, {}, '/saves');
+        m.addRunDependency('syncfs');
+        m.FS.syncfs(true, (err) => {
+          if (err) console.warn('save load failed', err);
+          m.removeRunDependency('syncfs');
+        });
+      }],
+      print: (t) => console.log(t),
+      printErr: (t) => console.warn(t),
+    });
+    module.portBuildId = buildId;
+  } catch (err) {
+    setStatus(`Start failed: ${err.message}`);
+    return;
+  }
   module.portRom = rom;
   window.Module = module;
+  if (window.dk64dbg) window.dk64dbg.moduleReady(); // before callMain: applies the saved trace mask from boot
   module.callMain([]);
+  if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
   const ctx = module.SDL2 && module.SDL2.audioContext;
   if (ctx && ctx.state !== 'running') ctx.resume();
   canvas.focus();

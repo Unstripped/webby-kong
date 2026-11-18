@@ -35,11 +35,23 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 Run in a browser: `python3 -m http.server -d build/web 8080`, open `http://localhost:8080/`, pick the ROM
 (development: copy the ROM to `build/web/dev-rom.z64` and open `http://localhost:8080/?rom=/dev-rom.z64`).
 `Module.ccall('port_debug_stats', 'string')` in the console returns the runtime counters (VI ticks, frames,
-RSP tasks, map, overlay, audio peak).
+RSP tasks, map, overlay, audio peak, actor count, player position). `web/debug.js` adds `dk64dbg` (state, trace log,
+frame grabs, marks): F2 toggles a debug panel (state, trace category toggles that persist across reloads, Mark /
+Export buttons, quicksave), F8 records a mark. F5 quicksaves and F9 quickloads (`web/quicksave.js`, one slot in
+IndexedDB): an exact snapshot of RDRAM plus the port/game `.data`/`.bss` (`port/src/qs.c`) that restores only into the
+identical `dk64.wasm`, plus a resume point (save slot, kong, map, position) taken in adventure mode. After a reload the
+snapshot is restored if the wasm is unchanged; after a rebuild the game boots straight into the resume point once the
+EEPROM is read. `?noresume` or the panel's Auto-resume chip turns that off. The `dk64-live-debug` skill
+(`.omp/skills/dk64-live-debug/SKILL.md`) documents attaching to a running tab, trace categories and wasm logpoints
+(`tools/wasm_funcs.py`).
 
 Headless: `node build/web/dk64_headless.js --rom decomp/donkey-kong.z64 --frames 2400 --input tests/title_to_menu.txt`
 prints those counters every 60 VI ticks and reaches the main menu (map 0x50) by the end. `--lax` logs asset tables
-without a byte-order swapper instead of aborting; `--trace-assets` logs every asset load with its RDRAM range.
+without a byte-order swapper instead of aborting; `--trace-assets` logs every asset load with its RDRAM range;
+`--trace <mask>` prints game trace events (`PORT_TRACE`; 1 = map transitions, 2 = camera paths, 4 = actor spawns).
+`--qs-save F --qs-load G` snapshots after frame F, restores it after frame G and replays from F (the run must match
+one without them); `--resume slot,kong,map,exit,hasPos,x,y,z,yaw` boots into a resume point (`--resume
+0,0,0xb0,1,1,941,60,736,3752`: Training Grounds).
 `tests/new_game_intro.txt` with `--frames 21000` starts a new game and must end in the Treehouse (map 171, mode 0):
 the intro story's map changes run on wall-clock cues, and patch 0012 keeps checking them after a camera path ends
 early (the port runs a steady 30 fps, so frame-counted paths finish sooner than on hardware).

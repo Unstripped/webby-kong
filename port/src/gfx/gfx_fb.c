@@ -72,6 +72,40 @@ static const char *kDepthReadFs =
     "    fragColor = vec4(r, g, b, 255.0) / 255.0;\n"
     "}\n";
 
+int gfxFbQsRanges(QsRange *out) {
+    int n = 0;
+    out[n++] = QS_RANGE(sFbs);
+    out[n++] = QS_RANGE(sFbCount);
+    out[n++] = QS_RANGE(gGfxDepthTex);
+    out[n++] = QS_RANGE(gGfxDepthDirty);
+    out[n++] = QS_RANGE(gGfxDepthW);
+    out[n++] = QS_RANGE(gGfxDepthH);
+    out[n++] = QS_RANGE(sDepthFbo);
+    out[n++] = QS_RANGE(sStageTex);
+    out[n++] = QS_RANGE(sStageFbo);
+    out[n++] = QS_RANGE(sDepthReadProg);
+    out[n++] = QS_RANGE(sDepthReadVao);
+    out[n++] = QS_RANGE(sDepthReadTarget);
+    out[n++] = QS_RANGE(sDepthReadFbo);
+    out[n++] = QS_RANGE(sScratch);
+    out[n++] = QS_RANGE(sDepthPhysW);
+    out[n++] = QS_RANGE(sDepthPhysH);
+    out[n++] = QS_RANGE(sDepthOx);
+    out[n++] = QS_RANGE(sWinAspect);
+    out[n++] = QS_RANGE(sMaxTex);
+    return n;
+}
+
+/* RDRAM was replaced: every colour image re-uploads from it, nothing on the GPU is newer */
+void gfxFbQsRestored(void) {
+    int i;
+    for (i = 0; i < sFbCount; i++) {
+        sFbs[i].cpuDirty = 1;
+        sFbs[i].gpuDirty = 0;
+    }
+    gGfxDepthDirty = 0;
+}
+
 void gfxFbInit(void) {
     glGenTextures(1, &sStageTex);
     glGenFramebuffers(1, &sStageFbo);

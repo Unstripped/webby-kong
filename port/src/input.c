@@ -13,6 +13,11 @@ void portInputPoll(void) {
 u16 portInputTakeTaps(void) {
     return 0;
 }
+
+int portInputQsRanges(QsRange *out) {
+    (void)out;
+    return 0;
+}
 #else
 #include <SDL2/SDL.h>
 
@@ -31,6 +36,13 @@ static const struct { SDL_Scancode sc; u16 button; } kKeys[] = {
  * the next KEY_TAP_READS controller reads */
 #define KEY_TAP_READS 2
 static u8 sTapReads[NUM_KEYS];
+
+int portInputQsRanges(QsRange *out) {
+    out[0] = QS_RANGE(sPad);
+    out[1] = QS_RANGE(sInit);
+    out[2] = QS_RANGE(sTapReads);
+    return 3;
+}
 
 u16 portInputTakeTaps(void) {
     u16 b = 0;
