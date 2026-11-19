@@ -364,7 +364,7 @@ index 3a9b24d..29323b0 100644
  Gfx *gfxDrawSkySprite(Gfx *dl, s16 azimuthAngle, s16 elevationAngle, u8 mode) {
      s16 x;
 diff --git a/src/global/10D2D0.c b/src/global/10D2D0.c
-index c6cbc20..4724dd2 100644
+index c6cbc20..b2e88a1 100644
 --- a/src/global/10D2D0.c
 +++ b/src/global/10D2D0.c
 @@ -11,8 +11,8 @@
@@ -378,6 +378,24 @@ index c6cbc20..4724dd2 100644
  
  Gfx *healthHudDraw(Gfx *glist, PlayerInventory *inv, KongInventory *kong, PlayerStruct *player) {
      s16 i;
+@@ -138,7 +138,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
+     kongId = playerGetResolvedKongId(playerIndex);
+     kong = &inv->kong[kongId];
+     mode = player->unk2E4;
+-    flags = player->unk2E3;
++    flags = (u8)player->unk2E2; // PORT: unk2E3 is the low byte only on the N64 (+3); here it is at +2
+     singlePlayer = gPlayerCount == 1;
+     if (!singlePlayer) {
+         mode = 0;
+@@ -146,7 +146,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
+     if (!singlePlayer) {
+         healthApplyPendingDelta(playerIndex, player, inv, kong);
+         player->unk2E2 &= 0xFFEA;
+-        flags = player->unk2E3;
++        flags = (u8)player->unk2E2; // PORT: as above
+     }
+     if (flags & 0x10) {
+         switch (mode) {
 diff --git a/src/global/10E1D0.c b/src/global/10E1D0.c
 index 66aa37e..3cdd24f 100644
 --- a/src/global/10E1D0.c
@@ -723,12 +741,33 @@ index 628409b..7bfaf5b 100644
  u32 osVirtualToPhysical(void *);
  Gfx *func_80027034(Gfx *);
 diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index a5b547f..467d891 100644
+index a5b547f..620cc4d 100644
 --- a/src/global/63EC0.c
 +++ b/src/global/63EC0.c
-@@ -67,6 +67,9 @@ EffectTableEntry D_80748A90[9] = {
-     { effectInitTextureTableDual, effectBuildMultiBlockTextureGdl, effectNodeUpdateDualAlphaOffset, NULL, NULL, { 0x00000100 } },
-     { effectInitTextureTable1, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlWrapper, (void (*)(WaterSurface *))effectNoopCallback2, NULL, NULL, { 0x00010000 } },
+@@ -56,17 +56,21 @@ typedef struct EffectBufferEntry {
+ 
+ // This TU's .data (0x80748A90-0x80748B6C + 4-byte TU pad): per-type effect table rows; D_80748A94,
+ // D_80748A9C and D_80748AA5 are column views of these rows (absolute lines in undefined_syms.us.txt).
++// PORT: flags is read as bytes (heightMode at +1, drawPass at +2), so store its N64 byte order
+ EffectTableEntry D_80748A90[9] = {
+-    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBA, effectNodeStepUVAndPos, NULL, NULL, { 0x00000100 } },
+-    { effectInitTextureTableCI4, effectBuildGdlTexture64x64CI4, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000000 } },
+-    { effectInitTextureTable0, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdl, (void (*)(WaterSurface *))effectNoopCallback1, NULL, NULL, { 0x00010000 } },
+-    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBAWithPrim, effectNodeStepUVAndPos, NULL, NULL, { 0x00000100 } },
+-    { effectInitTextureTable2, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlDup, (void (*)(WaterSurface *))effectNoopCallback3, NULL, NULL, { 0x00020000 } },
+-    { effectInitTextureTable3, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdl, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000100 } },
+-    { effectInitTextureTable4, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdlDup, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000000 } },
+-    { effectInitTextureTableDual, effectBuildMultiBlockTextureGdl, effectNodeUpdateDualAlphaOffset, NULL, NULL, { 0x00000100 } },
+-    { effectInitTextureTable1, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlWrapper, (void (*)(WaterSurface *))effectNoopCallback2, NULL, NULL, { 0x00010000 } },
++    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBA, effectNodeStepUVAndPos, NULL, NULL, { PORT_BE32(0x00000100) } },
++    { effectInitTextureTableCI4, effectBuildGdlTexture64x64CI4, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000000) } },
++    { effectInitTextureTable0, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdl, (void (*)(WaterSurface *))effectNoopCallback1, NULL, NULL, { PORT_BE32(0x00010000) } },
++    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBAWithPrim, effectNodeStepUVAndPos, NULL, NULL, { PORT_BE32(0x00000100) } },
++    { effectInitTextureTable2, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlDup, (void (*)(WaterSurface *))effectNoopCallback3, NULL, NULL, { PORT_BE32(0x00020000) } },
++    { effectInitTextureTable3, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdl, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000100) } },
++    { effectInitTextureTable4, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdlDup, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000000) } },
++    { effectInitTextureTableDual, effectBuildMultiBlockTextureGdl, effectNodeUpdateDualAlphaOffset, NULL, NULL, { PORT_BE32(0x00000100) } },
++    { effectInitTextureTable1, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlWrapper, (void (*)(WaterSurface *))effectNoopCallback2, NULL, NULL, { PORT_BE32(0x00010000) } },
  };
 +__asm__(".globl D_80748A94\n.set D_80748A94, D_80748A90+0x4\n"
 +        ".globl D_80748A9C\n.set D_80748A9C, D_80748A90+0xC\n"

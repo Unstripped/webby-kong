@@ -59,10 +59,10 @@ index ca6f88d..f0f7f73 100644
          if (--gHeapDeferredFrees[i].delay == 0 && flag == 0) {
              heapFreeToPool(gHeapDeferredFrees[i].ptr);
 diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index 467d891..05affeb 100644
+index 620cc4d..a911acb 100644
 --- a/src/global/63EC0.c
 +++ b/src/global/63EC0.c
-@@ -698,6 +698,8 @@ void effectUpdateAndDispatch(void) {
+@@ -699,6 +699,8 @@ void effectUpdateAndDispatch(void) {
      osRecvMesg(&D_807655F0, NULL, OS_MESG_BLOCK);
      D_80746834 = 0;
      osInvalDCache(dmaWords, 0x10);
