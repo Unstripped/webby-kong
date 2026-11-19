@@ -156,6 +156,8 @@ static GfxProgram build(const GfxProgramKey *k) {
            "uniform vec4 uTile0, uTile1;\n"
            "uniform vec2 uSize0, uSize1;\n"
            "uniform float uLodScale, uMaxLevel;\n"
+           "uniform vec4 uMipTile[8];\n"
+           "uniform vec2 uMipSize[8];\n"
            "out vec4 fragColor;\n"
            "float noise() { return fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); }\n"
            "void main() {\n"
@@ -163,7 +165,8 @@ static GfxProgram build(const GfxProgramKey *k) {
     if (k->lod) {
         /* RDP texture LOD (no detail/sharpen): tile0 texels per N64 pixel picks mip level l = floor(log2(lod)),
          * TEXEL0/TEXEL1 are levels l and l + 1, LOD_FRAC = lod / 2^l - 1; magnified: level 0, frac 0;
-         * past the last level: that level, frac 1. uTex0 holds the levels as GL mips. */
+         * past the last level: that level, frac 1. uTex0 holds the levels as GL mips; each level samples with its
+         * own tile's shift and ul offset (a scrolled chain moves every level by the same texel count). */
         strcat(fs,
                "    vec2 uv = vSt * uTile0.xy - uTile0.zw;\n"
                "    vec2 dx = abs(dFdx(uv)), dy = abs(dFdy(uv));\n"
@@ -171,8 +174,10 @@ static GfxProgram build(const GfxProgramKey *k) {
                "    float lvl = 0.0;\n"
                "    if (lod >= 1.0) { lvl = floor(log2(lod)); lodFrac = lod / exp2(lvl) - 1.0; }\n"
                "    if (lvl >= uMaxLevel) { lvl = uMaxLevel; lodFrac = 1.0; }\n"
-               "    vec4 t0 = textureLod(uTex0, uv / uSize0, lvl);\n"
-               "    vec4 t1 = textureLod(uTex0, uv / uSize0, min(lvl + 1.0, uMaxLevel));\n");
+               "    float lvl1 = min(lvl + 1.0, uMaxLevel);\n"
+               "    int i0 = int(lvl), i1 = int(lvl1);\n"
+               "    vec4 t0 = textureLod(uTex0, (vSt * uMipTile[i0].xy - uMipTile[i0].zw) / uMipSize[i0], lvl);\n"
+               "    vec4 t1 = textureLod(uTex0, (vSt * uMipTile[i1].xy - uMipTile[i1].zw) / uMipSize[i1], lvl1);\n");
     } else {
         strcat(fs,
                "    vec4 t0 = texture(uTex0, (vSt * uTile0.xy - uTile0.zw) / uSize0);\n"
@@ -221,6 +226,8 @@ static GfxProgram build(const GfxProgramKey *k) {
     p.uPrimDepth = glGetUniformLocation(p.prog, "uPrimDepth");
     p.uLodScale = glGetUniformLocation(p.prog, "uLodScale");
     p.uMaxLevel = glGetUniformLocation(p.prog, "uMaxLevel");
+    p.uMipTile = glGetUniformLocation(p.prog, "uMipTile");
+    p.uMipSize = glGetUniformLocation(p.prog, "uMipSize");
     p.usesTex0 = tex[0];
     p.usesTex1 = tex[1];
     glUseProgram(p.prog);

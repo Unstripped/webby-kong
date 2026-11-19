@@ -224,9 +224,11 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
 }
 
 /* texture LOD: tiles tile..tile + maxLevel as the GL mips of one texture on unit 0. Each level must be half the
- * previous (N64 mip chains are); the chain stops at the first that isn't. Returns the last level chained, 0 when
- * there is no chain (the caller binds the tile alone). */
-static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileParams, float *size) {
+ * previous (N64 mip chains are); the chain stops at the first that isn't. mipTile/mipSize get each level's tile
+ * params and size (level 0 also in tileParams/size). Returns the last level chained, 0 when there is no chain
+ * (the caller binds the tile alone). */
+static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileParams, float *size,
+                        float mipTile[8][4], float mipSize[8][2]) {
     GfxTexImage img;
     u32 w0 = 0, h0 = 0, off[8], w[8], h[8];
     u64 key = 0x6C6F64636861696Eull; /* never equals a single tile's key */
@@ -276,7 +278,12 @@ static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileP
     }
     glBindTexture(GL_TEXTURE_2D, tex);
     setSampling(st, &st->tiles[tile & 7], 1);
-    tileParamsFor(&st->tiles[tile & 7], tileParams);
+    for (k = 0; k <= n; k++) {
+        tileParamsFor(&st->tiles[(tile + k) & 7], mipTile[k]);
+        mipSize[k][0] = (float)w[k];
+        mipSize[k][1] = (float)h[k];
+    }
+    memcpy(tileParams, mipTile[0], sizeof mipTile[0]);
     size[0] = (float)w0;
     size[1] = (float)h0;
     return n;
@@ -321,7 +328,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     u32 bp = (blend1 >> (12 + lastCycleShift)) & 3, ba = (blend1 >> (8 + lastCycleShift)) & 3;
     u32 bm = (blend1 >> (4 + lastCycleShift)) & 3, bb = (blend1 >> (0 + lastCycleShift)) & 3;
     u32 fp = (blend1 >> 14) & 3, fa = (blend1 >> 10) & 3; /* cycle 1 P/A */
-    float tile0[4], tile1[4], size0[2], size1[2];
+    float tile0[4], tile1[4], size0[2], size1[2], mipTile[8][4], mipSize[8][2];
     int t0 = forRect ? tile : st->texTile, maxLevel;
     memset(&key, 0, sizeof key);
     key.combineHi = st->combineHi;
@@ -337,7 +344,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     /* texture LOD (triangles only: rects have no per-pixel LOD in our path) */
     maxLevel = 0;
     if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc < 2) {
-        maxLevel = bindMipTiles(st, t0, st->texLevels, tile0, size0);
+        maxLevel = bindMipTiles(st, t0, st->texLevels, tile0, size0, mipTile, mipSize);
     }
     key.lod = maxLevel > 0;
     p = gfxProgramGet(&key);
@@ -353,6 +360,8 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         /* both texels come from the mip chain on unit 0; LOD counts tile0 texels per N64 pixel */
         glUniform1f(p->uLodScale, (float)sTarget->scale);
         glUniform1f(p->uMaxLevel, (float)maxLevel);
+        glUniform4fv(p->uMipTile, maxLevel + 1, &mipTile[0][0]);
+        glUniform2fv(p->uMipSize, maxLevel + 1, &mipSize[0][0]);
     } else if (p->usesTex0 && (st->texOn || forRect)) {
         bindTile(st, t0, 0, tile0, size0);
     } else {

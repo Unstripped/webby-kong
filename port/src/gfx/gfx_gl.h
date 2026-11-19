@@ -7,7 +7,7 @@
 typedef struct {
     GLuint prog;
     GLint uTex0, uTex1, uPrim, uEnv, uFog, uBlend, uPrimLod, uTile0, uTile1, uSize0, uSize1, uAlphaRef, uPrimDepth;
-    GLint uLodScale, uMaxLevel;
+    GLint uLodScale, uMaxLevel, uMipTile, uMipSize;
     u8 usesTex0, usesTex1;
 } GfxProgram;
 
