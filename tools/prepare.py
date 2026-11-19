@@ -35,6 +35,13 @@ def require_reference_build():
 
 
 def init_tree():
+    """Recreate build/tree; refuses while it holds uncommitted changes or an unfinished am/rebase/merge."""
+    if (TREE / ".git").exists():
+        busy = [n for n in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD") if (TREE / ".git" / n).exists()]
+        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=TREE, capture_output=True, text=True).stdout
+        if busy or dirty:
+            sys.exit(f"prepare: build/tree has {'an unfinished ' + busy[0] if busy else 'uncommitted changes'}; "
+                     "finish or commit them (then export) or move build/tree away first")
     if TREE.exists():
         shutil.rmtree(TREE)
     TREE.mkdir(parents=True)
@@ -68,9 +75,13 @@ def cmd_tree(_args):
 
 def cmd_rebase(args):
     require_reference_build()
-    init_tree()
+    r = subprocess.run(["git", "-C", str(DECOMP), "rev-parse", "--verify", "--quiet", f"{args.old}^{{commit}}"],
+                       capture_output=True)
+    if r.returncode != 0:
+        sys.exit(f"prepare: {args.old} is not a commit in decomp/")
     old = subprocess.run(["git", "-C", str(DECOMP), "archive", args.old, "src", "include"],
                          check=True, capture_output=True).stdout
+    init_tree()
     subprocess.run(["tar", "-x", "-C", str(TREE)], input=old, check=True)
     git("add", "-A")
     git("commit", "-q", "-m", f"decomp {args.old}")
