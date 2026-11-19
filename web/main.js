@@ -64,7 +64,8 @@ async function start(romBytes) {
         m.addRunDependency('syncfs');
         m.FS.syncfs(true, (err) => {
           if (err) console.warn('save load failed', err);
-          m.removeRunDependency('syncfs');
+          // saves.js: back up / restore the EEPROM through the save server before main reads it
+          (window.dk64saves ? window.dk64saves.boot(m.FS) : Promise.resolve()).finally(() => m.removeRunDependency('syncfs'));
         });
       }],
       print: (t) => console.log(t),

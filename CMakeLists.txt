@@ -154,7 +154,7 @@ target_link_options(dk64 PRIVATE ${LINK_COMMON}
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 # web files are their own outputs, so JS-only edits reach build/web without relinking dk64
 set(WEB_OUT)
-foreach(f index.html main.js debug.js quicksave.js nipplejs.js touch.js)
+foreach(f index.html main.js saves.js debug.js quicksave.js nipplejs.js touch.js)
   add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/${f}
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/web/${f} ${CMAKE_BINARY_DIR}/${f}
     DEPENDS ${CMAKE_SOURCE_DIR}/web/${f})

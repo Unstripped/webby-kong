@@ -1,4 +1,5 @@
-/* EEPROM persistence: /saves/dk64.eep (IDBFS in the browser, NODERAWFS-free memory in headless). */
+/* EEPROM persistence: /saves/dk64.eep (IDBFS in the browser, backed up through web/saves.js; NODERAWFS-free memory
+ * in headless). */
 #include "port_internal.h"
 #include <emscripten.h>
 
@@ -21,6 +22,7 @@ EM_JS(void, port_save_sync, (void), {
         FS.syncfs(false, function(err) {
             if (err) console.log('PORT: save sync failed: ' + err);
         });
+        if (typeof window !== 'undefined' && window.dk64saves) window.dk64saves.upload(FS); /* web/saves.js */
     }
 });
 
