@@ -239,7 +239,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     key.cycle = (u8)cyc;
     if ((om & 3) == G_AC_THRESHOLD) {
         key.alphaMode = 1;
-    } else if ((om & 3) == G_AC_DITHER || ((om & ALPHA_CVG_SEL) && !(om & FORCE_BL))) {
+    } else if ((om & 3) == G_AC_DITHER || ((om & ALPHA_CVG_SEL) && (om & CVG_X_ALPHA) && !(om & FORCE_BL))) {
         key.alphaMode = cyc == 2 ? 1 : 2;
     }
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
