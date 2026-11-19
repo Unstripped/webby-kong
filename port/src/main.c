@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
     u32 qsAt = 0, qsLoadAt = 0;
     int qsLoaded = 0;
     const char *resume = NULL;
+    int progress = 0;
     for (a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--rom") == 0 && a + 1 < argc) {
             rom = argv[++a];
@@ -207,11 +208,14 @@ int main(int argc, char **argv) {
             resume = argv[++a];
         } else if (strcmp(argv[a], "--drawdist") == 0 && a + 1 < argc) {
             setDrawDistance(argv[++a]);
+        } else if (strcmp(argv[a], "--progress") == 0) {
+            progress = 1;
         }
     }
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
-               "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K]\n");
+               "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
+               "[--progress]\n");
         return 2;
     }
     if (input != NULL) {
@@ -267,6 +271,10 @@ int main(int argc, char **argv) {
             i = qsAt - 1;
         }
     }
+    if (progress) {
+        printf("progress %s\n", port_level_progress());
+        fflush(stdout);
+    }
     return 0;
 }
 #else
@@ -275,17 +283,31 @@ int main(int argc, char **argv) {
 #include <string.h>
 
 static double sLastMs;
+static int sMenuPaused; /* web/menu.js open: the game is frozen */
 
 int portMainQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sAccumMs);
     out[1] = QS_RANGE(sLastMs);
     out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
-    return 3;
+    out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
+    return 4;
+}
+
+/* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
+EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
+    sMenuPaused = paused != 0;
+    if (!sMenuPaused) {
+        sLastMs = 0; /* the first frame after resume steps one VI period, not the paused time */
+    }
 }
 
 static void port_frame(void) {
-    double now = emscripten_get_now();
-    double dt = sLastMs == 0 ? PORT_VI_PERIOD_MS : now - sLastMs;
+    double now, dt;
+    if (sMenuPaused) {
+        return;
+    }
+    now = emscripten_get_now();
+    dt = sLastMs == 0 ? PORT_VI_PERIOD_MS : now - sLastMs;
     sLastMs = now;
     port_frame_step(dt);
 }

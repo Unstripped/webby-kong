@@ -87,10 +87,11 @@ async function start(romBytes) {
   module.callMain(args);
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
   if (window.dk64touch) window.dk64touch.started();
+  if (window.dk64menu) window.dk64menu.started();
   const ctx = module.SDL2 && module.SDL2.audioContext;
   if (ctx && ctx.state !== 'running') ctx.resume();
   canvas.focus();
-  setStatus('Running. Keys: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, IJKL = C, TFGH = D-pad.');
+  setStatus('Running. Keys: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, IJKL = C, TFGH = D-pad, Esc = menu.');
 }
 
 document.getElementById('rom').addEventListener('change', async (e) => {

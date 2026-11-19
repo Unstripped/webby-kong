@@ -106,6 +106,17 @@
     send();
   }
 
+  // web/menu.js toggle; not a pad button, so it sends no bits
+  const menuBtn = document.createElement('div');
+  menuBtn.className = 'dk64t-btn dk64t-sh dk64t-menu';
+  menuBtn.style.cssText = 'right:6vmin;top:3vmin;width:9vmin;height:8vmin';
+  menuBtn.textContent = '☰';
+  menuBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (window.dk64menu) window.dk64menu.toggle();
+  });
+  root.appendChild(menuBtn);
+
   document.body.appendChild(root);
 
   const param = new URLSearchParams(location.search).get('touch');
@@ -158,5 +169,5 @@
   });
   window.addEventListener('blur', releaseAll);
 
-  window.dk64touch = { started };
+  window.dk64touch = { started, releaseAll };
 })();

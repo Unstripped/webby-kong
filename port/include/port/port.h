@@ -97,4 +97,21 @@ extern PortResumePoint gPortResume;
 s32 mapCaptureResumePoint(PortResumePoint *out, const char **reason); /* src/global/3C10.c */
 void menuStartGameAtResume(void);                                      /* src/global/117190.c */
 
+/* ---- level progress for the web menu (port/src/progress.c; filled by game code) ---- */
+typedef struct {
+    s16 goldenBananas; /* KongInventory.goldenBananas[world], of 5; -1: none in this level */
+    s16 bananas;       /* coloredBananas + bananasDelivered of the world, of 100; -1: none */
+    s8 medal;          /* banana medal flag; -1: none */
+    s8 blueprint;      /* 0 missing, 1 found, 2 turned in; -1: none */
+} PortKongProgress;
+typedef struct {
+    s32 world; /* mapGetHubWorldIndex(map, 1): 0-6 Japes..Castle, 7 Isles (and lobbies), 8 Helm */
+    s32 kong;  /* gPlayerCharacterId[0] when 0..4, else -1 */
+    PortKongProgress kongs[5]; /* DK, Diddy, Lanky, Tiny, Chunky */
+    s32 fairies, fairiesTotal;
+    s32 crowns, crownsTotal;
+    s32 keys, keysTotal;
+} PortLevelProgress;
+s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason); /* src/global/3C10.c */
+
 #endif

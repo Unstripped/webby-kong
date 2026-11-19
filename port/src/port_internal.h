@@ -69,6 +69,7 @@ void portSaveFlushIfDue(double nowMs);
 /* overlay.c */
 void portOverlayInit(void);
 const char *port_debug_stats(void);
+const char *port_level_progress(void); /* progress.c */
 extern u16 gPortHeadlessButtons;
 extern int gPortAssetStrict;
 extern int gPortAssetTrace;
