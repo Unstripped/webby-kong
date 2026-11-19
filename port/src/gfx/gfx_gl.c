@@ -485,13 +485,14 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
             ulx = -(float)sTarget->ox / sTarget->scale;
             lrx = (float)(sTarget->physW - sTarget->ox) / sTarget->scale;
         }
+        /* rectangles have no shade on the RDP: a SHADE input reads 0 (the arcade's 1-cycle backdrop is black) */
         applyState(st, 1, 0);
-        screenVtx(&q[0], ulx, uly, 0, 0, 0, 1, 1, 1, 1);
-        screenVtx(&q[1], lrx, uly, 0, 0, 0, 1, 1, 1, 1);
-        screenVtx(&q[2], ulx, lry, 0, 0, 0, 1, 1, 1, 1);
+        screenVtx(&q[0], ulx, uly, 0, 0, 0, 0, 0, 0, 0);
+        screenVtx(&q[1], lrx, uly, 0, 0, 0, 0, 0, 0, 0);
+        screenVtx(&q[2], ulx, lry, 0, 0, 0, 0, 0, 0, 0);
         q[3] = q[2];
         q[4] = q[1];
-        screenVtx(&q[5], lrx, lry, 0, 0, 0, 1, 1, 1, 1);
+        screenVtx(&q[5], lrx, lry, 0, 0, 0, 0, 0, 0, 0);
         draw(q, 6);
     }
 }
@@ -507,15 +508,15 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     t1 = t + dtdy * (flip ? (lrx - ulx) : (lry - uly));
     applyState(st, 1, tile);
     if (!flip) {
-        screenVtx(&q[0], ulx, uly, 0, s, t, 1, 1, 1, 1);
-        screenVtx(&q[1], lrx, uly, 0, s1, t, 1, 1, 1, 1);
-        screenVtx(&q[2], ulx, lry, 0, s, t1, 1, 1, 1, 1);
-        screenVtx(&q[5], lrx, lry, 0, s1, t1, 1, 1, 1, 1);
+        screenVtx(&q[0], ulx, uly, 0, s, t, 0, 0, 0, 0);
+        screenVtx(&q[1], lrx, uly, 0, s1, t, 0, 0, 0, 0);
+        screenVtx(&q[2], ulx, lry, 0, s, t1, 0, 0, 0, 0);
+        screenVtx(&q[5], lrx, lry, 0, s1, t1, 0, 0, 0, 0);
     } else {
-        screenVtx(&q[0], ulx, uly, 0, s, t, 1, 1, 1, 1);
-        screenVtx(&q[1], lrx, uly, 0, s, t1, 1, 1, 1, 1);
-        screenVtx(&q[2], ulx, lry, 0, s1, t, 1, 1, 1, 1);
-        screenVtx(&q[5], lrx, lry, 0, s1, t1, 1, 1, 1, 1);
+        screenVtx(&q[0], ulx, uly, 0, s, t, 0, 0, 0, 0);
+        screenVtx(&q[1], lrx, uly, 0, s, t1, 0, 0, 0, 0);
+        screenVtx(&q[2], ulx, lry, 0, s1, t, 0, 0, 0, 0);
+        screenVtx(&q[5], lrx, lry, 0, s1, t1, 0, 0, 0, 0);
     }
     q[3] = q[2];
     q[4] = q[1];

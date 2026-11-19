@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Thu, 19 Nov 2026 12:35:18 -0700
+Subject: [PATCH] port: arcade text position endianness
+
+
+diff --git a/src/arcade/0.c b/src/arcade/0.c
+index 18e8382..597a573 100644
+--- a/src/arcade/0.c
++++ b/src/arcade/0.c
+@@ -37,8 +37,6 @@ extern u8 D_8004A740;
+ extern u8 gArcadeLevel;
+ extern s32 D_8004A308[];
+ 
+-extern s16 D_8004C72E;
+-extern s16 D_8004C732;
+ extern u8 D_8004C725;
+ extern u8 D_8004C726;
+ extern u8 D_8004C727;
+@@ -153,7 +151,9 @@ void arcadeDrawString(Gfx **glistp, u8 *str) {
+     gDPSetPrimColor(g++, 0, 0, D_8004C725, D_8004C726, D_8004C727, D_8004C728);
+     gDPSetCombine(g++, 0x119623, 0xFF2FFFFF);
+     gSPSetOtherMode(g++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, 0x00504240);
+-    *glistp = textDrawString(g, 2, D_8004C72E, D_8004C732, str);
++    /* PORT: the N64 read the low halves of the s32 position at +2 (D_8004C72E, D_8004C732); on little-endian
++     * wasm those are the high halves (0), stacking every string at the top-left corner */
++    *glistp = textDrawString(g, 2, (s16)D_8004C72C, (s16)D_8004C730, str);
+ }
+ 
+ extern u32 D_8004A738;
