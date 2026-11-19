@@ -1,0 +1,9 @@
+# Kong swap barrel in Jungle Japes: run with --frames 1500 --resume 0,0,7,0,1,1642,330,1519,0.
+# DK spawns over the barrel at (1642,315,1519) and drops in; A at 1000 and again at 1200 each pick a kong
+# (playerApplyCharacterModel reloads the player model). Must not abort and must end on map 7 with player type 2.
+frame 1000 press a
+frame 1006 release a
+frame 1100 press a
+frame 1106 release a
+frame 1200 press a
+frame 1206 release a

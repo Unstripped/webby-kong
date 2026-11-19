@@ -56,6 +56,8 @@ one without them); `--resume slot,kong,map,exit,hasPos,x,y,z,yaw` boots into a r
 `tests/new_game_intro.txt` with `--frames 21000` starts a new game and must end in the Treehouse (map 171, mode 0):
 the intro story's map changes run on wall-clock cues, and patch 0012 keeps checking them after a camera path ends
 early (the port runs a steady 30 fps, so frame-counted paths finish sooner than on hardware).
+`tests/kong_swap_barrel.txt` with `--frames 1500 --resume 0,0,7,0,1,1642,330,1519,0` selects a kong in the Japes kong
+swap barrel twice (each swap reloads the player model) and must end on map 7 without aborting.
 Configure with `-DPORT_SAFE_HEAP=ON` (separate build dir) to trap wild accesses.
 
 Controls: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, I/K/J/L = C-buttons, T/G/F/H = D-pad;
