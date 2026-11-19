@@ -149,12 +149,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 target_link_options(dk64 PRIVATE ${LINK_COMMON}
   -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -lidbfs.js
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture
+  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture,_port_touch_pad
   -sENVIRONMENT=web -sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_NAME=createDk64 -sINVOKE_RUN=0 ${WEB_DEBUG_FLAGS})
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 # web files are their own outputs, so JS-only edits reach build/web without relinking dk64
 set(WEB_OUT)
-foreach(f index.html main.js debug.js quicksave.js)
+foreach(f index.html main.js debug.js quicksave.js nipplejs.js touch.js)
   add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/${f}
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/web/${f} ${CMAKE_BINARY_DIR}/${f}
     DEPENDS ${CMAKE_SOURCE_DIR}/web/${f})

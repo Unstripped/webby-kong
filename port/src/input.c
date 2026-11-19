@@ -20,6 +20,7 @@ int portInputQsRanges(QsRange *out) {
 }
 #else
 #include <SDL2/SDL.h>
+#include <emscripten.h>
 
 static SDL_GameController *sPad;
 static int sInit;
@@ -36,12 +37,15 @@ static const struct { SDL_Scancode sc; u16 button; } kKeys[] = {
  * the next KEY_TAP_READS controller reads */
 #define KEY_TAP_READS 2
 static u8 sTapReads[NUM_KEYS];
+/* on-screen controller (web/touch.js via port_touch_pad): held buttons, stick, per-bit tap latches */
+static struct { u16 held; s8 x, y; u8 tapReads[16]; } sTouch;
 
 int portInputQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sPad);
     out[1] = QS_RANGE(sInit);
     out[2] = QS_RANGE(sTapReads);
-    return 3;
+    out[3] = QS_RANGE(sTouch);
+    return 4;
 }
 
 u16 portInputTakeTaps(void) {
@@ -53,7 +57,27 @@ u16 portInputTakeTaps(void) {
             sTapReads[i]--;
         }
     }
+    for (i = 0; i < 16; i++) {
+        if (sTouch.tapReads[i] != 0) {
+            b |= (u16)(1u << i);
+            sTouch.tapReads[i]--;
+        }
+    }
     return b;
+}
+
+EMSCRIPTEN_KEEPALIVE void port_touch_pad(u32 buttons, s32 x, s32 y) {
+    u16 b = (u16)buttons;
+    u16 pressed = b & (u16)~sTouch.held;
+    int i;
+    for (i = 0; i < 16; i++) {
+        if (pressed & (1u << i)) {
+            sTouch.tapReads[i] = KEY_TAP_READS;
+        }
+    }
+    sTouch.held = b;
+    sTouch.x = (s8)(x > 80 ? 80 : x < -80 ? -80 : x);
+    sTouch.y = (s8)(y > 80 ? 80 : y < -80 ? -80 : y);
 }
 
 static void openFirstController(void) {
@@ -123,6 +147,11 @@ void portInputPoll(void) {
     if (k[SDL_SCANCODE_RIGHT]) sx += 80;
     if (k[SDL_SCANCODE_UP]) sy += 80;
     if (k[SDL_SCANCODE_DOWN]) sy -= 80;
+    b |= sTouch.held;
+    if (sTouch.x != 0 || sTouch.y != 0) {
+        sx = sTouch.x;
+        sy = sTouch.y;
+    }
     if (sPad != NULL) {
         SDL_GameController *p = sPad;
         Sint16 rx = SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_RIGHTX);

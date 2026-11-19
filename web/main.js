@@ -80,6 +80,7 @@ async function start(romBytes) {
   if (window.dk64dbg) window.dk64dbg.moduleReady(); // before callMain: applies the saved trace mask from boot
   module.callMain([]);
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
+  if (window.dk64touch) window.dk64touch.started();
   const ctx = module.SDL2 && module.SDL2.audioContext;
   if (ctx && ctx.state !== 'running') ctx.resume();
   canvas.focus();

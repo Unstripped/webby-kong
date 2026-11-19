@@ -59,7 +59,9 @@ early (the port runs a steady 30 fps, so frame-counted paths finish sooner than 
 Configure with `-DPORT_SAFE_HEAP=ON` (separate build dir) to trap wild accesses.
 
 Controls: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, I/K/J/L = C-buttons, T/G/F/H = D-pad;
-the first gamepad works too. Saves (EEPROM) persist in IndexedDB.
+the first gamepad works too. On touch devices an on-screen controller (stick on the left half, buttons, no D-pad)
+appears once the game runs and hides while a gamepad is connected; `?touch=1` / `?touch=0` force it on or off.
+Saves (EEPROM) persist in IndexedDB.
 
 ## Layout
 
