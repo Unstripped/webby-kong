@@ -45,6 +45,7 @@ void portAudioRunTask(OSTask *t);
 
 /* gfx */
 void portGfxInit(void);
+void portGfxConfigure(int scale, int msaa); /* --scale 0 (auto) / 1..8, --msaa 0/2/4/8; before portGfxInit */
 void portGfxPresent(void *fb, int black);
 
 /* audio output (ai.c) */

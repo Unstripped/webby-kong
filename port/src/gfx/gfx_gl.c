@@ -107,7 +107,7 @@ void gfxBackendInit(void) {
 void gfxBackendBeginTask(void) {
     int w, h;
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
-    gfxFbSetWindowAspect(h > 0 ? (float)w / h : 4.0f / 3.0f);
+    gfxFbSetWindowSize(w, h);
     sTaskSerial++;
     sTarget = NULL;
     gGfxTargetWide = 1.0f;
@@ -129,11 +129,11 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     sTargetIsDepth = 0;
     sTarget = gfxFbFor(addr, width);
     gfxFbBind(sTarget);
-    gGfxTargetWide = sTarget->physW / (float)(sTarget->width * PORT_GFX_SCALE);
+    gGfxTargetWide = sTarget->physW / (float)(sTarget->width * sTarget->scale);
     if (sTarget->ox > 0 && sTarget->sideTask != sTaskSerial) {
         /* the game only covers its 4:3 image; blank the side areas once per task so frames that draw no
          * full-width clear don't show stale pixels there */
-        u32 sh = sTarget->physH, right = sTarget->ox + sTarget->width * PORT_GFX_SCALE;
+        u32 sh = sTarget->physH, right = sTarget->ox + sTarget->width * sTarget->scale;
         sTarget->sideTask = sTaskSerial;
         glEnable(GL_SCISSOR_TEST);
         glClearColor(0, 0, 0, 1);
@@ -141,6 +141,7 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
         glClear(GL_COLOR_BUFFER_BIT);
         glScissor(right, 0, sTarget->physW - right, sh);
         glClear(GL_COLOR_BUFFER_BIT);
+        sTarget->resolveDirty = 1;
     }
 }
 
@@ -211,10 +212,10 @@ static int spansWidth(float x0, float x1) {
  * margin of the image edge moves out to the wide edge on its own: the map clips a chunk seen through a portal to
  * the portal's screen rect, and a rect touching one side must still reach into that side area. */
 static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
-    s32 h = (s32)sTarget->height, px0, px1;
+    s32 h = (s32)sTarget->height, s = (s32)sTarget->scale, px0, px1;
     float w = (float)sTarget->width;
-    px0 = (s32)sTarget->ox + x0 * PORT_GFX_SCALE;
-    px1 = (s32)sTarget->ox + x1 * PORT_GFX_SCALE;
+    px0 = (s32)sTarget->ox + x0 * s;
+    px1 = (s32)sTarget->ox + x1 * s;
     if (sTarget->ox > 0) {
         if ((float)x0 <= w / 16.0f) {
             px0 = 0;
@@ -224,7 +225,7 @@ static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
         }
     }
     glEnable(GL_SCISSOR_TEST);
-    glScissor(px0, (h - y1) * PORT_GFX_SCALE, px1 - px0, (y1 - y0) * PORT_GFX_SCALE);
+    glScissor(px0, (h - y1) * s, px1 - px0, (y1 - y0) * s);
 }
 
 static void applyState(const GfxState *st, int forRect, int tile) {
@@ -327,8 +328,7 @@ static void draw(const GfxVtx *v, u32 count) {
     glBufferData(GL_ARRAY_BUFFER, count * sizeof(GfxVtx), v, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, count);
     if (sTarget != NULL) {
-        sTarget->gpuDirty = 1;
-        sTarget->everDrawn = 1;
+        gfxFbDrew(sTarget);
         gGfxDepthDirty = 1;
     }
 }
@@ -343,7 +343,7 @@ void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
 
 static void screenVtx(GfxVtx *o, float x, float y, float z, float s, float t, float r, float g, float b, float a) {
     float h = (float)sTarget->height;
-    o->x = (sTarget->ox + x * PORT_GFX_SCALE) / (sTarget->physW * 0.5f) - 1.0f;
+    o->x = (sTarget->ox + x * sTarget->scale) / (sTarget->physW * 0.5f) - 1.0f;
     o->y = 1.0f - y / (h / 2);
     o->z = z;
     o->w = 1.0f;
@@ -372,16 +372,15 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
         scissorN64((s32)ulx, (s32)uly, (s32)lrx, (s32)lry);
         glClearColor(((c >> 11) & 0x1F) / 31.0f, ((c >> 6) & 0x1F) / 31.0f, ((c >> 1) & 0x1F) / 31.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-        sTarget->gpuDirty = 1;
-        sTarget->everDrawn = 1;
+        gfxFbDrew(sTarget);
         return;
     }
     {
         GfxVtx q[6];
         if (spansWidth(ulx, lrx)) {
             /* full-width fills (clears, fades) cover the side areas too */
-            ulx = -(float)sTarget->ox / PORT_GFX_SCALE;
-            lrx = (float)(sTarget->physW - sTarget->ox) / PORT_GFX_SCALE;
+            ulx = -(float)sTarget->ox / sTarget->scale;
+            lrx = (float)(sTarget->physW - sTarget->ox) / sTarget->scale;
         }
         applyState(st, 1, 0);
         screenVtx(&q[0], ulx, uly, 0, 0, 0, 1, 1, 1, 1);
@@ -473,7 +472,7 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
 }
 
 f32 portGfxWideFactor(void) {
-    float wide = gfxFbPhysWidth(gPortViWidth) / (float)(gPortViWidth * PORT_GFX_SCALE);
+    float wide = gfxFbPhysWidth(gPortViWidth) / (float)(gPortViWidth * gGfxScale);
     return wide > 1.0f ? wide : 1.0f;
 }
 
@@ -488,7 +487,7 @@ f32 portGfxWideHalfYaw(f32 halfYawDeg) {
 
 void portGfxWideClipX(s16 *left, s16 *right) {
     s32 w = (s32)gPortViWidth;
-    s32 extra = ((s32)gfxFbPhysWidth(gPortViWidth) - w * PORT_GFX_SCALE) / 2 / PORT_GFX_SCALE + 1;
+    s32 extra = ((s32)gfxFbPhysWidth(gPortViWidth) - w * (s32)gGfxScale) / 2 / (s32)gGfxScale + 1;
     if (extra <= 1) {
         return;
     }

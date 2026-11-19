@@ -259,6 +259,7 @@ int main(int argc, char **argv) {
 #else
 /* ---------------------------------------------------------------- browser */
 #include <SDL2/SDL.h>
+#include <string.h>
 
 static double sLastMs;
 
@@ -276,12 +277,19 @@ static void port_frame(void) {
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
+    int scale = 0, msaa = 4, a;
+    for (a = 1; a + 1 < argc; a++) {
+        if (strcmp(argv[a], "--scale") == 0) {
+            scale = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--msaa") == 0) {
+            msaa = atoi(argv[++a]);
+        }
+    }
     if (portRomSize() == 0) {
         printf("PORT: Module.portRom not set\n");
         return 1;
     }
+    portGfxConfigure(scale, msaa);
     portInit();
     emscripten_set_main_loop(port_frame, 0, 0);
     return 0;

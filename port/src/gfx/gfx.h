@@ -2,8 +2,6 @@
 #define PORT_GFX_H
 #include "port_internal.h"
 
-#define PORT_GFX_SCALE 2
-
 /* ---- RDP state snapshot handed to the backend with every batch ---- */
 typedef struct {
     u8 fmt, siz, palette, cms, cmt, masks, maskt, shifts, shiftt;
@@ -42,7 +40,7 @@ typedef struct {
 } GfxTexImage;
 
 extern GfxState gGfx;
-extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * PORT_GFX_SCALE), >= 1 */
+extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * GfxFb.scale), >= 1 */
 extern u8 gGfxTmem[4096];
 
 /* gfx_tmem.c */
