@@ -7,6 +7,7 @@
 typedef struct {
     GLuint prog;
     GLint uTex0, uTex1, uPrim, uEnv, uFog, uBlend, uPrimLod, uTile0, uTile1, uSize0, uSize1, uAlphaRef, uPrimDepth;
+    GLint uLodScale, uMaxLevel;
     u8 usesTex0, usesTex1;
 } GfxProgram;
 
@@ -16,6 +17,7 @@ typedef struct {
     u8 alphaMode;  /* 0 none, 1 threshold (blend alpha), 2 dither/coverage (0.5) */
     u8 fogBlend;   /* blender mixes fog by shade alpha in cycle 1 */
     u8 primDepth;  /* z source = primitive depth */
+    u8 lod;        /* texture LOD: TEXEL0/TEXEL1 are per-pixel mip levels of uTex0 */
 } GfxProgramKey;
 
 const GfxProgram *gfxProgramGet(const GfxProgramKey *key);

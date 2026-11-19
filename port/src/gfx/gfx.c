@@ -631,6 +631,7 @@ static void runDl(u32 addr, int depth) {
         case G_TEXTURE:
             flush();
             gGfx.texTile = (w0 >> 8) & 7;
+            gGfx.texLevels = (w0 >> 11) & 7;
             gGfx.texOn = ((w0 >> 1) & 0x7F) != 0;
             R.texScaleS = (w1 >> 16) / 65536.0f;
             R.texScaleT = (w1 & 0xFFFF) / 65536.0f;

@@ -22,6 +22,7 @@ typedef struct {
     s32 scissor[4]; /* ulx, uly, lrx, lry in screen pixels (N64 space) */
     int texOn;
     int texTile;
+    int texLevels; /* G_TEXTURE max mip level: texture LOD uses tiles texTile..texTile + texLevels */
     GfxTile tiles[8];
 } GfxState;
 

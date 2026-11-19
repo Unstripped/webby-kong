@@ -104,20 +104,30 @@ void gfxTmemLoadTlut(const GfxState *st, u32 timg, int tile, u32 count) {
     memcpy(&gGfxTmem[dst], (const void *)timg, bytes);
 }
 
-u32 gfxTileWidth(const GfxTile *t) {
-    u32 w = ((t->lrs - t->uls) >> 2) + 1;
-    if (t->masks && (1u << t->masks) < w) {
-        w = 1u << t->masks;
+/* texels decoded along one tile axis. A masked axis repeats every 2^mask texels whatever the tile size: games
+ * scroll by moving ul (sampling subtracts it), which can shrink lr - ul or turn it negative (Aztec's sand). Only a
+ * clamped axis smaller than its mask period ends at the tile size. 0: no texels (unmasked, lr above ul). */
+static u32 tileDim(u16 ul, u16 lr, u8 mask, u8 cm) {
+    s32 span = ((s32)lr - (s32)ul) >> 2;
+    u32 size = span >= 0 ? (u32)span + 1 : 0;
+    if (mask == 0) {
+        return size;
     }
-    return w;
+    if (mask > 10) {
+        mask = 10; /* the RDP's wrap counter is 10 bits */
+    }
+    if ((cm & G_TX_CLAMP) && size != 0 && size < (1u << mask)) {
+        return size;
+    }
+    return 1u << mask;
+}
+
+u32 gfxTileWidth(const GfxTile *t) {
+    return tileDim(t->uls, t->lrs, t->masks, t->cms);
 }
 
 u32 gfxTileHeight(const GfxTile *t) {
-    u32 h = ((t->lrt - t->ult) >> 2) + 1;
-    if (t->maskt && (1u << t->maskt) < h) {
-        h = 1u << t->maskt;
-    }
-    return h;
+    return tileDim(t->ult, t->lrt, t->maskt, t->cmt);
 }
 
 static u64 fnv(u64 h, const u8 *p, u32 n) {

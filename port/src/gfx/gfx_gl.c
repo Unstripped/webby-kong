@@ -24,6 +24,8 @@ static GLuint sWhiteTex;
 static GfxFb *sTarget;
 static int sTargetIsDepth;
 static u32 sTaskSerial;
+static u8 *sMipChain; /* decoded mip levels staged for upload (bindMipTiles) */
+static size_t sMipChainCap;
 
 /* frame grab for web/debug.js: requested from JS, filled after the next present */
 static int sCaptureReq, sCaptureW, sCaptureH;
@@ -49,6 +51,8 @@ int gfxBackendQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sCaptureSeq);
     out[n++] = QS_RANGE(sCapturePx);
     out[n++] = QS_RANGE(sCaptureCap);
+    out[n++] = QS_RANGE(sMipChain);
+    out[n++] = QS_RANGE(sMipChainCap);
     n += gfxFbQsRanges(out + n);
     n += gfxCombinerQsRanges(out + n);
     return n;
@@ -154,49 +158,128 @@ static GLenum wrapMode(u8 cm) {
     return (cm & G_TX_MIRROR) ? GL_MIRRORED_REPEAT : GL_REPEAT;
 }
 
+static void tileParamsFor(const GfxTile *t, float *tileParams) {
+    tileParams[0] = t->shifts == 0 ? 1.0f : t->shifts <= 10 ? 1.0f / (float)(1 << t->shifts) : (float)(1 << (16 - t->shifts));
+    tileParams[1] = t->shiftt == 0 ? 1.0f : t->shiftt <= 10 ? 1.0f / (float)(1 << t->shiftt) : (float)(1 << (16 - t->shiftt));
+    tileParams[2] = t->uls / 4.0f;
+    tileParams[3] = t->ult / 4.0f;
+}
+
+/* cached GL texture for (key, w, h), or 0 */
+static GLuint texCacheFind(u64 key, u32 w, u32 h) {
+    int i;
+    for (i = 0; i < sTexCount; i++) {
+        if (sTexCache[i].key == key && sTexCache[i].w == w && sTexCache[i].h == h) {
+            return sTexCache[i].tex;
+        }
+    }
+    return 0;
+}
+
+/* new cached GL texture, bound to the active unit; the caller uploads its levels */
+static GLuint texCacheAdd(u64 key, u32 w, u32 h) {
+    GLuint tex;
+    if (sTexCount == TEX_CACHE_SIZE) {
+        texCacheFlush();
+    }
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    sTexCache[sTexCount].key = key;
+    sTexCache[sTexCount].tex = tex;
+    sTexCache[sTexCount].w = w;
+    sTexCache[sTexCount].h = h;
+    sTexCount++;
+    return tex;
+}
+
+static void setSampling(const GfxState *st, const GfxTile *t, int mipmapped) {
+    int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode(t->cms));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode(t->cmt));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    mipmapped ? (linear ? GL_LINEAR_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_NEAREST)
+                              : (linear ? GL_LINEAR : GL_NEAREST));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+}
+
 static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, float *size) {
     const GfxTile *t = &st->tiles[tile & 7];
     GfxTexImage img;
     GLuint tex = sWhiteTex;
-    int i;
-    int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
-    float shiftS = t->shifts == 0 ? 1.0f : t->shifts <= 10 ? 1.0f / (float)(1 << t->shifts) : (float)(1 << (16 - t->shifts));
-    float shiftT = t->shiftt == 0 ? 1.0f : t->shiftt <= 10 ? 1.0f / (float)(1 << t->shiftt) : (float)(1 << (16 - t->shiftt));
-    tileParams[0] = shiftS;
-    tileParams[1] = shiftT;
-    tileParams[2] = t->uls / 4.0f;
-    tileParams[3] = t->ult / 4.0f;
+    tileParamsFor(t, tileParams);
     size[0] = 1.0f;
     size[1] = 1.0f;
     glActiveTexture(GL_TEXTURE0 + unit);
     if (gfxTmemDecode(st, tile & 7, &img)) {
         size[0] = (float)img.width;
         size[1] = (float)img.height;
-        for (i = 0; i < sTexCount; i++) {
-            if (sTexCache[i].key == img.key && sTexCache[i].w == img.width && sTexCache[i].h == img.height) {
-                tex = sTexCache[i].tex;
-                break;
-            }
-        }
-        if (i == sTexCount) {
-            if (sTexCount == TEX_CACHE_SIZE) {
-                texCacheFlush();
-            }
-            glGenTextures(1, &tex);
-            glBindTexture(GL_TEXTURE_2D, tex);
+        tex = texCacheFind(img.key, img.width, img.height);
+        if (tex == 0) {
+            tex = texCacheAdd(img.key, img.width, img.height);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
-            sTexCache[sTexCount].key = img.key;
-            sTexCache[sTexCount].tex = tex;
-            sTexCache[sTexCount].w = img.width;
-            sTexCache[sTexCount].h = img.height;
-            sTexCount++;
         }
     }
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode(t->cms));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode(t->cmt));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    setSampling(st, t, 0);
+}
+
+/* texture LOD: tiles tile..tile + maxLevel as the GL mips of one texture on unit 0. Each level must be half the
+ * previous (N64 mip chains are); the chain stops at the first that isn't. Returns the last level chained, 0 when
+ * there is no chain (the caller binds the tile alone). */
+static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileParams, float *size) {
+    GfxTexImage img;
+    u32 w0 = 0, h0 = 0, off[8], w[8], h[8];
+    u64 key = 0x6C6F64636861696Eull; /* never equals a single tile's key */
+    int n = -1, k;
+    GLuint tex;
+    for (k = 0; k <= maxLevel && k < 8; k++) {
+        size_t need;
+        if (!gfxTmemDecode(st, (tile + k) & 7, &img)) {
+            break;
+        }
+        if (k == 0) {
+            w0 = img.width;
+            h0 = img.height;
+            off[0] = 0;
+        } else if (img.width != (w0 >> k ? w0 >> k : 1) || img.height != (h0 >> k ? h0 >> k : 1)) {
+            break;
+        } else {
+            off[k] = off[k - 1] + w[k - 1] * h[k - 1] * 4;
+        }
+        w[k] = img.width;
+        h[k] = img.height;
+        need = off[k] + (size_t)w[k] * h[k] * 4;
+        if (need > sMipChainCap) {
+            u8 *p = realloc(sMipChain, need * 2);
+            if (p == NULL) {
+                break;
+            }
+            sMipChain = p;
+            sMipChainCap = need * 2;
+        }
+        memcpy(sMipChain + off[k], img.rgba, (size_t)w[k] * h[k] * 4);
+        key = (key ^ img.key) * 1099511628211ull;
+        n = k;
+    }
+    if (n < 1) {
+        return 0;
+    }
+    key = (key ^ (u64)n) * 1099511628211ull;
+    glActiveTexture(GL_TEXTURE0);
+    tex = texCacheFind(key, w0, h0);
+    if (tex == 0) {
+        tex = texCacheAdd(key, w0, h0);
+        for (k = 0; k <= n; k++) {
+            glTexImage2D(GL_TEXTURE_2D, k, GL_RGBA8, w[k], h[k], 0, GL_RGBA, GL_UNSIGNED_BYTE, sMipChain + off[k]);
+        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, n);
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    setSampling(st, &st->tiles[tile & 7], 1);
+    tileParamsFor(&st->tiles[tile & 7], tileParams);
+    size[0] = (float)w0;
+    size[1] = (float)h0;
+    return n;
 }
 
 /* ---------------------------------------------------------------- render state */
@@ -239,7 +322,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     u32 bm = (blend1 >> (4 + lastCycleShift)) & 3, bb = (blend1 >> (0 + lastCycleShift)) & 3;
     u32 fp = (blend1 >> 14) & 3, fa = (blend1 >> 10) & 3; /* cycle 1 P/A */
     float tile0[4], tile1[4], size0[2], size1[2];
-    int t0 = forRect ? tile : st->texTile;
+    int t0 = forRect ? tile : st->texTile, maxLevel;
     memset(&key, 0, sizeof key);
     key.combineHi = st->combineHi;
     key.combineLo = st->combineLo;
@@ -251,6 +334,12 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
+    /* texture LOD (triangles only: rects have no per-pixel LOD in our path) */
+    maxLevel = 0;
+    if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc < 2) {
+        maxLevel = bindMipTiles(st, t0, st->texLevels, tile0, size0);
+    }
+    key.lod = maxLevel > 0;
     p = gfxProgramGet(&key);
     glUseProgram(p->prog);
     glUniform4f(p->uPrim, st->prim[0] / 255.0f, st->prim[1] / 255.0f, st->prim[2] / 255.0f, st->prim[3] / 255.0f);
@@ -260,7 +349,11 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     glUniform1f(p->uPrimLod, st->primLodFrac / 255.0f);
     glUniform1f(p->uAlphaRef, st->blend[3] / 255.0f);
     glUniform1f(p->uPrimDepth, (st->primDepth & 0x7FFF) / 32767.0f);
-    if (p->usesTex0 && (st->texOn || forRect)) {
+    if (key.lod) {
+        /* both texels come from the mip chain on unit 0; LOD counts tile0 texels per N64 pixel */
+        glUniform1f(p->uLodScale, (float)sTarget->scale);
+        glUniform1f(p->uMaxLevel, (float)maxLevel);
+    } else if (p->usesTex0 && (st->texOn || forRect)) {
         bindTile(st, t0, 0, tile0, size0);
     } else {
         tile0[0] = tile0[1] = 1.0f;
@@ -269,7 +362,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sWhiteTex);
     }
-    if (p->usesTex1 && (st->texOn || forRect)) {
+    if (p->usesTex1 && !key.lod && (st->texOn || forRect)) {
         bindTile(st, (t0 + 1) & 7, 1, tile1, size1);
     } else {
         tile1[0] = tile1[1] = 1.0f;

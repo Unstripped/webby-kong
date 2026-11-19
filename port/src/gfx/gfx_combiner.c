@@ -90,8 +90,9 @@ static const char *colorIn(int slot, int v, u8 *tex) {
         case 10: return "vec3(uPrim.a)";
         case 11: return "vec3(vShade.a)";
         case 12: return "vec3(uEnv.a)";
+        case 13: return "vec3(lodFrac)";
         case 14: return "vec3(uPrimLod)";
-        default: return "vec3(0.0)"; /* SCALE, LOD_FRAC, K5, 0 */
+        default: return "vec3(0.0)"; /* SCALE, K5, 0 */
         }
     default: /* d */
         return v == 6 ? "vec3(1.0)" : "vec3(0.0)";
@@ -103,7 +104,7 @@ static const char *alphaIn(int slot, int v, u8 *tex) {
     if (v == 2) tex[1] = 1;
     if (slot == 2) {
         switch (v) {
-        case 0: return "0.0"; /* LOD_FRACTION */
+        case 0: return "lodFrac";
         case 6: return "uPrimLod";
         }
     } else if (v == 0) {
@@ -154,12 +155,30 @@ static GfxProgram build(const GfxProgramKey *k) {
            "uniform float uPrimLod, uAlphaRef, uPrimDepth;\n"
            "uniform vec4 uTile0, uTile1;\n"
            "uniform vec2 uSize0, uSize1;\n"
+           "uniform float uLodScale, uMaxLevel;\n"
            "out vec4 fragColor;\n"
            "float noise() { return fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); }\n"
            "void main() {\n"
-           "    vec4 t0 = texture(uTex0, (vSt * uTile0.xy - uTile0.zw) / uSize0);\n"
-           "    vec4 t1 = texture(uTex1, (vSt * uTile1.xy - uTile1.zw) / uSize1);\n"
-           "    vec4 comb = vec4(0.0);\n");
+           "    float lodFrac = 0.0;\n");
+    if (k->lod) {
+        /* RDP texture LOD (no detail/sharpen): tile0 texels per N64 pixel picks mip level l = floor(log2(lod)),
+         * TEXEL0/TEXEL1 are levels l and l + 1, LOD_FRAC = lod / 2^l - 1; magnified: level 0, frac 0;
+         * past the last level: that level, frac 1. uTex0 holds the levels as GL mips. */
+        strcat(fs,
+               "    vec2 uv = vSt * uTile0.xy - uTile0.zw;\n"
+               "    vec2 dx = abs(dFdx(uv)), dy = abs(dFdy(uv));\n"
+               "    float lod = max(max(dx.x, dx.y), max(dy.x, dy.y)) * uLodScale;\n"
+               "    float lvl = 0.0;\n"
+               "    if (lod >= 1.0) { lvl = floor(log2(lod)); lodFrac = lod / exp2(lvl) - 1.0; }\n"
+               "    if (lvl >= uMaxLevel) { lvl = uMaxLevel; lodFrac = 1.0; }\n"
+               "    vec4 t0 = textureLod(uTex0, uv / uSize0, lvl);\n"
+               "    vec4 t1 = textureLod(uTex0, uv / uSize0, min(lvl + 1.0, uMaxLevel));\n");
+    } else {
+        strcat(fs,
+               "    vec4 t0 = texture(uTex0, (vSt * uTile0.xy - uTile0.zw) / uSize0);\n"
+               "    vec4 t1 = texture(uTex1, (vSt * uTile1.xy - uTile1.zw) / uSize1);\n");
+    }
+    strcat(fs, "    vec4 comb = vec4(0.0);\n");
     if (k->cycle == 2) {
         strcat(fs, "    comb = t0;\n");
         tex[0] = 1;
@@ -200,6 +219,8 @@ static GfxProgram build(const GfxProgramKey *k) {
     p.uSize1 = glGetUniformLocation(p.prog, "uSize1");
     p.uAlphaRef = glGetUniformLocation(p.prog, "uAlphaRef");
     p.uPrimDepth = glGetUniformLocation(p.prog, "uPrimDepth");
+    p.uLodScale = glGetUniformLocation(p.prog, "uLodScale");
+    p.uMaxLevel = glGetUniformLocation(p.prog, "uMaxLevel");
     p.usesTex0 = tex[0];
     p.usesTex1 = tex[1];
     glUseProgram(p.prog);
