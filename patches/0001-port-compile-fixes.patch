@@ -453,6 +453,28 @@ index 453f2d9..e26d63c 100644
  
  extern u8 gGfxBufferIndex;
  extern u8 gViewportCount;
+diff --git a/src/global/1295B0.c b/src/global/1295B0.c
+index 411ef64..297b1c1 100644
+--- a/src/global/1295B0.c
++++ b/src/global/1295B0.c
+@@ -302,7 +302,7 @@ s32 lineSegmentIntersect2D(s16 x1, s16 z1, s16 x2, s16 z2, s16 x3, s16 z3, s16 x
+     c1 = x2 * z1 - x1 * z2;
+     d3 = x3 * a1 + b1 * z3 + c1;
+     d4 = x4 * a1 + b1 * z4 + c1;
+-    if (d3 != 0.0f && d4 != 0.0f && ((s32)((u32)d3 ^ (u32)d4)) >= 0) {
++    if (d3 != 0.0f && d4 != 0.0f && (d3 < 0.0f) == (d4 < 0.0f)) { // PORT: (u32) of a negative float is 0 in wasm; the N64's cvt kept the sign bit
+         return 0;
+     }
+     a2 = z4 - z3;
+@@ -310,7 +310,7 @@ s32 lineSegmentIntersect2D(s16 x1, s16 z1, s16 x2, s16 z2, s16 x3, s16 z3, s16 x
+     c2 = x4 * z3 - x3 * z4;
+     d1 = x1 * a2 + b2 * z1 + c2;
+     d2 = x2 * a2 + b2 * z2 + c2;
+-    if (d1 != 0.0f && d2 != 0.0f && ((s32)((u32)d1 ^ (u32)d2)) >= 0) {
++    if (d1 != 0.0f && d2 != 0.0f && (d1 < 0.0f) == (d2 < 0.0f)) { // PORT: same-sign test, as above
+         return 0;
+     }
+     det = a1 * b2 - a2 * b1;
 diff --git a/src/global/136820.c b/src/global/136820.c
 index 8e9893d..5be060f 100644
 --- a/src/global/136820.c
