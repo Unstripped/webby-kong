@@ -104,6 +104,7 @@ Saves (EEPROM) persist in IndexedDB.
   `gGfxTargetWide`, so the original frustum covers the centre and the sides show more scene. 2D draws keep
   their 4:3 place; scissors and fill rects spanning the width (overscan margins up to width/16 included)
   reach the edges, and the side areas are blanked once per gfx task. RDRAM uploads and readbacks use only the
-  centred region. `portGfxWideHalfYaw` (patch 0011) widens the map-culling frustum and `portGfxWideClipX`
-  (patch 0013) the screen bounds objects are culled against. Map chunks seen through portals (doorways) are
-  still found in 4:3 screen space, so a room visible only through a doorway at the side edge may not draw.
+  centred region. Once the side areas open, the game's overscan border around its viewport shows scene too, so
+  every cull runs against the displayed span (`portGfxWideSpanX`), not the viewport: RSP x outcodes (trivial
+  rejects, `G_CULLDL`), the map frustum and portal rects (`mapWideFactor`/`mapWideExtraF`, patches 0011 and
+  0013) and the screen bounds objects are culled against (`portGfxWideClipX`, patch 0013).

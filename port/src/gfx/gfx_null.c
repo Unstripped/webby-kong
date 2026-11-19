@@ -57,11 +57,14 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)len;
 }
 
-f32 portGfxWideFactor(void) {
-    return 1.0f;
+int portGfxWideSpanX(f32 *left, f32 *right) {
+    (void)left;
+    (void)right;
+    return 0;
 }
 
-f32 portGfxWideHalfYaw(f32 halfYawDeg) {
+f32 portGfxWideHalfYaw(f32 halfYawDeg, f32 widen) {
+    (void)widen;
     return halfYawDeg;
 }
 

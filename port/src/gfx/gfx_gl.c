@@ -471,31 +471,35 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     gfxFbSyncRdram(addr, len);
 }
 
-f32 portGfxWideFactor(void) {
-    float wide = gfxFbPhysWidth(gPortViWidth) / (float)(gPortViWidth * gGfxScale);
-    return wide > 1.0f ? wide : 1.0f;
+int portGfxWideSpanX(f32 *left, f32 *right) {
+    float half = gfxFbPhysWidth(gPortViWidth) / (float)gGfxScale * 0.5f, mid = gPortViWidth * 0.5f;
+    if (half <= mid) {
+        return 0;
+    }
+    *left = mid - half;
+    *right = mid + half;
+    return 1;
 }
 
-f32 portGfxWideHalfYaw(f32 halfYawDeg) {
-    float wide = portGfxWideFactor();
-    if (wide <= 1.0f || halfYawDeg >= 89.0f) {
+f32 portGfxWideHalfYaw(f32 halfYawDeg, f32 widen) {
+    if (widen <= 1.0f || halfYawDeg >= 89.0f) {
         return halfYawDeg;
     }
     /* tan form keeps the widened angle below 90 degrees */
-    return atanf(tanf(halfYawDeg * (float)M_PI / 180.0f) * wide) * 180.0f / (float)M_PI;
+    return atanf(tanf(halfYawDeg * (float)M_PI / 180.0f) * widen) * 180.0f / (float)M_PI;
 }
 
 void portGfxWideClipX(s16 *left, s16 *right) {
     s32 w = (s32)gPortViWidth;
-    s32 extra = ((s32)gfxFbPhysWidth(gPortViWidth) - w * (s32)gGfxScale) / 2 / (s32)gGfxScale + 1;
-    if (extra <= 1) {
+    f32 l, r;
+    if (!portGfxWideSpanX(&l, &r)) {
         return;
     }
     /* same overscan tolerance as spansWidth(): an edge within width/16 of the image edge is the image edge */
-    if (*left <= w / 16) {
-        *left -= extra;
+    if (*left <= w / 16 && floorf(l) - 1.0f < *left) {
+        *left = (s16)(floorf(l) - 1.0f);
     }
-    if (*right >= w - w / 16) {
-        *right += extra;
+    if (*right >= w - w / 16 && ceilf(r) + 1.0f > *right) {
+        *right = (s16)(ceilf(r) + 1.0f);
     }
 }

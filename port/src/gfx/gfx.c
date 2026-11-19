@@ -183,6 +183,11 @@ static void loadVertices(u32 addr, int n, int dst) {
     const Vtx *src = (const Vtx *)gfxHost(addr);
     int i;
     float vx = R.vpScale[0] / 4.0f, vy = R.vpScale[1] / 4.0f, tx = R.vpTrans[0] / 4.0f, ty = R.vpTrans[1] / 4.0f;
+    /* x outcodes test the displayed span, not the viewport: a wide target shows the side areas and the game's
+     * overscan border around the viewport too, so trivial rejects and G_CULLDL must keep what lands there.
+     * Screen x relative to the viewport centre, as x * vx / w. */
+    float fbHalf = (gGfx.cimgWidth ? gGfx.cimgWidth : 320) * 0.5f;
+    float xLo = fbHalf - fbHalf * gGfxTargetWide - tx, xHi = fbHalf + fbHalf * gGfxTargetWide - tx;
     if (dst < 0 || dst + n > MAX_VTX) {
         gfxWarnOnce("vtxrange", "PORT: gfx G_VTX range %d+%d", dst, n);
         return;
@@ -258,8 +263,8 @@ static void loadVertices(u32 addr, int n, int dst) {
             d->a = f / 255.0f;
         }
         d->clip = 0;
-        if (d->x < -d->w * gGfxTargetWide) d->clip |= 1;
-        if (d->x > d->w * gGfxTargetWide) d->clip |= 2;
+        if (d->x * vx < d->w * xLo) d->clip |= 1;
+        if (d->x * vx > d->w * xHi) d->clip |= 2;
         if (d->y < -d->w) d->clip |= 4;
         if (d->y > d->w) d->clip |= 8;
         if (d->z < -d->w) d->clip |= 16;

@@ -5,18 +5,37 @@ Subject: [PATCH] port: widescreen object culling
 
 
 diff --git a/src/global/55B20.c b/src/global/55B20.c
-index 7bfaf5b..93f1891 100644
+index 7bfaf5b..ab7d4c1 100644
 --- a/src/global/55B20.c
 +++ b/src/global/55B20.c
-@@ -1193,12 +1193,41 @@ u8 mapNodeTriangleContainsPoint(MapCollisionNode *tri, f32 x, f32 z) {
+@@ -1193,12 +1193,60 @@ u8 mapNodeTriangleContainsPoint(MapCollisionNode *tri, f32 x, f32 z) {
  extern PlayerStruct *gPlayerSlots;
  extern u8 gCurrentPlayerIndex;
  
-+/* PORT: Hor+ widescreen shows portGfxWideFactor() times the game's width. Portal screen rects run in the game's
-+ * screen coordinates, so let them reach this many pixels past each side of the viewport (exact, for the frustum
++/* PORT: Hor+ widescreen shows the scene across portGfxWideSpanX(), which reaches past the viewport rect on both sides
++ * by the side areas plus the overscan border the game leaves around the rect. Portal screen rects run in the game's
++ * screen coordinates, so let them reach this many pixels past each side of the rect (exact, for the frustum
 + * mapping; rounded up, for rect bounds). */
 +static f32 mapWideExtraF(u8 player) {
-+    return gPlayerSlots[player].unk278 * (portGfxWideFactor() - 1.0f) * 0.5f;
++    f32 left;
++    f32 right;
++    f32 extra;
++
++    if (!portGfxWideSpanX(&left, &right)) {
++        return 0.0f;
++    }
++    extra = gPlayerSlots[player].rect[0] - left;
++    if (right - gPlayerSlots[player].rect[2] > extra) {
++        extra = right - gPlayerSlots[player].rect[2];
++    }
++    return extra > 0.0f ? extra : 0.0f;
++}
++
++/* PORT: the frustum corner rays' widening, so they span rect[0] - extra .. rect[2] + extra (frustumCalculateCornerRays) */
++f32 mapWideFactor(void) {
++    f32 w = gPlayerSlots[gCurrentPlayerIndex].unk278;
++
++    return w > 0.0f ? (w + 2.0f * mapWideExtraF(gCurrentPlayerIndex)) / w : 1.0f;
 +}
 +
 +static s32 mapWideExtra(void) {
@@ -52,7 +71,7 @@ index 7bfaf5b..93f1891 100644
      gMapChunks[chunkIndex].clipBottom = gPlayerSlots[gCurrentPlayerIndex].rect[3];
  }
  
-@@ -1228,7 +1257,7 @@ void mapChunkFrameUpdate(f32 x, f32 y, f32 z) {
+@@ -1228,7 +1276,7 @@ void mapChunkFrameUpdate(f32 x, f32 y, f32 z) {
      mapTriggerCollectZonesAtPoint(x, y, z);
      D_807F6C80 = 0;
      D_807F6C08 = 0;
@@ -61,7 +80,7 @@ index 7bfaf5b..93f1891 100644
      mapChunkRenderNodes(x, y, z);
      effectWaterUpdateMeshes(x, y, z, gCurrentPlayerIndex);
      actorCalculateTargetDistancesAndAngles(x, y, z);
-@@ -1419,10 +1448,12 @@ void mapScreenRectBuildFrustum(s32 left, s32 top, s32 right, s32 bottom, f32 x,
+@@ -1419,10 +1467,12 @@ void mapScreenRectBuildFrustum(s32 left, s32 top, s32 right, s32 bottom, f32 x,
      f32 y0;
      f32 y1;
      f32 m[4][3];
@@ -76,7 +95,7 @@ index 7bfaf5b..93f1891 100644
      x1 = (q * (sFrustumCornerRays.c1x - sFrustumCornerRays.c0x)) + sFrustumCornerRays.c0x;
      q = ((f32)(top - gPlayerSlots[player].rect[1])) / (f32)gPlayerSlots[player].unk27A;
      y0 = ((sFrustumCornerRays.c2y - sFrustumCornerRays.c0y) * q) + sFrustumCornerRays.c0y;
-@@ -1891,7 +1922,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
+@@ -1891,7 +1941,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
                  gMapChunks[idx].texAnimPending = 0;
              }
              gDPPipeSync(gfx++);
@@ -85,7 +104,7 @@ index 7bfaf5b..93f1891 100644
              mapSetClipBounds((s16)gMapChunks[idx].clipLeft, (s16)gMapChunks[idx].clipTop, (s16)gMapChunks[idx].clipRight, (s16)gMapChunks[idx].clipBottom);
              gfx = fogRender(gfx);
              if (flags & 0x10) {
-@@ -1967,7 +1998,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
+@@ -1967,7 +2017,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
          idx = D_807F6C58[i];
          if (gMapChunks[idx].state == 1) {
              gDPPipeSync(gfx++);
@@ -94,7 +113,7 @@ index 7bfaf5b..93f1891 100644
              mapSetClipBounds((s16)gMapChunks[idx].clipLeft, (s16)gMapChunks[idx].clipTop, (s16)gMapChunks[idx].clipRight, (s16)gMapChunks[idx].clipBottom);
              gRenderSetupKind = 0xFF;
              if (flag) {
-@@ -2505,22 +2536,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2505,22 +2555,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
      s16 y;
      s32 i;
      u8 flag;
@@ -125,7 +144,7 @@ index 7bfaf5b..93f1891 100644
          }
          if (gPlayerSlots[gCurrentPlayerIndex].rect[3] < y) {
              y = gPlayerSlots[gCurrentPlayerIndex].rect[3];
-@@ -2543,6 +2576,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2543,6 +2595,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
          *outTop = -1;
          *outRight = -1;
          *outBottom = -1;
@@ -134,7 +153,7 @@ index 7bfaf5b..93f1891 100644
      }
  }
  
-@@ -2714,6 +2749,7 @@ s16 top;
+@@ -2714,6 +2768,7 @@ s16 top;
  s16 right;
  s16 bottom;
  {

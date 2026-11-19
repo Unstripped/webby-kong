@@ -62,8 +62,10 @@ u32 portIoRead(u32 reg);
 void portIoWrite(u32 reg, u32 value);
 
 /* ---- widescreen ---- */
-f32 portGfxWideFactor(void); /* displayed width / the game's 4:3 width (>= 1); 1 when not wide */
-f32 portGfxWideHalfYaw(f32 halfYawDeg); /* horizontal half-FOV widened by window aspect / (4:3); identity when not wide */
+/* x span of the displayed wide image in the game's pixels (its 4:3 image covers 0..VI width); 0 when not wide.
+ * Wide means the side areas are open, so the game's overscan border shows scene too: everything in this span is seen. */
+int portGfxWideSpanX(f32 *left, f32 *right);
+f32 portGfxWideHalfYaw(f32 halfYawDeg, f32 widen); /* half-FOV whose tangent is widen times as large */
 void portGfxWideClipX(s16 *left, s16 *right); /* screen x bounds reaching the image edge move out to the wide edge */
 
 /* ---- debug trace (port/src/debug.c) ---- */
