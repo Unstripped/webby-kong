@@ -68,6 +68,23 @@ index b685aea..5543071 100644
  #endif
  #ifndef PROTO_SKIP_color5551ToSepia
  u16 color5551ToSepia(u16);
+diff --git a/include/proto/global/478F0.h b/include/proto/global/478F0.h
+index 488a22a..7c7c569 100644
+--- a/include/proto/global/478F0.h
++++ b/include/proto/global/478F0.h
+@@ -284,10 +284,10 @@ void csCmdSetPositionPreset(CsState *, s16, s16, s16);
+ u8 csCondVarLess(CsState *, s16, s16, s16);
+ #endif
+ #ifndef PROTO_SKIP_csCmdCheckCollectedSufficientItems
+-void csCmdCheckCollectedSufficientItems(CsState *, s16, s16, s16);
++u8 csCmdCheckCollectedSufficientItems(CsState *, s16, s16, s16);
+ #endif
+ #ifndef PROTO_SKIP_csCondWorldHubFlagSet
+-void csCondWorldHubFlagSet(CsState *, s16, s16, s16);
++u8 csCondWorldHubFlagSet(CsState *, s16, s16, s16);
+ #endif
+ #ifndef PROTO_SKIP_csCondActorFacingPos
+ u8 csCondActorFacingPos(CsState *, s16, s16, s16);
 diff --git a/include/proto/global/9DD70.h b/include/proto/global/9DD70.h
 index 92d9f3d..84534ab 100644
 --- a/include/proto/global/9DD70.h
@@ -518,9 +535,27 @@ index 7eb0f62..31a1681 100644
  
  
 diff --git a/src/global/42630.c b/src/global/42630.c
-index 68ed8d9..b00958e 100644
+index 68ed8d9..42589bb 100644
 --- a/src/global/42630.c
 +++ b/src/global/42630.c
+@@ -188,7 +188,7 @@ typedef s32 (*CsCondFunc)(CsState *, s16, s16, s16);
+ CsCondFunc gCsCondTable[19] = {
+     /* 0x00 */ (CsCondFunc)csCondVarLess, // u8 return
+     /* 0x01 */ csCondSyncActorAnim,
+-    /* 0x02 */ (CsCondFunc)csCmdCheckCollectedSufficientItems, // void return
++    /* 0x02 */ (CsCondFunc)csCmdCheckCollectedSufficientItems, // u8 return
+     /* 0x03 */ (CsCondFunc)csCondActorFacingPos, // u8 return
+     /* 0x04 */ csCondFlags82Or83,
+     /* 0x05 */ (CsCondFunc)csCondCheckSlotMapIndex, // u8 return
+@@ -201,7 +201,7 @@ CsCondFunc gCsCondTable[19] = {
+     /* 0x0C */ (CsCondFunc)csCondAudioFlag, // u8 return
+     /* 0x0D */ (CsCondFunc)csCondTrue, // u8 return
+     /* 0x0E */ csCondCheckAllKongs,
+-    /* 0x0F */ (CsCondFunc)csCondWorldHubFlagSet, // void return
++    /* 0x0F */ (CsCondFunc)csCondWorldHubFlagSet, // u8 return
+     /* 0x10 */ (CsCondFunc)csCondCountFlags261Ge4, // u8 return
+     /* 0x11 */ csCondPlayerNearFixedPoint,
+     /* 0x12 */ (CsCondFunc)csCondActorInFront, // u8 return
 @@ -1194,7 +1194,7 @@ extern Actor *gSpawnedActor;
  extern Actor *gActivePlayerActor;
  extern u32 gGlobalCutsceneFlags;
@@ -558,6 +593,31 @@ index f2918ef..2f3d2a9 100644
          }
      } else {
          glist = screenFadeUpdate(glist, D_8076AEE0);
+diff --git a/src/global/478F0.c b/src/global/478F0.c
+index 9adc202..a7c9c5b 100644
+--- a/src/global/478F0.c
++++ b/src/global/478F0.c
+@@ -2840,16 +2840,16 @@ u8 csCondVarLess(CsState *cs, s16 csId, s16 b, s16 c) {
+     return cs->unk14[b] < cs->unk14[c];
+ }
+ 
+-void csCmdCheckCollectedSufficientItems(CsState *cs, s16 csId, s16 b, s16 c) {
+-    mapHasCollectedSufficientItems();
++u8 csCmdCheckCollectedSufficientItems(CsState *cs, s16 csId, s16 b, s16 c) { // PORT: IDO $v0 fallthrough made explicit
++    return mapHasCollectedSufficientItems();
+ }
+ 
+-void csCondWorldHubFlagSet(CsState *cs, s16 csId, s16 b, s16 c) {
++u8 csCondWorldHubFlagSet(CsState *cs, s16 csId, s16 b, s16 c) { // PORT: IDO $v0 fallthrough made explicit
+     s32 idx = mapGetHubWorldIndex(gCurrentWorldId, 0);
+     if (idx >= 8) {
+         idx = 0;
+     }
+-    flagGet(D_80744710[idx], 0);
++    return flagGet(D_80744710[idx], 0);
+ }
+ 
+ 
 diff --git a/src/global/55B20.c b/src/global/55B20.c
 index 695a10a..628409b 100644
 --- a/src/global/55B20.c
