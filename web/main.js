@@ -82,6 +82,7 @@ async function start(romBytes) {
   const args = [];
   if (params.has('scale')) args.push('--scale', params.get('scale'));
   if (params.has('msaa')) args.push('--msaa', params.get('msaa'));
+  if (params.has('drawdist')) args.push('--drawdist', params.get('drawdist'));
   module.callMain(args);
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
   if (window.dk64touch) window.dk64touch.started();

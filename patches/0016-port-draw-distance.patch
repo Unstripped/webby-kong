@@ -1,0 +1,197 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Thu, 19 Nov 2026 11:13:12 -0700
+Subject: [PATCH] port: draw distance
+
+
+diff --git a/include/proto/global/61AA0.h b/include/proto/global/61AA0.h
+index 9b5fdd7..b950097 100644
+--- a/include/proto/global/61AA0.h
++++ b/include/proto/global/61AA0.h
+@@ -21,6 +21,9 @@ Gfx *renderSetSegment6AndFog(Gfx *, s16, u8);
+ #ifndef PROTO_SKIP_renderScaleDistanceByFov
+ f32 renderScaleDistanceByFov(f32);
+ #endif
++#ifndef PROTO_SKIP_renderExtendDistance
++f32 renderExtendDistance(f32);
++#endif
+ #ifndef PROTO_SKIP_billboardCacheInit
+ void billboardCacheInit(void);
+ #endif
+diff --git a/src/global/1295B0.c b/src/global/1295B0.c
+index 297b1c1..a477cbc 100644
+--- a/src/global/1295B0.c
++++ b/src/global/1295B0.c
+@@ -13,6 +13,7 @@
+ #include "proto/global/19A00.h"
+ #include "proto/global/201B0.h"
+ #include "proto/global/55B20.h"
++#include "proto/global/61AA0.h"
+ #include "proto/global/69E60.h"
+ #include "proto/global/7130.h"
+ #include "proto/global/79890.h"
+@@ -978,7 +979,7 @@ void spawnNodesUpdate(void) {
+         if (active) {
+             gBehaviourWorkState = node->actor->customState;
+         }
+-        rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
++        rangeSq = renderExtendDistance(gSpawnEntryTable[node->entryIndex].spawnRange * 0x64); // PORT: enemies spawn as far out as they are drawn
+         rangeSq = rangeSq * rangeSq;
+         if (active) {
+             node->chunkIndex = node->actor->chunkIndex;
+diff --git a/src/global/35000.c b/src/global/35000.c
+index abf10ac..d6eacac 100644
+--- a/src/global/35000.c
++++ b/src/global/35000.c
+@@ -271,6 +271,12 @@ void renderEntrySetDistanceOverride(RenderEntry *list, void *targetId, u8 listIn
+ }
+ 
+ 
++// PORT: the in-range test that lets mapChunksRender skip entries uses the extended draw distance, as the objects' own
++// culls do. Effects keep theirs: their fades (effectPlayerDistanceFadeUpdate) end at maxDistance.
++static f32 renderEntryMaxDist(RenderEntry *entry) {
++    return entry->unk24 == 5 ? entry->unk1C : renderExtendDistance(entry->unk1C);
++}
++
+ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY, f32 camZ, RenderEntry **outClosest) {
+     RenderEntry *node;
+     f32 dx;
+@@ -299,7 +305,7 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
+         node = node->unk14;
+     }
+     if (head != NULL) {
+-        if (head->unk10 < head->unk1C || head->unk1C == -2) {
++        if (head->unk10 < renderEntryMaxDist(head) || head->unk1C == -2) {
+             *outClosest = head;
+             if (head->unk1C == -2) {
+                 dist = 9999.0f;
+@@ -310,7 +316,7 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
+         cur = head->unk14;
+         while (cur != NULL) {
+             inserted = 0;
+-            if ((dist < cur->unk10 && cur->unk10 < cur->unk1C) || cur->unk1C == -2) {
++            if ((dist < cur->unk10 && cur->unk10 < renderEntryMaxDist(cur)) || cur->unk1C == -2) {
+                 *outClosest = cur;
+                 if (cur->unk1C == -2) {
+                     dist = 9999.0f;
+@@ -318,10 +324,10 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
+                     dist = cur->unk10;
+                 }
+             }
+-            key = (cur->unk1C < cur->unk10) ? 9999.0 : cur->unk10;
++            key = (renderEntryMaxDist(cur) < cur->unk10) ? 9999.0 : cur->unk10;
+             ins = cur->unk18;
+             while (ins != NULL && inserted == 0) {
+-                insKey = (ins->unk1C < ins->unk10) ? 9999.0 : ins->unk10;
++                insKey = (renderEntryMaxDist(ins) < ins->unk10) ? 9999.0 : ins->unk10;
+                 if (key <= insKey || cur->unk1C == -2) {
+                     inserted = 1;
+                     if (ins != cur->unk18) {
+@@ -450,7 +456,7 @@ Gfx *renderActorEntryBuildDisplayList(FrameMatrices *frame, Actor *actor, Gfx *g
+         dx = dx * dx;
+         dy = dy * dy;
+         dz = dz * dz;
+-        if (sqrtf(dx + dy + dz) > renderScaleDistanceByFov(actor->drawDistance)) {
++        if (sqrtf(dx + dy + dz) > renderScaleDistanceByFov(renderExtendDistance(actor->drawDistance))) { // PORT: extended
+             return glist;
+         }
+         if (mapPointOutsideClipBounds(actor->x, actor->y, actor->z, actor->cullMarginX, actor->cullMarginY)) {
+diff --git a/src/global/36880.c b/src/global/36880.c
+index 6d40971..b4a09dc 100644
+--- a/src/global/36880.c
++++ b/src/global/36880.c
+@@ -2423,9 +2423,9 @@ Gfx *renderModelAnimatedSlot(ModelType1RenderView *obj, Gfx *gfx, f32 camX, f32
+         dy *= dy;
+         dz *= dz;
+         dist = sqrtf(dx + dy + dz);
+-        drawDist = renderScaleDistanceByFov(obj->maxDist);
++        drawDist = renderScaleDistanceByFov(renderExtendDistance(obj->maxDist)); // PORT: extended draw distance
+         if (obj->mapFlags & 1) {
+-            drawDist = obj->maxDist;
++            drawDist = renderExtendDistance(obj->maxDist);
+         }
+         if (drawDist < dist) {
+             return gfx;
+@@ -2586,7 +2586,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
+     f32 dz;
+     s32 pad0;
+     f32 scale;
+-    s16 limit;
++    f32 limit; // PORT: f32, the extended draw distance can pass s16 once the zoom scales it
+     s32 i;
+     s32 vtxOffset;
+     s16 pad16;
+@@ -2609,7 +2609,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
+         dy *= dy;
+         dz *= dz;
+         dist = sqrtf(dx + dy + dz);
+-        limit = renderScaleDistanceByFov(obj->maxDist);
++        limit = renderScaleDistanceByFov(renderExtendDistance(obj->maxDist)); // PORT: extended draw distance
+         if (limit < dist) {
+             return gfx;
+         }
+@@ -3225,11 +3225,11 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
+     ModelSpriteSource *d1;
+     TexAnimNode *link;
+     s16 idx;
+-    s16 r;
++    f32 r; // PORT: f32 r/r2, extended draw distance
+     f32 angleX;
+     f32 angleY;
+     f32 angleZ;
+-    s16 r2;
++    f32 r2;
+ 
+     result = NULL;
+     second = 0;
+@@ -3269,15 +3269,15 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
+                 break;
+             }
+             if (tgt != NULL) {
+-                r = tgt->maxDist;
++                r = renderExtendDistance(tgt->maxDist); // PORT: extended with its model; the fade keeps its proportions
+                 d2 = (camX - x) * (camX - x) + (camY - y) * (camY - y) + (camZ - z) * (camZ - z);
+                 if (d2 < r * r) {
+-                    r2 = tgt->fullAlphaDist;
++                    r2 = tgt->maxDist > 0 ? tgt->fullAlphaDist * (r / tgt->maxDist) : tgt->fullAlphaDist;
+                     if (d2 < r2 * r2) {
+                         tgt->alpha = tgt->baseAlpha;
+                     } else {
+                         d2 = sqrtf(d2);
+-                        tgt->alpha = (u32)((f32)(u32)tgt->baseAlpha - ((f32)(u32)tgt->baseAlpha * (d2 - (f32)tgt->fullAlphaDist)) / (f32)(tgt->maxDist - tgt->fullAlphaDist));
++                        tgt->alpha = (u32)((f32)(u32)tgt->baseAlpha - ((f32)(u32)tgt->baseAlpha * (d2 - r2)) / (r - r2));
+                     }
+                     if (tgt->animTextureId != -1) {
+                         found = 0;
+diff --git a/src/global/61AA0.c b/src/global/61AA0.c
+index bb72fd9..a99cb38 100644
+--- a/src/global/61AA0.c
++++ b/src/global/61AA0.c
+@@ -71,6 +71,7 @@ void renderCalcPlayerDistanceAlpha(f32 x, f32 y, f32 z, f32 maxDist, s16 actorTy
+     f32 fadeStart;
+     f32 fadeEnd;
+ 
++    maxDist = renderExtendDistance(maxDist); // PORT: extended draw distance; Aztec's sandstorm below still pulls it in
+     dist = sqrtf(R2A_SQ(x - gPlayerSlots[gCurrentPlayerIndex].eyeX) + R2A_SQ(y - gPlayerSlots[gCurrentPlayerIndex].eyeY) + R2A_SQ(z - gPlayerSlots[gCurrentPlayerIndex].eyeZ));
+     if (gCurrentMap == 0x26) {
+         maxDist = renderAdjustActorDistance(actorType, maxDist);
+@@ -126,6 +127,19 @@ f32 renderScaleDistanceByFov(f32 dist) {
+     return (dist / D_807F5FDC) * D_807F5FE0;
+ }
+ 
++extern f32 gGfxFarClip;
++
++// PORT: object draw distances and enemy spawn ranges times gPortDrawDistance, out to the map's far clip (nothing past it
++// is seen) but never shorter than the game's own. Callers apply renderScaleDistanceByFov on top, as for the original.
++f32 renderExtendDistance(f32 dist) {
++    f32 ext = dist * gPortDrawDistance;
++
++    if (ext > gGfxFarClip) {
++        ext = gGfxFarClip;
++    }
++    return ext > dist ? ext : dist;
++}
++
+ typedef struct {
+     s32 lastUsedFrame;
+     s16 assetId;

@@ -35,6 +35,8 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 
 Run in a browser: `python3 -m http.server -d build/web 8080`, open `http://localhost:8080/`, pick the ROM
 (development: copy the ROM to `build/web/dev-rom.z64` and open `http://localhost:8080/?rom=/dev-rom.z64`).
+Objects (trees, buildings, pickups, actors) draw and enemies spawn out to 4× the game's distances, capped at each map's
+far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64 behaviour, any value 1–16 sets the factor.
 `Module.ccall('port_debug_stats', 'string')` in the console returns the runtime counters (VI ticks, frames,
 RSP tasks, map, overlay, audio peak, actor count, player position). `web/debug.js` adds `dk64dbg` (state, trace log,
 frame grabs, marks): F2 toggles a debug panel (state, trace category toggles that persist across reloads, Mark /

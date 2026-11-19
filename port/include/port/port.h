@@ -68,6 +68,9 @@ int portGfxWideSpanX(f32 *left, f32 *right);
 f32 portGfxWideHalfYaw(f32 halfYawDeg, f32 widen); /* half-FOV whose tangent is widen times as large */
 void portGfxWideClipX(s16 *left, s16 *right); /* screen x bounds reaching the image edge move out to the wide edge */
 
+/* ---- draw distance (port/src/main.c; --drawdist, ?drawdist=) ---- */
+extern f32 gPortDrawDistance; /* object draw distance / enemy spawn range multiplier, capped at the far clip; 1 = N64 */
+
 /* ---- debug trace (port/src/debug.c) ---- */
 #define PORT_TRACE_MAP 0x1u   /* map transitions */
 #define PORT_TRACE_CAM 0x2u   /* camera path start/end */

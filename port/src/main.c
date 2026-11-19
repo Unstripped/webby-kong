@@ -7,6 +7,17 @@ void portBootStart(void);
 void portAudioOutDrain(double ms);
 
 static double sAccumMs;
+f32 gPortDrawDistance = 4.0f;
+
+/* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64 */
+static void setDrawDistance(const char *arg) {
+    double v = atof(arg);
+    if (v >= 1.0 && v <= 16.0) {
+        gPortDrawDistance = (f32)v;
+    } else {
+        portLog("PORT: ignoring drawdist %s (1..16)", arg);
+    }
+}
 
 static void runAll(void) {
     portRunUntilIdle();
@@ -194,11 +205,13 @@ int main(int argc, char **argv) {
             qsLoadAt = (u32)strtoul(argv[++a], NULL, 0);
         } else if (strcmp(argv[a], "--resume") == 0 && a + 1 < argc) {
             resume = argv[++a];
+        } else if (strcmp(argv[a], "--drawdist") == 0 && a + 1 < argc) {
+            setDrawDistance(argv[++a]);
         }
     }
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
-               "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw]\n");
+               "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K]\n");
         return 2;
     }
     if (input != NULL) {
@@ -266,7 +279,8 @@ static double sLastMs;
 int portMainQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sAccumMs);
     out[1] = QS_RANGE(sLastMs);
-    return 2;
+    out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
+    return 3;
 }
 
 static void port_frame(void) {
@@ -283,6 +297,8 @@ int main(int argc, char **argv) {
             scale = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--msaa") == 0) {
             msaa = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--drawdist") == 0) {
+            setDrawDistance(argv[++a]);
         }
     }
     if (portRomSize() == 0) {
