@@ -5,10 +5,10 @@ Subject: [PATCH] port: anti-tamper
 
 
 diff --git a/src/boss/0.c b/src/boss/0.c
-index 3551cb0..0f23a96 100644
+index ac87876..4309594 100644
 --- a/src/boss/0.c
 +++ b/src/boss/0.c
-@@ -566,20 +566,8 @@ void bossArmydilloStep(void) {
+@@ -557,20 +557,8 @@ void bossArmydilloStep(void) {
          bossArmydilloInitArena();
          gCurrentActor->speedXZ = 0.0f;
          scriptSetActorRampTarget(gCurrentActor, 0.0f, 0.0f);
@@ -32,24 +32,24 @@ index 3551cb0..0f23a96 100644
      currentActorAnimTryIdleVariant(0, &gBehaviourWorkState->idleAnimFrame);
      if ((gActorGlobalState.bossFightPhase == 9) || (gActorGlobalState.unk15 != 0)) {
 diff --git a/src/global/15050.c b/src/global/15050.c
-index 0795869..ee98754 100644
+index ca6f88d..f0f7f73 100644
 --- a/src/global/15050.c
 +++ b/src/global/15050.c
-@@ -718,9 +718,6 @@ void heapTickDeferredFrees(void) {
-     s32 count;
+@@ -712,9 +712,6 @@ void heapTickDeferredFrees(void) {
+     s32 addrBias = 0x4BFFD668;
  
      heapTickDeferredFreesHook(notExpected, addrBias);
 -    if (~notExpected != *(s32 *)(addrBias + 0x54002C80)) {
 -        flag = 1;
 -    }
-     count = gHeapDeferredFreeCount;
-     if (gHeapDeferredFreeCount && gHeapDeferredFreeCount) {}  // FAKE: second count read keeps count in a0 (v1 without it)
-     while (i < count) {
+     while (i < gHeapDeferredFreeCount) {
+         if (--gHeapDeferredFrees[i].delay == 0 && flag == 0) {
+             heapFreeToPool(gHeapDeferredFrees[i].ptr);
 diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index a6f116f..cdec2ba 100644
+index 467d891..05affeb 100644
 --- a/src/global/63EC0.c
 +++ b/src/global/63EC0.c
-@@ -682,6 +682,8 @@ void effectUpdateAndDispatch(void) {
+@@ -698,6 +698,8 @@ void effectUpdateAndDispatch(void) {
      osRecvMesg(&D_807655F0, NULL, OS_MESG_BLOCK);
      D_80746834 = 0;
      osInvalDCache(dmaWords, 0x10);
@@ -81,16 +81,10 @@ index b5c116a..59f6a90 100644
      for (i = 0; i < 4; i++) {
          if (compact != 0) {
 diff --git a/src/menu/1AF0.c b/src/menu/1AF0.c
-index fa5ef1e..ab5c359 100644
+index b450767..57d85c6 100644
 --- a/src/menu/1AF0.c
 +++ b/src/menu/1AF0.c
-@@ -867,13 +867,10 @@ s32 menuDecodeAddressConstant(s32 val) {
- 
- 
- 
--extern s32 csCmdExec;
--
- void menuCheckControllerAntiPiracy(void) {
+@@ -905,7 +905,6 @@ void menuUpdateCandyShopActor(void) {
      MenuShopState *st;
      u8 *inventory;
      s32 pad[4];
@@ -98,10 +92,10 @@ index fa5ef1e..ab5c359 100644
  
      behaviourFrameBegin();
      if (gCurrentMap == 0x19) {
-@@ -881,22 +878,6 @@ void menuCheckControllerAntiPiracy(void) {
+@@ -913,22 +912,6 @@ void menuUpdateCandyShopActor(void) {
          inventory = gPlayerInventoryTable[0].kong[gPlayerCharacterId[0]].unk0;
  
-         if (!(gCurrentActor->base.flags & 0x10)) {
+         if (!(gCurrentActor->flags & 0x10)) {
 -
 -            s32 *cur = (s32 *)controllerUpdate;
 -            s32 *end = (s32 *)controllerLatchPad;
@@ -114,8 +108,8 @@ index fa5ef1e..ab5c359 100644
 -                } while ((u32)cur < (u32)end);
 -            }
 -
--            if (sum != (s32)0xA1C0EB24) {
--                dest = (s32 *)menuDecodeAddressConstant((s32)&csCmdExec + 0xFFDE0BB1);
+-            if (sum != 0xA1C0EB24) {
+-                dest = (s32 *)menuDecodeAddressConstant((s32)csCmdExec + 0xFFDE0BB1);
 -                *dest = menuDecodeAddressConstant(0x03BE0BB9);
 -            }
              menuExitSubmenu(st, inventory, 0x175);

@@ -5,10 +5,10 @@ Subject: [PATCH] port: overlays
 
 
 diff --git a/src/global/15050.c b/src/global/15050.c
-index f75c971..0795869 100644
+index 0720f31..ca6f88d 100644
 --- a/src/global/15050.c
 +++ b/src/global/15050.c
-@@ -216,14 +216,7 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
+@@ -219,14 +219,7 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
      gRdpOutputBufferSize = (bufferSize == 0) ? 0x28000 : bufferSize;
      gRdpOutputBuffer = heapAlloc(gRdpOutputBufferSize + 0x80);
      heapLockBlock(gRdpOutputBuffer);
@@ -21,11 +21,11 @@ index f75c971..0795869 100644
 -        osInvalICache((void *)vram, size);
 -    }
 +    portOverlayActivate(overlayId);
-     for (id = 0; id < 2; id++) {
-         q = (u8 *)gFramebuffers[id];
-         p = (u32 *)(q + (gHiResScale * 0x12C00 * gHiResScale) / 2 * 4);
+     for (fb = 0; fb < 2; fb++) {
+         pix = (u8 *)gFramebuffers[fb];
+         p = (u32 *)(pix + (gHiResScale * 0x12C00 * gHiResScale) / 2 * 4); // FAKE: p (loop 2's survivor payload) reused for the framebuffer end: the inner-loop refs raise p's adjsave 30 -> 75, so p takes v1 before hp (30) and hp gets a3 (0x320-0x354); a separate end pointer ties them at 30 and hp takes v1 (9 lines)
 diff --git a/src/global/450.c b/src/global/450.c
-index 1849f4b..37fb7fc 100644
+index 8d373f1..8b5f3ad 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -60,7 +60,6 @@
@@ -36,7 +36,7 @@ index 1849f4b..37fb7fc 100644
  void func_80026FD0(void *);
  void func_8002EC08(s32);
  
-@@ -468,10 +467,10 @@ void mainThreadLoop(void *arg) {
+@@ -455,10 +454,10 @@ void mainThreadLoop(void *arg) {
                  transitionRunFrame(gInitialMap, gInitialExit);
                  break;
              case 3:

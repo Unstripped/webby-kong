@@ -3,7 +3,12 @@
 #include "segment.h"
 
 extern const u32 gPortSegRom[18][2];
-extern s32 sAudioFreq;
+
+/* src/boot/main.c's globals that game code reads (main.c itself is replaced by this file). */
+u32 sAudioFreq;
+SegmentTableEntry gSegmentTable[18];
+/* the decomp links D_8000DDCC (5A50, 6AD90, 7130: the sequence/sound bank ROM base) by value: entry 11's romStart */
+__asm__(".globl D_8000DDCC\n.set D_8000DDCC, gSegmentTable+0x108\n");
 void globalInit(OSMesgQueue *queue, s32 haltReason);
 
 /* IPL3/libultra boot globals (0x80000300 on the N64). */

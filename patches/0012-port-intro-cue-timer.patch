@@ -5,10 +5,10 @@ Subject: [PATCH] port: intro cue timer
 
 
 diff --git a/src/global/201B0.c b/src/global/201B0.c
-index 96057cd..87cb5c2 100644
+index b4fc1bb..2ca924a 100644
 --- a/src/global/201B0.c
 +++ b/src/global/201B0.c
-@@ -1156,6 +1156,13 @@ void camUpdate(Actor *camActor, f32 *eyeX, f32 *eyeY, f32 *eyeZ, f32 *focusX, f3
+@@ -1150,6 +1150,13 @@ void camUpdate(Actor *camActor, f32 *eyeX, f32 *eyeY, f32 *eyeZ, f32 *focusX, f3
      camUpdateFollowTargetDistance(camActor);
      camActor->roll = mathAngleEaseToward(camActor->roll, target->roll, 20.0f);
      camUpdatePlayerYaw(st);

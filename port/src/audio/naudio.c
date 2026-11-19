@@ -43,8 +43,9 @@
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, "naudio DMEM model assumes a little-endian host");
 _Static_assert(sizeof(OSTask_t) == 0x40, "OSTask layout");
 
-/* Task ucode_data: DMEM image of the jump table and constants (0x000..0x2AF). Generated from the ROM. */
-extern u64 D_80760590[];
+/* Task ucode_data: DMEM image of the jump table and constants (0x000..0x2AF), in N64 byte order
+ * (tools/gen_data.py RAW_FILES). Generated from the ROM. */
+extern u8 D_80760590[];
 
 #define DMEM_SIZE 0x1000
 #define UCODE_DATA_SIZE 0x2B0
@@ -917,19 +918,13 @@ static void opSetloop(u32 w1) {
 /* ------------------------------------------------------------- task ---- */
 
 static void loadUcodeData(void) {
-    const u8 *raw = (const u8 *)D_80760590;
-    int native = (u16)(D_80760590[0] >> 48) == 0x10E8;
     int i;
 
-    if (!native && !(raw[0] == 0x10 && raw[1] == 0xE8)) {
+    if (!(D_80760590[0] == 0x10 && D_80760590[1] == 0xE8)) {
         portAbort("PORT: naudio ucode data D_80760590 not recognised");
     }
     for (i = 0; i < UCODE_DATA_SIZE / 2; i++) {
-        if (native) {
-            sUcodeData[i] = (u16)(D_80760590[i >> 2] >> (48 - 16 * (i & 3)));
-        } else {
-            sUcodeData[i] = (u16)((raw[2 * i] << 8) | raw[2 * i + 1]);
-        }
+        sUcodeData[i] = (u16)((D_80760590[2 * i] << 8) | D_80760590[2 * i + 1]);
     }
     sUcodeReady = 1;
 }

@@ -78,8 +78,8 @@ f32 mathCosF(s16 angle) {
     return sinCore((s32)angle + 0x400);
 }
 
-/* func_80612800 (unlabelled entry after mathSinF): tangent = sin(a) / cos(a). */
-f32 func_80612800(s16 angle) {
+/* mathTanF (func_80612800, unlabelled entry after mathSinF): tangent = sin(a) / cos(a). */
+f32 mathTanF(s16 angle) {
     f32 s = sinCore(angle);
     f32 c = sinCore((s32)angle + 0x400);
     return s / c;

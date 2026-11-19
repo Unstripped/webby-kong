@@ -3,3 +3,6 @@
 # table); on the N64 those bytes are the code addresses, which wasm function indices cannot reproduce.
 D_80752CBF 0x200
 D_80752D4E 0x200
+# critter 3340.c reads s8 pairs and an s8 out of the s16 table D_807446D0 (3C10.c): the N64's big-endian bytes.
+D_807446E0 0x10
+D_807446EE 0x1

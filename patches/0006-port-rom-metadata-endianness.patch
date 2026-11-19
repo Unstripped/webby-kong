@@ -5,22 +5,22 @@ Subject: [PATCH] port: rom metadata endianness
 
 
 diff --git a/src/global/450.c b/src/global/450.c
-index 37fb7fc..20156a2 100644
+index 8b5f3ad..e4c8d3c 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -275,8 +275,8 @@ void viModeApplyHighRes(void) {
+@@ -272,8 +272,8 @@ void viModeApplyHighRes(void) {
  
-     compressedBuf = (u8 *)gFramebuffers[1] + 0xC800;
+     compressedBuf = (s32 *)(gFramebuffers[1] + 0x6400);
      seg11DmaRead(0x38, 0x10, compressedBuf);
--    seg11DmaRead(*(s32 *)compressedBuf + 0x178, 0x10, compressedBuf);
--    seg11DmaRead(*(s32 *)compressedBuf, *(s32 *)(compressedBuf + 4) - *(s32 *)compressedBuf, compressedBuf);
-+    seg11DmaRead(portReadBE32(compressedBuf) + 0x178, 0x10, compressedBuf);
-+    seg11DmaRead(portReadBE32(compressedBuf), portReadBE32(compressedBuf + 4) - portReadBE32(compressedBuf), compressedBuf);
+-    seg11DmaRead(compressedBuf[0] + 0x178, 0x10, compressedBuf);
+-    seg11DmaRead(compressedBuf[0], compressedBuf[1] - compressedBuf[0], compressedBuf);
++    seg11DmaRead(portReadBE32(&compressedBuf[0]) + 0x178, 0x10, compressedBuf);
++    seg11DmaRead(portReadBE32(&compressedBuf[0]), portReadBE32(&compressedBuf[1]) - portReadBE32(&compressedBuf[0]), compressedBuf);
  
-     gzipSrc = compressedBuf;
+     gzipSrc = (u8 *)compressedBuf;
      gzipDst = (u8 *)gFramebuffers[1];
 diff --git a/src/global/5A50.c b/src/global/5A50.c
-index cfcd5d7..ae2f09c 100644
+index cc9e6f0..1edbf07 100644
 --- a/src/global/5A50.c
 +++ b/src/global/5A50.c
 @@ -118,9 +118,11 @@ void func_806010A0(void) {
@@ -36,10 +36,10 @@ index cfcd5d7..ae2f09c 100644
  
  void seqPlayerPlay(u8 playerIndex) {
 diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 89b77e6..8251833 100644
+index 9dfcdb0..7173421 100644
 --- a/src/global/6AD90.c
 +++ b/src/global/6AD90.c
-@@ -1972,6 +1972,7 @@ void collisionInitTables(void) {
+@@ -1980,6 +1980,7 @@ void collisionInitTables(void) {
      size = 0x80;
      D_807F9520 = heapAlloc(0x80);
      dmaReadAssetDecompress(D_8000DDCC, D_807F9520, &size, 0, 0, 0, 0);
@@ -47,7 +47,7 @@ index 89b77e6..8251833 100644
  
      for (i = 0; i < 0x20; i++) {
          D_807F9528[i] = 0;
-@@ -2185,7 +2186,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
+@@ -2193,7 +2194,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
          size = 8;
          start &= 0x7FFFFFFF;
          dmaReadAssetDecompress(D_8000DDCC + start, &header, &size, 0, 0, 0, 0);
@@ -56,7 +56,7 @@ index 89b77e6..8251833 100644
          assetResolveRomRange(tableId, target, outRomAddr, outSize);
          index = target;
      } else {
-@@ -2220,9 +2221,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
+@@ -2228,9 +2229,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
      }
      start = D_807F9520[tableIndex];
      dmaReadAssetDecompress(D_8000DDCC + start, &header, &headerSize, 0, 0, 0, 0);

@@ -5,10 +5,10 @@ Subject: [PATCH] port: debug trace hooks
 
 
 diff --git a/src/global/201B0.c b/src/global/201B0.c
-index 87cb5c2..0af082b 100644
+index 2ca924a..6c51a18 100644
 --- a/src/global/201B0.c
 +++ b/src/global/201B0.c
-@@ -815,6 +815,7 @@ u16 camStartPath(Actor *actor, s16 pathIndex, u8 flags) {
+@@ -809,6 +809,7 @@ u16 camStartPath(Actor *actor, s16 pathIndex, u8 flags) {
          ret = camPathGetLength(pathIndex);
      }
      gCamPathLengthRequested = 0;
@@ -16,7 +16,7 @@ index 87cb5c2..0af082b 100644
      if (pathIndex == 0 && gCurrentMap == 0x99) {
          setRandomSeed(0x8E32B6F7);
          gCamCueStartTime = osGetTime();
-@@ -983,6 +984,7 @@ void camEndPath(Actor *camActor) {
+@@ -977,6 +978,7 @@ void camEndPath(Actor *camActor) {
      CamState *cam = camActor->customState;
  
      if (gGameMode == 1) {
@@ -25,10 +25,10 @@ index 87cb5c2..0af082b 100644
              gCamActivePaths = &gCamMapPaths;
          }
 diff --git a/src/global/3C10.c b/src/global/3C10.c
-index 9e776e1..5bb5601 100644
+index 1aae99d..aaa354e 100644
 --- a/src/global/3C10.c
 +++ b/src/global/3C10.c
-@@ -243,6 +243,8 @@ void mapExecuteVoidTransition(void) {
+@@ -512,6 +512,8 @@ void mapExecuteVoidTransition(void) {
  }
  
  void mapRequestTransition(s32 map, s32 exitIndex) {
@@ -37,7 +37,7 @@ index 9e776e1..5bb5601 100644
      gridFreeAllActiveNodes();
      if ((gGameMode == 6) || (menuIsTransitionActive() == 0)) {
          menuCheckCutsceneTransition(&map, &exitIndex);
-@@ -270,6 +272,8 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
+@@ -539,6 +541,8 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
  }
  
  void mapRequestTransitionFast(s32 map, s32 exitIndex) {
@@ -47,10 +47,10 @@ index 9e776e1..5bb5601 100644
      gGlobalPauseFlags |= 0x100;
      gInitialMap = map;
 diff --git a/src/global/7CA80.c b/src/global/7CA80.c
-index 468b3d1..c6d0a83 100644
+index 61f8c9b..5dcdb56 100644
 --- a/src/global/7CA80.c
 +++ b/src/global/7CA80.c
-@@ -163,6 +163,7 @@ s32 actorSpawn(s32 type, s32 spawnArg) {
+@@ -601,6 +601,7 @@ s32 actorSpawn(s32 type, s32 spawnArg) {
      if (actorAllocate((u16)type)) {
          initIndex = gActorTypeInitIndex[type];
          if (gActorInitFuncs[initIndex](&spawnArg)) {
@@ -58,7 +58,7 @@ index 468b3d1..c6d0a83 100644
              return 1;
          }
      }
-@@ -271,6 +272,7 @@ u16 type;
+@@ -707,6 +708,7 @@ u16 type;
  }
  
  s32 actorDespawn(Actor *actor) {

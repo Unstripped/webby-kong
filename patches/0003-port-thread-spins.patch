@@ -31,10 +31,10 @@ index 63618bf..09f0f5e 100644
      }
  }
 diff --git a/src/global/450.c b/src/global/450.c
-index b67b825..1849f4b 100644
+index dc1d6b4..8d373f1 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -454,6 +454,7 @@ void mainThreadLoop(void *arg) {
+@@ -441,6 +441,7 @@ void mainThreadLoop(void *arg) {
      while (1) {
          D_8074682C = 0xC8;
          while (gMainThreadHalted != 0) {
@@ -43,7 +43,7 @@ index b67b825..1849f4b 100644
          if ((gScreenRenderFlags & 1) && D_8076A0B2 == 0) {
              mapLoadLevel();
 diff --git a/src/global/5230.c b/src/global/5230.c
-index 3c92c37..683bf1b 100644
+index f8c7363..c927fbf 100644
 --- a/src/global/5230.c
 +++ b/src/global/5230.c
 @@ -118,6 +118,7 @@ void frameTimingUpdate(void) {

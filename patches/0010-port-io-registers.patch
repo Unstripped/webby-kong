@@ -5,7 +5,7 @@ Subject: [PATCH] port: io registers
 
 
 diff --git a/src/global/13980.c b/src/global/13980.c
-index 66818b6..649b65d 100644
+index 4c4f57f..36cc3c1 100644
 --- a/src/global/13980.c
 +++ b/src/global/13980.c
 @@ -129,11 +129,11 @@ void schedMain(void *arg) {
@@ -26,10 +26,10 @@ index 66818b6..649b65d 100644
                      }
                  }
 diff --git a/src/global/6710.c b/src/global/6710.c
-index 4113b82..abd621a 100644
+index d6a55d6..dbdd1f2 100644
 --- a/src/global/6710.c
 +++ b/src/global/6710.c
-@@ -227,7 +227,7 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {
+@@ -225,7 +225,7 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {
  
      physSampleBuf = (s16 *)osVirtualToPhysical(task->sampleBuffer);
      audioDmaFrameUpdate();

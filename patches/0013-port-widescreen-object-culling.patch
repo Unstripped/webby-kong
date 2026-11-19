@@ -5,10 +5,10 @@ Subject: [PATCH] port: widescreen object culling
 
 
 diff --git a/src/global/55B20.c b/src/global/55B20.c
-index a9b2820..286c5c4 100644
+index 7bfaf5b..4b868ec 100644
 --- a/src/global/55B20.c
 +++ b/src/global/55B20.c
-@@ -2710,6 +2710,7 @@ s16 top;
+@@ -2714,6 +2714,7 @@ s16 top;
  s16 right;
  s16 bottom;
  {

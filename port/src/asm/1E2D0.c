@@ -1,14 +1,14 @@
 /*
  * C transcription of decomp/asm/global/1E2D0.s (handwritten): skeletal animation pose builder.
  *
- * func_806195D0(actor) decodes the actor's packed animation keyframes, blends animation layers,
+ * actorBuildBoneMatrices(actor) (func_806195D0) decodes the actor's packed animation keyframes, blends animation layers,
  * builds per-bone rotation/scale matrices (quaternion slerp-style blend or direct Euler), applies
  * per-bone scale/translation adjustments, chains the bones through the hierarchy starting from the
  * actor's world matrix, and finally converts every bone matrix in place into an N64 fixed-point Mtx.
  *
- * Entry points in the asm and what became of them (all internal except func_806195D0):
- *   func_806195D0  external; see signature note below
- *   func_806197B8  alabel inside func_806195D0: two-pose blend; code after label `blend`
+ * Entry points in the asm and what became of them (all internal except actorBuildBoneMatrices):
+ *   func_806195D0  actorBuildBoneMatrices, external
+ *   func_806197B8  alabel inside actorBuildBoneMatrices: two-pose blend; code after label `blend`
  *   func_80619894, func_806198B0, func_80619A88: alabels inside the blend loop (inlined)
  *   func_80619B44  non-ABI subroutine (in $s0, out FP regs): static halfAngleQuatTerms()
  *   func_80619B80, func_80619BBC, func_80619C08: alabels inside func_80619B44 (halfSinCos())
@@ -18,15 +18,14 @@
  *   func_8061A1A0  non-ABI subroutine: static applyPoseOffsets(); func_8061A1B4 is its loop head
  *   func_8061A3A0, func_8061A420, func_8061A4C0: alabels in the direct (unblended) matrix path
  *   func_8061A61C, func_8061A638, func_8061A774: alabels of the scale / translation adjust passes
- *   func_8061A8AC, func_8061A938: hierarchy multiply loop (inlined in func_806195D0)
+ *   func_8061A8AC, func_8061A938: hierarchy multiply loop (inlined in actorBuildBoneMatrices)
  *
  * The routine sets Status.FR on entry and clears it on exit, so all 32 FPRs are independent singles;
  * every $fXX / $fXXf register is a distinct f32 variable here, named after the asm register.
  * Operation order of every float op follows the asm exactly.
  *
- * Signature: the decomp declares `void func_806195D0(f32, f32)` but the asm never reads $f12/$f14; its
- * input is $a0 = the Actor (the IDO caller left it there). The game call in src/global/17B90.c is
- * patched to pass the actor; the parameter is a pointer (same wasm signature as Actor *).
+ * Input: $a0 = the Actor (`void actorBuildBoneMatrices(Actor *)` in the decomp); the parameter is a pointer
+ * (same wasm signature as Actor *).
  *
  * Memory accessed (offsets are bytes):
  *   actor+0x00  ptr to model info: +0x08 ptr bone table (0x10-byte records: u8 parent, u8 boneIndex,
@@ -426,7 +425,7 @@ static void halfAngleQuatTerms(const u8 *p, f32 fs5, QuatTerms *o) {
 /* Matrix element store helpers for the bone matrix being written. */
 #define SF(p, o, v) (F(p, o) = (v))
 
-void func_806195D0(void *actor) {
+void actorBuildBoneMatrices(void *actor) {
     u8 *a0, *a1, *a2, *a3, *s0p, *t0p, *t2p;
     u32 t5, s1, t6, t7, i, n;
     f32 fv0, fv0f, fv1, fv1f, ft0, ft0f, ft1, ft1f, ft2, ft2f, ft3, ft3f;

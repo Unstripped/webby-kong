@@ -5,16 +5,16 @@ Subject: [PATCH] port: quicksave resume
 
 
 diff --git a/src/global/117190.c b/src/global/117190.c
-index b1fd6e1..7579b5e 100644
+index e5b58fa..f072f7b 100644
 --- a/src/global/117190.c
 +++ b/src/global/117190.c
-@@ -908,6 +908,23 @@ void menuStartGameFromSave(s8 saveSlot) {
+@@ -906,6 +906,23 @@ void menuStartGameFromSave(s8 saveSlot) {
      gMenuTargetMode = 6;
  }
  
 +/* port quicksave: start the save in gPortResume.slot straight at the captured map/exit/position */
 +void menuStartGameAtResume(void) {
-+    D_807445B8 = osGetTime();
++    gPauseTimeTotal = osGetTime();
 +    gMenuBonusTimer.active = 0;
 +    playerResetSpawnGlobals();
 +    flagsClearAllBank2();
@@ -33,10 +33,10 @@ index b1fd6e1..7579b5e 100644
  
  void mpStartMatch(void) {
 diff --git a/src/global/3C10.c b/src/global/3C10.c
-index 5bb5601..68e8120 100644
+index aaa354e..abf2aab 100644
 --- a/src/global/3C10.c
 +++ b/src/global/3C10.c
-@@ -264,6 +264,7 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
+@@ -533,6 +533,7 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
              }
              flagTempsPruneUnloadedMaps();
              mapLoadSavedSlotSpawn(map);
@@ -44,7 +44,7 @@ index 5bb5601..68e8120 100644
              if (gGlobalOverlayFlags & 1) {
                  func_8002920C();
              }
-@@ -303,6 +304,14 @@ void mapLoadSavedSlotSpawn(s32 map) {
+@@ -572,6 +573,14 @@ void mapLoadSavedSlotSpawn(s32 map) {
          D_8076AEE8 = D_8076A160[idx].y;
          D_8076AEEC = D_8076A160[idx].z;
          D_8076AEF0 = D_8076A160[idx].yaw;
@@ -59,7 +59,7 @@ index 5bb5601..68e8120 100644
      } else {
          D_8076AEE2 = 0;
      }
-@@ -364,6 +373,50 @@ s32 mapFindPreviousSavedMap(s32 *outMap, s32 *outExitIndex) {
+@@ -633,6 +642,50 @@ s32 mapFindPreviousSavedMap(s32 *outMap, s32 *outExitIndex) {
      return found;
  }
  
@@ -111,11 +111,11 @@ index 5bb5601..68e8120 100644
      s32 targetMap;
      s32 exitIndex;
 diff --git a/src/global/450.c b/src/global/450.c
-index 203d0fd..36a4a70 100644
+index 6ed94bb..845d0b1 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -467,6 +467,12 @@ void mainThreadLoop(void *arg) {
-                 D_80744504 = 8;
+@@ -454,6 +454,12 @@ void mainThreadLoop(void *arg) {
+                 gMapLoadPauseFrames = 8;
              }
          }
 +        /* port quicksave: start a requested resume once the EEPROM is read and no transition is pending */
@@ -128,10 +128,10 @@ index 203d0fd..36a4a70 100644
              case 6:
                  transitionRunFrame(gInitialMap, gInitialExit);
 diff --git a/src/global/CC800.c b/src/global/CC800.c
-index 8f6232a..b481f74 100644
+index b903fab..a391b27 100644
 --- a/src/global/CC800.c
 +++ b/src/global/CC800.c
-@@ -585,11 +585,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+@@ -615,11 +615,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
  }
  
  extern s16 D_8076AEE2;
@@ -146,7 +146,7 @@ index 8f6232a..b481f74 100644
  
      D_8076AEE2 = 0;
      gGlobalPauseFlags &= ~0x400;
-@@ -610,6 +613,9 @@ void playerWarpToSpawnPoint(s32 spawnIndex) {
+@@ -640,6 +643,9 @@ void playerWarpToSpawnPoint(s32 spawnIndex) {
          gActivePlayerActor->z = spawn->z;
          gActivePlayerActor->yaw = (spawn->yaw / 255.0) * 4095.0;
          gActivePlayerActor->moveYaw = gActivePlayerActor->yaw;

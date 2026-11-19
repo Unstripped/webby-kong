@@ -24,7 +24,7 @@
  *   gfxSwapGeometryModeCullBits / controllerAnimFreeSub walk as one command run ending at the array; section
  *   markers {w0 = 0, w1 = segment} are read as words by controllerBuildSubcommandList.
  * [array] u32 DL pointers x u8[0x21]                              native  controllerAnimStateLoadAsset (relocated)
- * [bones] u8[0x20] records of 0x10 bytes                           func_806195D0 (port/src/asm/1E2D0.c):
+ * [bones] u8[0x20] records of 0x10 bytes                           actorBuildBoneMatrices (port/src/asm/1E2D0.c):
  *   0x00 u8 parent, 0x01 u8 matrix slot, 0x02 u8 channel, 0x03 pad  bytes (LBU)
  *   0x04/0x08/0x0C f32 offset x/y/z                                native (LW / F)
  * [collision] (ActorSubNodeWrapper.collision, actorSub140CreateFromModel 69E60.c -> actorSub140CreateFromData

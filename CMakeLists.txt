@@ -22,17 +22,21 @@ set(GAME_C_FLAGS
   "SHELL:-include ${CMAKE_SOURCE_DIR}/port/include/port/prelude.h"
   -Wno-unknown-pragmas -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-deprecated-non-prototype -Wno-pointer-sign
   -Werror=implicit-function-declaration -Werror=return-type)
+# ${GEN}/include/inc: the decomp's ROM-extracted data initialisers (`#include "<seg>/<name>.inc.c"`), tools/gen_data.py
 set(GAME_INCLUDES
-  ${CMAKE_SOURCE_DIR}/port/include/override ${CMAKE_SOURCE_DIR}/port/include ${GEN}/include
+  ${CMAKE_SOURCE_DIR}/port/include/override ${CMAKE_SOURCE_DIR}/port/include ${GEN}/include ${GEN}/include/inc
   ${TREE}/include ${TREE}/include/PR ${TREE}/include/libultra ${TREE}/include/compiler/ido)
 
+# libultra: gu/mgu math and the data-only VI mode tables; the rest is replaced by port/src/ultra
+# (tools/gen_data.py game_sources() lists the same TUs)
 file(GLOB GAME_GLOBAL_SRC CONFIGURE_DEPENDS ${TREE}/src/global/*.c)
-file(GLOB GAME_GU_SRC CONFIGURE_DEPENDS ${TREE}/src/boot/libultra/gu/*.c ${TREE}/src/boot/libultra/mgu/*.c)
+file(GLOB GAME_GU_SRC CONFIGURE_DEPENDS ${TREE}/src/boot/libultra/gu/*.c ${TREE}/src/boot/libultra/mgu/*.c
+  ${TREE}/src/boot/libultra/vimodes/*.c)
 list(SORT GAME_GLOBAL_SRC)
 list(SORT GAME_GU_SRC)
 set(GAME_BOOT_SRC
   ${TREE}/src/boot/1CC0.c ${TREE}/src/boot/30E0.c ${TREE}/src/boot/3630.c
-  ${TREE}/src/boot/3D20.c ${TREE}/src/boot/6690.c
+  ${TREE}/src/boot/3D20.c ${TREE}/src/boot/6690.c ${TREE}/src/boot/libultra/io/vitbl.c
   ${TREE}/src/boot/libultra/libc/ll.c ${TREE}/src/boot/libultra/libc/llcvt.c)
 
 function(game_object_library name)

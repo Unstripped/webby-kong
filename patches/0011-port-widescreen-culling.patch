@@ -5,10 +5,10 @@ Subject: [PATCH] port: widescreen culling
 
 
 diff --git a/src/global/2F550.c b/src/global/2F550.c
-index a2853ed..40b9359 100644
+index a0805db..03dd962 100644
 --- a/src/global/2F550.c
 +++ b/src/global/2F550.c
-@@ -85,7 +85,7 @@ void frustumCalculateCornerRays(f32 fovY, f32 aspect, f32 depth) {
+@@ -117,7 +117,7 @@ void frustumCalculateCornerRays(f32 fovY, f32 aspect, f32 depth) {
      s32 i;
  
      halfPitch = fovY * 0.5;

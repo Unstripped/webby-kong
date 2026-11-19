@@ -5,7 +5,7 @@ Subject: [PATCH] port: audio endianness
 
 
 diff --git a/src/global/5A50.c b/src/global/5A50.c
-index ae2f09c..618f806 100644
+index 1edbf07..09fe76e 100644
 --- a/src/global/5A50.c
 +++ b/src/global/5A50.c
 @@ -72,6 +72,7 @@ void audioInit(void) {
@@ -22,13 +22,13 @@ index ae2f09c..618f806 100644
      dmaReadAssetDecompress(gSegmentTable[16].romStart, bankB, &len, 0xD, 0, 2, 0);
 +    portSwapBankFile(bankB);
      alBnkfNew(bankB, (u8 *)gSegmentTable[17].romStart);
-     D_8076D1F8 = bankB->bankArray[0];
+     gSfxBank = bankB->bankArray[0];
      seqp.maxVoices = 0x2C;
 diff --git a/src/global/7130.c b/src/global/7130.c
-index 64339d0..72c8603 100644
+index 4d26d3d..ee2a2e2 100644
 --- a/src/global/7130.c
 +++ b/src/global/7130.c
-@@ -2174,6 +2174,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
+@@ -2354,6 +2354,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
          dmaReadAssetDecompress(addr, D_8076BF38[seqIndex], &len, 0x80, 0, 1, buf);
      }
      heapFree(buf);

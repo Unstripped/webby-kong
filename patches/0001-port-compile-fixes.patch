@@ -160,7 +160,7 @@ index 4494d2a..0f4983d 100644
  #ifndef PROTO_SKIP_racePlayerTrackerBehaviorUpdate
  void racePlayerTrackerBehaviorUpdate(void);
 diff --git a/src/boot/3D20.c b/src/boot/3D20.c
-index 43b9eec..5fe4814 100644
+index f17338b..af28bda 100644
 --- a/src/boot/3D20.c
 +++ b/src/boot/3D20.c
 @@ -1,5 +1,5 @@
@@ -170,7 +170,7 @@ index 43b9eec..5fe4814 100644
  #include "proto/boot/3630.h"
  #include "proto/boot/3D20.h"
  
-@@ -300,7 +300,7 @@ int vsprintf(unsigned char *buf, const unsigned char *fmt, va_list ap) {
+@@ -291,7 +291,7 @@ int vsprintf(unsigned char *buf, const unsigned char *fmt, va_list ap) {
                          prec = 6;
                      }
                      if (sh) {
@@ -179,7 +179,7 @@ index 43b9eec..5fe4814 100644
                      } else {
                          value.d = va_arg(ap, double);
                      }
-@@ -410,7 +410,7 @@ int vsprintf(unsigned char *buf, const unsigned char *fmt, va_list ap) {
+@@ -388,7 +388,7 @@ int vsprintf(unsigned char *buf, const unsigned char *fmt, va_list ap) {
                          rnd /= 10.0;
                      }
                      if (sh) {
@@ -257,44 +257,31 @@ index c29e50d..8d1f408 100644
  static const fu	zero = {0x00000000};
  
 diff --git a/src/boss/0.c b/src/boss/0.c
-index ccdf1f8..3551cb0 100644
+index 2075f3b..ac87876 100644
 --- a/src/boss/0.c
 +++ b/src/boss/0.c
-@@ -366,7 +366,7 @@ u8 bossPieceStep(BossPieceAnim *animData, u8 pieceIdx, f32 maxTimer, f32 scriptT
+@@ -391,7 +391,7 @@ u8 bossPieceStep(BossPieceAnim *animData, u8 pieceIdx, f32 maxTimer, f32 scriptT
+ }
  
- void scriptSetActorRampTarget(void *, f32, f32);
  s16 mathAngleSignedDistance(s16, s16);
 -void actorMoveWithinZone(s32, f32, f32, s32, f32); // ORIG: the target passes bossArmydilloStep's int ternary flags (0x210/0x212) straight to a3 at 0x287C/0x2880 (li a3); the owner's u16 prototype adds a sw/lhu 82(sp) narrowing, so these callers saw an s32 flags parameter
 +u32 actorMoveWithinZone(s32, f32, f32, s32, f32);
  
  void bossArmydilloAimTowardTarget(void) {
-     s32 res;
+     s32 yawDiff;
 diff --git a/src/boss/3840.c b/src/boss/3840.c
-index bc8f906..24c314d 100644
+index d15500d..f16b9ad 100644
 --- a/src/boss/3840.c
 +++ b/src/boss/3840.c
-@@ -421,7 +421,7 @@ extern ALBank *D_8076D1F8;
+@@ -434,7 +434,7 @@ extern ALBank *gSfxBank;
  extern SchedStruct gScheduler;
  extern s32 gCurrentMap;
  
--void func_80724A20(void);  // ORIG: target keeps the BOSS_ACTOR state switch value in v0 right after jal func_80724A20 (lbu v0,0x154(a2) at 0x1268, beql v0 at 0x127c): the original TU declared the callee void (an s32 return in scope moves it to v1)
-+s32 func_80724A20(void);
+-void volumeTriggerApplyActorState(void);  // ORIG: target keeps the BOSS_ACTOR state switch value in v0 right after jal volumeTriggerApplyActorState (lbu v0,0x154(a2) at 0x1268, beql v0 at 0x127c): the original TU declared the callee void (an s32 return in scope moves it to v1)
++s32 volumeTriggerApplyActorState(void); // PORT: defined s32 (1295B0.c); the original TU declared it void
  
  
- void bossRoundFrame(u8 *script) {
-diff --git a/src/critter/0.c b/src/critter/0.c
-index 347aefa..427c868 100644
---- a/src/critter/0.c
-+++ b/src/critter/0.c
-@@ -362,7 +362,7 @@ Gfx *func_80024C88(Gfx *gdl, CritterObj *obj) {
-     return gdl;
- }
- 
--extern u8 effectWobbleRiseUpdate;
-+void effectWobbleRiseUpdate(void *effect, s8 *isDone);
- extern u8 D_8071FC40;
- 
- void critterUpdateObjType2(CritterObj *obj) {
+ void bossRoundFrame(const u8 *script) {
 diff --git a/src/global/0.c b/src/global/0.c
 index 4174b9a..1e89a34 100644
 --- a/src/global/0.c
@@ -308,10 +295,10 @@ index 4174b9a..1e89a34 100644
  typedef struct {
      s32 unk0;
 diff --git a/src/global/103AB0.c b/src/global/103AB0.c
-index bf7d11d..dc0bfe1 100644
+index 64d8b96..11306b8 100644
 --- a/src/global/103AB0.c
 +++ b/src/global/103AB0.c
-@@ -89,8 +89,8 @@ Gfx *playerViewDrawCornerMasks(Gfx *dl) {
+@@ -167,8 +167,8 @@ Gfx *playerViewDrawCornerMasks(Gfx *dl) {
      return renderRotatedSprite(dl, 0x3A, 3, 1, 0x40, 0x40, 0x3E, gScreenHeight - 0x3E, 2.0f, 2.0f, 0x10E, 0.0f);
  }
  
@@ -322,7 +309,7 @@ index bf7d11d..dc0bfe1 100644
  }
  
  Gfx *playerViewDrawCameraViewfinder(Gfx *dl, Actor *actor) {
-@@ -164,7 +164,7 @@ Gfx *playerViewDrawScopeCrosshair(Gfx *dl, Actor *actor) {
+@@ -242,7 +242,7 @@ Gfx *playerViewDrawScopeCrosshair(Gfx *dl, Actor *actor) {
      return renderRotatedSprite(dl, 0x38, 3, 1, 0x40, 0x40, 0xA0, 0x78, 0.5f, 0.5f, 0x2D, 0.0f);
  }
  
@@ -331,7 +318,7 @@ index bf7d11d..dc0bfe1 100644
      f32 depth;
      Gfx *dl;
  
-@@ -172,7 +172,7 @@ void playerViewDrawCameraShutter(Gfx *gfx, Actor *actor) {
+@@ -250,7 +250,7 @@ void playerViewDrawCameraShutter(Gfx *gfx, Actor *actor) {
      dl = playerViewGfxSetup(gfx, ((PlayerState *)actor->customState)->playerIndex);
      gSPSetOtherMode(dl++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, 0x504340);
      gDPSetPrimColor(dl++, 0, 0, 0, 0, 0, 0xFF);
@@ -340,7 +327,7 @@ index bf7d11d..dc0bfe1 100644
  }
  
  u16 color5551ToSepia(u16 color) {
-@@ -220,7 +220,7 @@ u16 *playerViewCaptureSepiaPhoto(void) {
+@@ -298,7 +298,7 @@ u16 *playerViewCaptureSepiaPhoto(void) {
  
      if (gCurrentActor->actorType == 0xD9) {
          func_806FFF5C();
@@ -349,36 +336,23 @@ index bf7d11d..dc0bfe1 100644
      }
      buf = heapAlloc(0xA000);
      dst = buf;
-diff --git a/src/global/10D2D0.c b/src/global/10D2D0.c
-index bc94e9e..cc5378f 100644
---- a/src/global/10D2D0.c
-+++ b/src/global/10D2D0.c
-@@ -247,7 +247,7 @@ Gfx *healthHudDrawAll(Gfx *glist) {
-                 if (!(flags & 0x20) && (((((PlayerStruct *)playerSlot)->unk2E4 != 0 || flags != 0) &&
-                                            D_80744504 == 0) ||
-                                           flags & 0x10)) {
--                    glist = healthHudUpdateDraw(glist, (s16)(playerIndex + 0), (slotOffset ^ 0) + (s32)gPlayerSlots, (s32)gPlayerSlots); // FAKE: extra argument to the K&R callee (removing it breaks the match)
-+                    glist = healthHudUpdateDraw(glist, (s16)(playerIndex + 0), (slotOffset ^ 0) + (s32)gPlayerSlots);
-                 }
-             }
-             playerIndex += 1;
 diff --git a/src/global/114270.c b/src/global/114270.c
-index 0f04d10..cec5a53 100644
+index 3ff09b1..97a2b64 100644
 --- a/src/global/114270.c
 +++ b/src/global/114270.c
-@@ -613,6 +613,6 @@ s32 effectSpritePoolFadeOut(void) {
-         D_807FDA28 = 0;
+@@ -657,6 +657,6 @@ s32 effectSpritePoolFadeOut(void) {
+         gEffectSpritePoolLoaded = 0;
          return 1;
      }
--    // FAKE: no final return; fall-through path (pool->count == 0 && D_807FDA1C == 6) returns pool (D_807550E0) in v0 implicitly
-+    return (s32)pool; // PORT: IDO fell through with pool (D_807550E0) in $v0
+-    // ORIG: no final return; when pool->count == 0 && gEffectSpritePoolType == 6 the target branches past li v0,1 (0x2efc) to the epilogue (beq t0,at,0x2f00 at 0x2e64; jr ra at 0x2f18) with no $v0 write, so it returns pool from lw v0,%lo(gEffectSpritePool)(v0) at 0x2d4c
++    return (s32)pool; // PORT: IDO fell through with pool (gEffectSpritePool) in $v0
  }
  
 diff --git a/src/global/117190.c b/src/global/117190.c
-index 2ae5487..3557b61 100644
+index 7edd596..1209a0f 100644
 --- a/src/global/117190.c
 +++ b/src/global/117190.c
-@@ -110,6 +110,7 @@ s32 menuIsTransitionTypeB(void) {
+@@ -127,6 +127,7 @@ s32 menuIsTransitionTypeB(void) {
      if (match == 0) {
          return gMenuTargetMode == 0xB;
      }
@@ -386,25 +360,7 @@ index 2ae5487..3557b61 100644
  }
  
  void menuSetTransitionTypeBFlag(void) {
-@@ -161,7 +162,7 @@ void menuTransitionToCreditsOrMap28(s32 toCredits) {
- }
- 
- extern u8 gPlayerCount;
--void func_80026D40(void *);
-+void func_80026D40(void *, u8);
- 
- void playerRefillHealth(Actor *player, s32 playerIndex) {
-     s32 map;
-@@ -197,7 +198,7 @@ void playerRefillHealth(Actor *player, s32 playerIndex) {
-         return;
-     }
-     if (gPlayerCount >= 2) {
--        func_80026D40(player);
-+        func_80026D40(player, 0);
-         return;
-     }
-     mapExecuteDeathTransition(playerIndex);
-@@ -797,6 +798,7 @@ s32 menuIsTransitionType3Or4(void) {
+@@ -795,6 +796,7 @@ s32 menuIsTransitionType3Or4(void) {
              }
          }
      }
@@ -412,7 +368,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionType6(void) {
-@@ -806,6 +808,7 @@ s32 menuIsTransitionType6(void) {
+@@ -804,6 +806,7 @@ s32 menuIsTransitionType6(void) {
      if (match == 0) {
          return gMenuTargetMode == 6;
      }
@@ -420,7 +376,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionType8(void) {
-@@ -815,6 +818,7 @@ s32 menuIsTransitionType8(void) {
+@@ -813,6 +816,7 @@ s32 menuIsTransitionType8(void) {
      if (match == 0) {
          return gMenuTargetMode == 8;
      }
@@ -428,7 +384,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionType7Or9(void) {
-@@ -830,6 +834,7 @@ s32 menuIsTransitionType7Or9(void) {
+@@ -828,6 +832,7 @@ s32 menuIsTransitionType7Or9(void) {
              }
          }
      }
@@ -436,7 +392,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionTypeD(void) {
-@@ -839,6 +844,7 @@ s32 menuIsTransitionTypeD(void) {
+@@ -837,6 +842,7 @@ s32 menuIsTransitionTypeD(void) {
      if (match == 0) {
          return gMenuTargetMode == 0xD;
      }
@@ -444,7 +400,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionTypeC(void) {
-@@ -848,6 +854,7 @@ s32 menuIsTransitionTypeC(void) {
+@@ -846,6 +852,7 @@ s32 menuIsTransitionTypeC(void) {
      if (match == 0) {
          return gMenuTargetMode == 0xC;
      }
@@ -452,7 +408,7 @@ index 2ae5487..3557b61 100644
  }
  
  s32 menuIsTransitionType5(void) {
-@@ -867,6 +874,7 @@ s32 menuIsTransitionTypeAOrE(void) {
+@@ -865,6 +872,7 @@ s32 menuIsTransitionTypeAOrE(void) {
              }
          }
      }
@@ -460,16 +416,16 @@ index 2ae5487..3557b61 100644
  }
  
  extern s8 D_8074452C;
-@@ -928,6 +936,7 @@ s32 mpIsMatchType(s32 value) {
+@@ -926,6 +934,7 @@ s32 mpIsMatchType(s32 value) {
      if (isMultiplayer) {
-         return value == D_807552E4.unk0;
+         return value == gMpSettings.unk0;
      }
 +    return isMultiplayer; // PORT: IDO fell through with isMultiplayer in $v0
  }
  
  void menuReturnToTitleWithMode3(void) {
 diff --git a/src/global/119370.c b/src/global/119370.c
-index 4f7f53a..df15135 100644
+index 453f2d9..e26d63c 100644
 --- a/src/global/119370.c
 +++ b/src/global/119370.c
 @@ -15,6 +15,7 @@
@@ -481,10 +437,10 @@ index 4f7f53a..df15135 100644
  extern u8 gGfxBufferIndex;
  extern u8 gViewportCount;
 diff --git a/src/global/136820.c b/src/global/136820.c
-index 0ede98e..bb8e5c8 100644
+index 8e9893d..5be060f 100644
 --- a/src/global/136820.c
 +++ b/src/global/136820.c
-@@ -60,7 +60,8 @@ void faultDrawGlyph(u8 c) {
+@@ -64,7 +64,8 @@ void faultDrawGlyph(u8 c) {
      }
  }
  
@@ -492,9 +448,9 @@ index 0ede98e..bb8e5c8 100644
 +#include <stdarg.h>
 +#include "PR/os_internal_reg.h"
  
- extern s32 D_807FEF7C;
+ extern s32 gFaultLineStartX;
  
-@@ -70,7 +71,11 @@ void faultPrintf(const char *fmt, ...) {
+@@ -74,7 +75,11 @@ void faultPrintf(const char *fmt, ...) {
      u8 c;
      s32 pad;
  
@@ -519,50 +475,20 @@ index 7e3e9d9..678c8fb 100644
  
  extern s32 osGetIntMask(s32);
  
-diff --git a/src/global/17B90.c b/src/global/17B90.c
-index b3b581f..18135aa 100644
---- a/src/global/17B90.c
-+++ b/src/global/17B90.c
-@@ -406,6 +406,7 @@ int controllerAnimCacheFree(Actor *actor, AnimSlot *slot) {
-     if (slot == actor->sub4->layer) {
-         actor->sub4->waitOnLayer = 0;
-     }
-+    return 0; // PORT: no caller reads the result
- }
- 
- void controllerAnimScaleInterpolate(Actor *actor, s8 offset) {
-@@ -883,7 +884,7 @@ f32 actorGetAnimProgress(Actor *actor) {
- }
- 
- extern u8 gGfxBufferIndex;
--void func_806195D0(f32, f32);
-+void func_806195D0(Actor *actor);
- void actorCheckWorldBounds(Actor *actor) {
-     f32 x = actor->x;
-     if (x >= -8192.0f) {
-@@ -892,7 +893,7 @@ void actorCheckWorldBounds(Actor *actor) {
-             f32 z = actor->z;
-             if ((z >= -8192.0f) && (x <= 8192.0f) && (y <= 8192.0f) && (z <= 8192.0f)) {
-                 actor->boneMtx = actor->sub4->boneMtx[gGfxBufferIndex];
--                func_806195D0(z, 8192.0f);
-+                func_806195D0(actor);
-                 actorTouchSub140Timestamp(actor);
-                 actor->flags |= 0x200;
-             }
 diff --git a/src/global/2C910.c b/src/global/2C910.c
-index 2c87c0a..4838188 100644
+index 868acbc..4980c69 100644
 --- a/src/global/2C910.c
 +++ b/src/global/2C910.c
-@@ -127,7 +127,7 @@ extern s32 gGlobalCutsceneFlags;
+@@ -201,7 +201,7 @@ extern s32 gGlobalCutsceneFlags;
  extern PlayerStruct *gPlayerSlots;
  extern f32 gScreenFadeRate;
  
 -void func_80028EE8(s32, s32, s32, s32, s32, s32, s32, s32);
-+void func_80028EE8(s32, s32, s32, s32, s32, s32);
- void csModelStateSetFirstByte(); // ORIG: target passes the s32 b unconverted (lw a0,68(sp) at 0x1374, jal at 0x1380, no sll/sra; the shared (s16, s16) prototype adds sll a0,v0,0x10 / sra t2,a0,0x10): the original TU had no prototype for csModelStateSetFirstByte in scope
++void func_80028EE8(s32, s32, s32, s32, s32, s32); // PORT: critterShowText (critter 4840.c) takes 6
+ void csModelStateSetFirstByte(s32, s16); // ORIG: the original TU declared an int-width first and an s16 second parameter: call 2 passes the s32 b unconverted (lw a0,68(sp) at 0x1374, jal at 0x1380; the shared (s16, s16) prototype adds sll a0,v0,0x10 / sra t2,a0,0x10), while each call narrows its second argument on its own (lh a1,58(sp) at 0x1370/0x1384/0x139c, lh a1,70(sp) at 0x13b8); explicit (s16) casts under an unprototyped declaration share one narrowing spilled to 0x48
  
  void camPathCommandDispatch(s32 cmd, s32 params01, s32 params23) {
-@@ -204,7 +204,7 @@ void camPathCommandDispatch(s32 cmd, s32 params01, s32 params23) {
+@@ -278,7 +278,7 @@ void camPathCommandDispatch(s32 cmd, s32 params01, s32 params23) {
              playerStateQueueCallback(0x17, 0, 0);
              return;
          case 0x1:
@@ -572,7 +498,7 @@ index 2c87c0a..4838188 100644
          case 0x2:
              playerState->stateFlags |= 8;
 diff --git a/src/global/2F550.c b/src/global/2F550.c
-index bf679a3..6f44d42 100644
+index 7eb0f62..31a1681 100644
 --- a/src/global/2F550.c
 +++ b/src/global/2F550.c
 @@ -24,6 +24,7 @@
@@ -581,9 +507,9 @@ index bf679a3..6f44d42 100644
  #include "proto/global/CC800.h"
 +#include <string.h>
  
- extern u8 gGfxBufferIndex;
- 
-@@ -772,6 +773,7 @@ u8 func_8062D0CC(MapBspNode *node, MapVisNode *vis, void *targetId, u8 forceInfi
+ typedef struct CamZoomEntry {
+     /* 0x0 */ u16 height;
+@@ -800,6 +801,7 @@ u8 func_8062D0CC(MapBspNode *node, MapVisNode *vis, void *targetId, u8 forceInfi
              }
              return func_8062D0CC(node->child1, vis->child1, targetId, forceInfiniteDist);
      }
@@ -592,48 +518,48 @@ index bf679a3..6f44d42 100644
  
  
 diff --git a/src/global/42630.c b/src/global/42630.c
-index 644b81a..21e0573 100644
+index 68ed8d9..b00958e 100644
 --- a/src/global/42630.c
 +++ b/src/global/42630.c
-@@ -1055,7 +1055,7 @@ extern Actor *gSpawnedActor;
+@@ -1194,7 +1194,7 @@ extern Actor *gSpawnedActor;
  extern Actor *gActivePlayerActor;
  extern u32 gGlobalCutsceneFlags;
  
--void hudSpawnCountdownTimer(s32, s32, u8, void *); // ORIG: a3 = &D_807F61F0 loaded at 0x2600/0x2604 and live into jal 0x261c (a 3-argument call puts the address in t0 instead); owner A7710 homes only a0-a2 (0x8-0x10) and never reads a3
-+void hudSpawnCountdownTimer(s32, s32, u8);
+-void hudSpawnCountdownTimer(s32, s32, u8, void *); // ORIG: a3 = &gCsCountdown loaded at 0x2600/0x2604 and live into jal 0x261c (a 3-argument call puts the address in t0 instead); owner A7710 homes only a0-a2 (0x8-0x10) and never reads a3
++void hudSpawnCountdownTimer(s32, s32, u8); // PORT: A7710.c defines 3 parameters
  void modelAnimEntrySetUnkC(); // ORIG: case 0x4C passes h in a2 as computed (sll/sra at 0x29cc/0x29d0) into jal 0x29e0; the shared (s16, s16, s16) prototype re-narrows a2 before the call; owner 54150 narrows a0 itself (sll/sra at 0x15c0) and an s32 owner does not fdiff
  
  void csCmdExec(CsCmd *cmd, CsState *cs, s16 csId) {
-@@ -1219,7 +1219,7 @@ void csCmdExec(CsCmd *cmd, CsState *cs, s16 csId) {
+@@ -1358,7 +1358,7 @@ void csCmdExec(CsCmd *cmd, CsState *cs, s16 csId) {
              actor = gCurrentActor;
-             D_807F61F0.hostActor = gSpawnedActor;
+             gCsCountdown.hostActor = gSpawnedActor;
              gCurrentActor = gSpawnedActor;
--            hudSpawnCountdownTimer(0xDC, 0x2A, cmd->a, &D_807F61F0);
+-            hudSpawnCountdownTimer(0xDC, 0x2A, cmd->a, &gCsCountdown);
 +            hudSpawnCountdownTimer(0xDC, 0x2A, cmd->a);
-             D_807F61F0.timerActor = gSpawnedActor;
-             D_807F61F0.active = 1;
+             gCsCountdown.timerActor = gSpawnedActor;
+             gCsCountdown.active = 1;
              gCurrentActor = actor;
 diff --git a/src/global/450.c b/src/global/450.c
-index 7b80c99..e9c0963 100644
+index 9852217..de1be79 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -530,12 +530,12 @@ void gfxSubmitFrame(void) {
+@@ -517,12 +517,12 @@ void gfxSubmitFrame(void) {
      }
      if (gGlobalPauseFlags & 0x100) {
          gGlobalPauseFlags &= ~0x100;
--        func_807094D0(2, &gGlobalPauseFlags);
-+        func_807094D0(2);
+-        transitionStart(2, &gGlobalPauseFlags);
++        transitionStart(2); // PORT: K&R transitionStart(mode) (10E1D0.c) takes one
      } else if (gGlobalPauseFlags & 0x200) {
-         D_80744504--;
-         if (D_80744504 == 0) {
+         gMapLoadPauseFrames--;
+         if (gMapLoadPauseFrames == 0) {
              gGlobalPauseFlags &= ~0x200;
--            func_807094D0(3, &gGlobalPauseFlags);
-+            func_807094D0(3);
+-            transitionStart(3, &gGlobalPauseFlags);
++            transitionStart(3); // PORT: K&R transitionStart(mode) (10E1D0.c) takes one
          }
      } else {
          glist = screenFadeUpdate(glist, D_8076AEE0);
 diff --git a/src/global/55B20.c b/src/global/55B20.c
-index d283525..1ea10e5 100644
+index 695a10a..628409b 100644
 --- a/src/global/55B20.c
 +++ b/src/global/55B20.c
 @@ -17,6 +17,7 @@
@@ -645,7 +571,7 @@ index d283525..1ea10e5 100644
  #define WRITE_GFX(pkt, _w0, _w1) { Gfx *_g = (Gfx *)(pkt); _g->words.w0 = (_w0); _g->words.w1 = (u32)(_w1); }
  
 diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 6a5c4f0..559d832 100644
+index 8a2e88e..404aeb4 100644
 --- a/src/global/6AD90.c
 +++ b/src/global/6AD90.c
 @@ -20,6 +20,7 @@
@@ -654,9 +580,9 @@ index 6a5c4f0..559d832 100644
  #include "proto/global/FE40.h"
 +#include <string.h>
  
- 
- typedef struct CollisionStaticTri {
-@@ -2040,7 +2041,7 @@ s32 assetGetSize(s32 table, s32 index) {
+ // This TU's .data (0x80748E10-0x80748E40): D_80748E10 is unreferenced; D_80748E18 flags the asset
+ // tables loaded compressed.
+@@ -2048,7 +2049,7 @@ s32 assetGetSize(s32 table, s32 index) {
      s32 romAddr;
      u32 size;
  
@@ -665,7 +591,7 @@ index 6a5c4f0..559d832 100644
      assetResolveRomRange(table, index, &romAddr, &size);
      if (size == 0) {
          return 0;
-@@ -2055,7 +2056,7 @@ s32 assetGetCachedSizeOrResolve(s32 table, s32 index) {
+@@ -2063,7 +2064,7 @@ s32 assetGetCachedSizeOrResolve(s32 table, s32 index) {
      if (D_80748E18[table] != 0) {
          size = D_807FB1A0[table][index];
      } else {
@@ -674,7 +600,7 @@ index 6a5c4f0..559d832 100644
          assetResolveRomRange(table, index, &romAddr, &size);
      }
      return size;
-@@ -2078,7 +2079,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+@@ -2086,7 +2087,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
      s32 allocSize;
      void *buffer;
  
@@ -684,22 +610,22 @@ index 6a5c4f0..559d832 100644
          if ((index >= 0x80000000U) && (index < 0xA0000000U)) {
              collisionBstInsertByHash((void *)index, table, 0);
 diff --git a/src/global/80150.c b/src/global/80150.c
-index 7ee7ee3..a4ff2d3 100644
+index dd43785..b8b25f0 100644
 --- a/src/global/80150.c
 +++ b/src/global/80150.c
-@@ -2779,6 +2779,7 @@ s32 tagBarrelCheckKongFlag(s32 kongType, s32 setFlag) {
-             return p->isSet == 0;
+@@ -2802,6 +2802,7 @@ s32 tagBarrelCheckKongFlag(s32 kongType, s32 setFlag) {
          }
+         // ORIG: no final return; when found == 0 the target branches past the isSet test (beqz t3,0x7f7c at 0x7f68) to the epilogue (jr ra at 0x7f84) with ret in $v0 from move v0,t3 in the delay slot (0x7f6c); return 0 gives move v0,zero plus a b (2 lines), return ret 8, ret = isSet == 0 + return ret 8
      }
 +    return ret; // PORT: IDO fell through with ret in $v0
  }
  
- extern s32 D_8074E848[];
+ 
 diff --git a/src/global/8D3E0.c b/src/global/8D3E0.c
-index cbeeb7a..29e1ec0 100644
+index 3143187..0a996c5 100644
 --- a/src/global/8D3E0.c
 +++ b/src/global/8D3E0.c
-@@ -354,6 +354,7 @@ Actor *actorListFindActorById(s16 targetId) {
+@@ -485,6 +485,7 @@ Actor *actorListFindActorById(s16 targetId) {
              return node->actor;
          }
      }
@@ -708,19 +634,19 @@ index cbeeb7a..29e1ec0 100644
  
  void actorListSetPosById(s16 targetId, f32 posX, f32 posY, f32 posZ) {
 diff --git a/src/global/9DD70.c b/src/global/9DD70.c
-index cea3183..c444a67 100644
+index df5f7fa..04185f7 100644
 --- a/src/global/9DD70.c
 +++ b/src/global/9DD70.c
-@@ -37,7 +37,7 @@
- #include "proto/global/EFDC0.h"
- #include "proto/global/FCCD0.h"
+@@ -47,7 +47,7 @@ s16 D_807503A0 = 200;
+ extern u8 D_807212C8[], D_807212B0[];
+ SpritePair gCarryDebrisSprites = { { D_807212C8, D_807212B0 } };
  
 -s32 actorUpdatePrevContactFlags(Actor *); // ORIG: target loads the actorType switch value into v1 right after jal actorUpdatePrevContactFlags (jal at 0x2d78, lw v1,88(s0) at 0x2d88, beq v1,at at 0x2d8c): the original TU declared the callee non-void (the shared void prototype puts it in v0)
-+void actorUpdatePrevContactFlags(Actor *);
++void actorUpdatePrevContactFlags(Actor *); // PORT: defined void (7CA80.c)
  
  void mathAngleBetweenPoints3D(s16 *pitch, s16 *yaw, f32 x1, f32 y1, f32 z1, f32 x2, f32 y2, f32 z2) {
      f32 dx;
-@@ -54,14 +54,14 @@ extern PlayerStruct *gPlayerSlots;
+@@ -64,14 +64,14 @@ extern PlayerStruct *gPlayerSlots;
  extern u8 gCurrentPlayerIndex;
  extern Gfx D_2000180;
  
@@ -738,10 +664,10 @@ index cea3183..c444a67 100644
  
  extern PlayerState *gActivePlayerState;
 diff --git a/src/global/A2F10.c b/src/global/A2F10.c
-index 98f5185..f4d6699 100644
+index 4c59838..4dd4e57 100644
 --- a/src/global/A2F10.c
 +++ b/src/global/A2F10.c
-@@ -453,7 +453,7 @@ void actorShockwaveUpdate(void) {
+@@ -469,7 +469,7 @@ void actorShockwaveUpdate(void) {
  }
  
  
@@ -750,7 +676,7 @@ index 98f5185..f4d6699 100644
      f32 scale;
  
      scale = actor->floorSlopeFactor;
-@@ -463,7 +463,7 @@ void renderScaledSprite(Gfx *dl, Actor *actor) {
+@@ -479,7 +479,7 @@ void renderScaledSprite(Gfx *dl, Actor *actor) {
      WRITE_GFX(dl++, 0xDA380007, (u32)&D_20000C0);
      WRITE_GFX(dl++, 0xE7000000, 0);
      WRITE_GFX(dl++, 0xFA000000, (actor->yaw & 0xFF) | 0xFFFFFF00);
@@ -760,7 +686,7 @@ index 98f5185..f4d6699 100644
  }
  
 diff --git a/src/global/B2CE0.c b/src/global/B2CE0.c
-index 5a3f98c..9eaadd4 100644
+index 9681054..a61be3d 100644
 --- a/src/global/B2CE0.c
 +++ b/src/global/B2CE0.c
 @@ -41,7 +41,7 @@ extern Actor *gCurrentActor;
@@ -770,18 +696,18 @@ index 5a3f98c..9eaadd4 100644
 -void behaviourUpdateContactAndState(); // ORIG: target loads a1 = state before the two-argument calls (lbu a0,340(s0) at 0x7b0, move a1,a0 at 0x7b4, default branch at 0x7c0 to jal at 0xd9c; lbu at 0x1d58, move a1,a0 at 0x1d68, jal at 0x2280) while the owner never reads a1 (12E800 0x1ccc homes only a0, sw a0,64(sp) at 0x1ce0): the original TU had no prototype in scope
 +void behaviourUpdateContactAndState(s32);
  
- void func_806ADFE0(void) {
+ void behaviourTumbleDebrisUpdate(void) {
      f32 transMtx[4][4];
-@@ -279,7 +279,7 @@ void func_806AE588(void) {
+@@ -272,7 +272,7 @@ void behaviourMeleePatrolEnemyUpdate(void) {
      case 0x40:
          break;
      default:
--        behaviourUpdateContactAndState(0x1FB, state);
+-        behaviourUpdateContactAndState(0x1FB, gCurrentActor->state);
 +        behaviourUpdateContactAndState(0x1FB);
          break;
      }
-     state = gCurrentActor->state;
-@@ -670,7 +670,7 @@ void func_806AFB58(void) {
+     switch (gCurrentActor->state) {
+@@ -662,7 +662,7 @@ void behaviourArmoredEnemyUpdate(void) {
      case 0x40:
          break;
      default:
@@ -791,10 +717,10 @@ index 5a3f98c..9eaadd4 100644
      }
      state = gCurrentActor->state;
 diff --git a/src/global/B5EC0.c b/src/global/B5EC0.c
-index 82dd1fc..39dbec2 100644
+index c6413f7..cec4fa5 100644
 --- a/src/global/B5EC0.c
 +++ b/src/global/B5EC0.c
-@@ -48,7 +48,7 @@ void func_806B1348(void) {
+@@ -50,7 +50,7 @@ void func_806B1348(void) {
  
  extern s32 gCurrentMap;
  
@@ -803,7 +729,7 @@ index 82dd1fc..39dbec2 100644
  
  void func_806B13B4(u8 spawnSfxNodes) {
      s32 sel;
-@@ -209,7 +209,7 @@ void func_806B13B4(u8 spawnSfxNodes) {
+@@ -211,7 +211,7 @@ void func_806B13B4(u8 spawnSfxNodes) {
      case 3:
      case 7:
      case 0x35:
@@ -835,10 +761,10 @@ index 84879fb..19c0cad 100644
      }
      sel = gCurrentActor->state;
 diff --git a/src/global/CC800.c b/src/global/CC800.c
-index 50522ec..8f6232a 100644
+index e16c972..b903fab 100644
 --- a/src/global/CC800.c
 +++ b/src/global/CC800.c
-@@ -743,7 +743,7 @@ G01Pos *raceGridSpawnPoint(s32 spawnIndex) {
+@@ -773,7 +773,7 @@ G01Pos *raceGridSpawnPoint(s32 spawnIndex) {
      return &D_807FC900[spawnIndex];
  }
  
@@ -847,7 +773,7 @@ index 50522ec..8f6232a 100644
  
  /* Reading `q->collisionFlags` at each test (no flags local) and keeping `q = pl->queuedActor` as a separate copy
   * variable leaves the `move v0,a0`. */
-@@ -763,22 +763,22 @@ s8 func_806C9830(s8 delta, Actor *actor) {
+@@ -793,22 +793,22 @@ s8 func_806C9830(s8 delta, Actor *actor) {
              if (q->collisionFlags & 1) {
                  result = -1;
                  if (gGlobalOverlayFlags & 0x04000000) {
@@ -875,10 +801,10 @@ index 50522ec..8f6232a 100644
          }
      }
 diff --git a/src/global/D5E10.c b/src/global/D5E10.c
-index db0397f..121447e 100644
+index 933269b..489c2b5 100644
 --- a/src/global/D5E10.c
 +++ b/src/global/D5E10.c
-@@ -3755,7 +3755,7 @@ extern s16 D_80753C84[];
+@@ -3752,7 +3752,7 @@ extern s16 D_80753C84[];
  extern f32 D_80753C30[];
  extern f32 D_80753C4C[];
  extern f32 D_80753C68[];
@@ -888,10 +814,10 @@ index db0397f..121447e 100644
  void playerStateAttachedCallbackFall(void) {
      ActorCallbackNode *node;
 diff --git a/src/global/F56F0.c b/src/global/F56F0.c
-index 522a32e..f95f294 100644
+index 292cc61..307d63e 100644
 --- a/src/global/F56F0.c
 +++ b/src/global/F56F0.c
-@@ -487,7 +487,8 @@ s32 playerWeaponCalculateTrajectory26(Actor *actor, KongChain *state, s32 mode)
+@@ -682,7 +682,8 @@ s32 playerWeaponCalculateTrajectory26(Actor *actor, KongChain *state, s32 mode)
          if (ret != 0) {
              return mode == state->kind;
          }
@@ -902,10 +828,10 @@ index 522a32e..f95f294 100644
  
  f32 mathAngleRadDeltaTurns(f32 *prevAngle, f32 angle) {
 diff --git a/src/global/FCCD0.c b/src/global/FCCD0.c
-index 19d0a30..def2b4d 100644
+index cae929b..dd42c06 100644
 --- a/src/global/FCCD0.c
 +++ b/src/global/FCCD0.c
-@@ -415,8 +415,9 @@ u8 unused;
+@@ -417,8 +417,9 @@ u8 unused;
  }
  
  
@@ -916,7 +842,7 @@ index 19d0a30..def2b4d 100644
  {
      s32 mask;
      SlotQueueMaskNode *node = gSlotQueueMaskList;
-@@ -429,7 +430,7 @@ s32 slot;
+@@ -431,7 +432,7 @@ s32 slot;
              node = node->next;
          } while (node != NULL);
      }
@@ -925,7 +851,7 @@ index 19d0a30..def2b4d 100644
  }
  
  
-@@ -1064,7 +1065,7 @@ Gfx *slotQueueStateMoveToTarget(s32 slot, Gfx *gfx) {
+@@ -1066,7 +1067,7 @@ Gfx *slotQueueStateMoveToTarget(s32 slot, Gfx *gfx) {
          if (gSlotQueue[slot].value != NULL) {
              target = *gSlotQueue[slot].value;
              shown = gSlotQueue[slot].shown;
@@ -935,10 +861,10 @@ index 19d0a30..def2b4d 100644
                  dist = (((target - shown) > 0) ? (target - shown) : -(target - shown));
                  step = dist;
 diff --git a/src/jetpac/1A60.c b/src/jetpac/1A60.c
-index 09ba559..66af8ac 100644
+index fa146a1..cffce0f 100644
 --- a/src/jetpac/1A60.c
 +++ b/src/jetpac/1A60.c
-@@ -520,6 +520,7 @@ s32 jetpacIsSpawnDelay(void) {
+@@ -562,6 +562,7 @@ s32 jetpacIsSpawnDelay(void) {
      if (ret) {
          return jetpacPlayer.player.timer < 180;
      }
@@ -947,10 +873,10 @@ index 09ba559..66af8ac 100644
  
  void jetpacSnapActorToGrid(JetpacPlayerActor *actor) {
 diff --git a/src/menu/1AF0.c b/src/menu/1AF0.c
-index 3ec4db3..b25eb9f 100644
+index 485805a..4e5e469 100644
 --- a/src/menu/1AF0.c
 +++ b/src/menu/1AF0.c
-@@ -289,6 +289,7 @@ s32 menuIsSpecialMovePurchased(MenuShopState *state) {
+@@ -335,6 +335,7 @@ s32 menuIsSpecialMovePurchased(MenuShopState *state) {
              return state->itemSlot < 0;
          }
      }
@@ -959,10 +885,10 @@ index 3ec4db3..b25eb9f 100644
  
  void menuResetSubmenuState(MenuShopState *state, s32 *outAvailability) {
 diff --git a/src/menu/3E10.c b/src/menu/3E10.c
-index 788d764..94e8422 100644
+index a63bfcd..57fd47c 100644
 --- a/src/menu/3E10.c
 +++ b/src/menu/3E10.c
-@@ -2720,7 +2720,7 @@ extern Gfx D_1000118;
+@@ -2739,7 +2739,7 @@ extern Gfx D_1000118;
  extern Mtx D_20000C0;
  
  
@@ -971,7 +897,7 @@ index 788d764..94e8422 100644
      gDPPipeSync(glistp++);
      gSPDisplayList(glistp++, &D_1000118);
      gDPSetCycleType(glistp++, G_CYC_1CYCLE);
-@@ -2728,7 +2728,7 @@ void menuInitGfxState(Gfx *glistp, Actor *menuActor) {
+@@ -2747,7 +2747,7 @@ void menuInitGfxState(Gfx *glistp, Actor *menuActor) {
      gDPSetPrimColor(glistp++, 0, 0, 255, 255, 255, 255);
      gDPSetCombineMode(glistp++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
      gSPMatrix(glistp++, &D_20000C0, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -981,7 +907,7 @@ index 788d764..94e8422 100644
  
  
 diff --git a/src/minecart/25F0.c b/src/minecart/25F0.c
-index 910af0c..5dc42ca 100644
+index e7abb06..e4fa5c1 100644
 --- a/src/minecart/25F0.c
 +++ b/src/minecart/25F0.c
 @@ -54,7 +54,7 @@ extern Actor *gPrimaryPlayerActor;
@@ -990,7 +916,7 @@ index 910af0c..5dc42ca 100644
  extern s32 gCurrentMap;
 -extern s32 effectSinkBySpeedUpdate;
 +void effectSinkBySpeedUpdate(void *effect, void *isDone);
- extern void *D_8074E880[];
+ extern void *gPuffSprites[];
  extern u8 D_80720120[];
  extern s32 D_8072030C;
 @@ -140,6 +140,7 @@ s32 minecartSetTargetAheadOfPlayer(BehaviourWorkState *targetState, f32 distance
@@ -1002,10 +928,10 @@ index 910af0c..5dc42ca 100644
  
  void minecartSpawnRandomParticle(void) {
 diff --git a/src/race/1770.c b/src/race/1770.c
-index 780ceef..6383045 100644
+index 0b4e10d..3dd4903 100644
 --- a/src/race/1770.c
 +++ b/src/race/1770.c
-@@ -401,8 +401,8 @@ void raceUpdateEngineSoundPitch(f32 moveSpeed) {
+@@ -402,8 +402,8 @@ void raceUpdateEngineSoundPitch(f32 moveSpeed) {
  }
  
  
@@ -1017,10 +943,10 @@ index 780ceef..6383045 100644
  
  extern Actor *gPrimaryPlayerActor;
 diff --git a/src/race/52B0.c b/src/race/52B0.c
-index 762d61b..91aec76 100644
+index b953422..6da0b2e 100644
 --- a/src/race/52B0.c
 +++ b/src/race/52B0.c
-@@ -51,8 +51,8 @@ extern Actor *gCurrentActor;
+@@ -55,8 +55,8 @@ extern Actor *gCurrentActor;
  extern Actor *gSpawnedActor;
  extern PlayerStruct *gPlayerSlots;
  
@@ -1032,10 +958,10 @@ index 762d61b..91aec76 100644
  
  void raceSpawnCompetitors(Actor *actor) {
 diff --git a/src/race/6650.c b/src/race/6650.c
-index ce55da5..3b8f4df 100644
+index 9e45ff7..e7efdaa 100644
 --- a/src/race/6650.c
 +++ b/src/race/6650.c
-@@ -195,8 +195,8 @@ void raceUpdateRacerMotion(RaceParticipant *racerState) {
+@@ -197,8 +197,8 @@ void raceUpdateRacerMotion(RaceParticipant *racerState) {
  }
  
  
@@ -1047,7 +973,7 @@ index ce55da5..3b8f4df 100644
  
  void raceParticipantMotionUpdate(void) {
 diff --git a/src/race/7BD0.c b/src/race/7BD0.c
-index ab0adca..032e9e9 100644
+index 57d7af4..853c7db 100644
 --- a/src/race/7BD0.c
 +++ b/src/race/7BD0.c
 @@ -1096,8 +1096,8 @@ void raceInitBeetleRaceParticipants(Actor *raceManager) {

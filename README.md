@@ -17,7 +17,8 @@ tools/.venv/bin/pip install -r decomp/requirements.txt
 tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps  # libclang after the decomp's `clang` package
 ```
 
-Reference decomp build (Docker; once per ROM or submodule bump):
+Reference decomp build (Docker; once per ROM or submodule bump; after a bump carry the patches over with
+`tools/prepare.py rebase <old decomp commit>`, resolve in `build/tree`, then `tools/prepare.py export`):
 
 ```sh
 cp /path/to/dk64.z64 decomp/donkey-kong.z64
@@ -27,7 +28,7 @@ cd decomp && docker compose build && tools/dk make setup BASEROM=donkey-kong.z64
 ## Build
 
 ```sh
-tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated data
+tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
 emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 ```
@@ -64,8 +65,10 @@ the first gamepad works too. Saves (EEPROM) persist in IndexedDB.
 
 - `patches/` — changes to the decomp source, one commit per concern. Edit by committing in `build/tree`,
   then `tools/prepare.py export`.
-- `tools/gen_data.py` — rebuilds the asm-only data (splat `asm/**/data`) as native C objects with libclang
-  type information, plus overlay rename headers, `port_abs.h`, overlay dispatchers and a layout self-check.
+- `tools/gen_data.py` — the decomp defines its static data in C; this emits what is left as splat asm (data only
+  handwritten asm reads, and asm `.bss`) as native C objects at its directive widths, the decomp's ROM-extracted
+  initialisers (`data_inc.us.txt`) in N64 byte order, `OVL_FN` thunks, overlay rename headers, `port_abs.h`, overlay
+  dispatchers and a layout self-check.
 - `port/` — runtime: fibers for N64 threads, libultra shims, ROM/asset byte-order swappers, renderer, audio.
 - `web/` — page and loader.
 
@@ -76,14 +79,15 @@ the first gamepad works too. Saves (EEPROM) persist in IndexedDB.
 - `-sGLOBAL_BASE=8MB`: emcc rejects a hex value for this setting.
 - wasm clang ignores `#pragma clang section`, so overlay data is bracketed by link-order marker objects
   (`build/web/ovl_markers/`) instead; loading an overlay restores its pristine data and zeroes its bss.
-- libultra's VI mode table and other boot data come from the generated data, not port code.
+- libultra's VI mode tables are compiled from the decomp (`vitbl.c`, `vimodes/`); `port/src/boot.c` replaces
+  `src/boot/main.c` and defines the globals of it that game code reads.
 - Interior aliases of C objects that the decomp links by absolute address are defined with `.set` next to
-  their parent (little-endian offsets); reads of N64 code addresses inside function tables use
-  `port/shadow_data.txt` snapshots.
-- `port/data_types.txt` types generated data whose C declaration is missing or a placeholder: `NAME = <C type>`,
-  `NAME raw`, or a per-file layout (`file asm/global/124780.s = layout i4 b10 s*`: 4-byte int, 10 bytes, s16 to
-  the end). Arrays declared on one label also type untyped byte-only labels that continue them, and word-aligned
-  `.byte` runs equal to a symbol address become pointers (spimdisasm drops those relocations).
+  their parent (little-endian offsets); byte reads of other-width data (N64 code addresses inside function
+  tables, bytes of s16 tables) use `port/shadow_data.txt` snapshots of the N64 bytes.
+- Overlay functions stored in global data are `OVL_FN(type, addr)` in the decomp: the raw VRAM there, a thunk to
+  the loaded overlay's function here (`build/gen/ovl_entry.c`).
+- Textures in `data_inc.us.txt` blobs stay in N64 byte order (the RDP reads them so); C data is native, so a reader
+  of another width than the definition needs a patch (or a fix of the decomp's type: they must match).
 - Pacing: the scheduler freezes the RDP after a framebuffer swap and thaws it on the retrace that shows it; the
   port holds the next gfx task while frozen, which is what limits the game to its 30 Hz frame rate.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
