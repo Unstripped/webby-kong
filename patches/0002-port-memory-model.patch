@@ -632,7 +632,7 @@ index e6fc1b2..1aae99d 100644
  u16 D_80744748[10] = { 0x07, 0x26, 0x1A, 0x1E, 0x30, 0x48, 0x57, 0x22, 0x11, 0x00 };
  Struct8074475C D_8074475C[11] = {
 diff --git a/src/global/450.c b/src/global/450.c
-index de1be79..dc1d6b4 100644
+index 2f3d2a9..9248250 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -64,14 +64,14 @@ void func_80024000(void);

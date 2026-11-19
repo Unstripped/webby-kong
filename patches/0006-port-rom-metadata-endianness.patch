@@ -5,7 +5,7 @@ Subject: [PATCH] port: rom metadata endianness
 
 
 diff --git a/src/global/450.c b/src/global/450.c
-index 8b5f3ad..e4c8d3c 100644
+index 79f0b81..f133207 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -272,8 +272,8 @@ void viModeApplyHighRes(void) {

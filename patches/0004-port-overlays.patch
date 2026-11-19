@@ -25,7 +25,7 @@ index 0720f31..ca6f88d 100644
          pix = (u8 *)gFramebuffers[fb];
          p = (u32 *)(pix + (gHiResScale * 0x12C00 * gHiResScale) / 2 * 4); // FAKE: p (loop 2's survivor payload) reused for the framebuffer end: the inner-loop refs raise p's adjsave 30 -> 75, so p takes v1 before hp (30) and hp gets a3 (0x320-0x354); a separate end pointer ties them at 30 and hp takes v1 (9 lines)
 diff --git a/src/global/450.c b/src/global/450.c
-index 8d373f1..8b5f3ad 100644
+index 1017a3a..79f0b81 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -60,7 +60,6 @@

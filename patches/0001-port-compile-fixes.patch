@@ -540,7 +540,7 @@ index 68ed8d9..b00958e 100644
              gCsCountdown.active = 1;
              gCurrentActor = actor;
 diff --git a/src/global/450.c b/src/global/450.c
-index 9852217..de1be79 100644
+index f2918ef..2f3d2a9 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -517,12 +517,12 @@ void gfxSubmitFrame(void) {

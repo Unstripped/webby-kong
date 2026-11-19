@@ -33,7 +33,7 @@ index 1c302d1..eb7b1ff 100644
          maxY = (s16)gCurrentActor->waterY - gCurrentActor->eyeHeight;
      }
 diff --git a/src/global/450.c b/src/global/450.c
-index e4c8d3c..6ff78c6 100644
+index f133207..1a1a1f6 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -398,6 +398,9 @@ void mainResetEngineState(void) {

@@ -111,7 +111,7 @@ index aaa354e..abf2aab 100644
      s32 targetMap;
      s32 exitIndex;
 diff --git a/src/global/450.c b/src/global/450.c
-index 6ed94bb..845d0b1 100644
+index 97bcfcd..b83229f 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -454,6 +454,12 @@ void mainThreadLoop(void *arg) {

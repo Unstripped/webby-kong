@@ -171,7 +171,7 @@ index aac9a04..2804464 100644
          }
          sBlurPassCount++;
 diff --git a/src/global/450.c b/src/global/450.c
-index 6ff78c6..6ed94bb 100644
+index 1a1a1f6..97bcfcd 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -266,7 +266,7 @@ void viModeApplyHighRes(void) {

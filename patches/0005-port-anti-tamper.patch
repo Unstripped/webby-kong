@@ -31,6 +31,19 @@ index ac87876..4309594 100644
      }
      currentActorAnimTryIdleVariant(0, &gBehaviourWorkState->idleAnimFrame);
      if ((gActorGlobalState.bossFightPhase == 9) || (gActorGlobalState.unk15 != 0)) {
+diff --git a/src/critter/5110.c b/src/critter/5110.c
+index 5f6c89f..db4917e 100644
+--- a/src/critter/5110.c
++++ b/src/critter/5110.c
+@@ -124,6 +124,8 @@ void critterBattleArenaUpdate(void) {
+         }
+         ((void (*)(void *, s32, s32))critterBitwiseNot(~(s32)osRecvMesg))(&D_807655F0, 0, 1);
+         ((void (*)(void *, s32))critterBitwiseNot(~(s32)osInvalDCache))(alignedBuf, 0x10);
++        alignedBuf[0] = PORT_BE32(alignedBuf[0]);
++        alignedBuf[1] = PORT_BE32(alignedBuf[1]);
+         alignedBuf[0] += alignedBuf[1];
+         if (alignedBuf[0] != 0x0A78F00E) {
+             rewardFlag = (gCurrentMap == 0xB6) ? 0x184 : 0x183;
 diff --git a/src/global/15050.c b/src/global/15050.c
 index ca6f88d..f0f7f73 100644
 --- a/src/global/15050.c
