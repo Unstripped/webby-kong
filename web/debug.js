@@ -84,7 +84,31 @@
     });
   }
 
-  async function mark(note = '') {
+  // RDP state of every triangle drawn through a point of the canvas (fractions of its size, top-left origin), recorded
+  // during the next frame: display-list path, modes, combiner, tiles, recent texture loads, vertices
+  function probe(fx, fy) {
+    const m = mod();
+    if (!m.ccall('port_debug_probe', 'number', ['number', 'number'], [fx, fy])) {
+      return Promise.reject(new Error('dk64dbg: point is off the game image'));
+    }
+    const start = performance.now();
+    return new Promise((resolve, reject) => {
+      function poll() {
+        const r = m.ccall('port_debug_probe_result', 'string');
+        if (r) {
+          resolve(r);
+        } else if (performance.now() - start > 2000) {
+          reject(new Error('dk64dbg: probe timed out'));
+        } else {
+          requestAnimationFrame(poll);
+        }
+      }
+      requestAnimationFrame(poll);
+    });
+  }
+
+  // extra: fields merged into the mark (Alt+click adds `probe`)
+  async function mark(note = '', extra = {}) {
     const cur = trace(0);
     const m = {
       id: nextMarkId++,
@@ -93,6 +117,7 @@
       state: state(),
       trace: trace(Math.max(0, cur.next - 50)).events,
       image: null,
+      ...extra,
     };
     try {
       m.image = await capture();
@@ -106,6 +131,12 @@
     toast(`Mark #${m.id} saved`);
     refreshIfVisible();
     return m;
+  }
+
+  // Alt+click on the game: a mark carrying the probe of the clicked point
+  async function probeMark(fx, fy) {
+    const p = await probe(fx, fy);
+    return mark(`probe ${fx.toFixed(3)},${fy.toFixed(3)}`, { probe: p });
   }
 
   // downloads every mark plus the full trace ring as dk64-marks-<local time>.json; returns the file name
@@ -222,7 +253,7 @@
 
   const hd = el('div', 'hd');
   const fpsEl = el('span', 'fps ok', '-- fps');
-  hd.append(el('span', 'title', 'DK64 debug'), el('span', 'hint', 'F2 hide · F8 mark · F5/F9 quicksave'), fpsEl);
+  hd.append(el('span', 'title', 'DK64 debug'), el('span', 'hint', 'F2 hide · F8 mark · Alt+click probe · F5/F9 quicksave'), fpsEl);
 
   const grid = el('div', 'grid');
   const rows = {};
@@ -437,12 +468,31 @@
     true,
   );
 
+  // Alt+click on the game canvas: probe mark of that point (capture phase, so SDL never sees the click)
+  window.addEventListener(
+    'mousedown',
+    (e) => {
+      const c = document.getElementById('canvas');
+      if (!e.altKey || e.button !== 0 || e.target !== c) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const r = c.getBoundingClientRect();
+      probeMark((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height).catch((err) =>
+        toast('Probe failed: ' + err.message),
+      );
+    },
+    true,
+  );
+
   window.dk64dbg = {
     state,
     trace,
     traceMask,
     capture,
     mark,
+    probe,
     marks: () => marksList,
     clearMarks,
     exportMarks,

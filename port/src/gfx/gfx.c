@@ -19,6 +19,7 @@ typedef struct {
     float s, t;            /* texels (render tile scale applied) */
     u8 clip;               /* outcode */
     float sx, sy, sz;      /* screen position (N64 pixels) for G_BRANCH_Z / MODIFYVTX */
+    s16 ob[3];             /* object-space position, for the debug probe */
 } RspVtx;
 
 typedef struct {
@@ -203,6 +204,7 @@ static void loadVertices(u32 addr, int n, int dst) {
         const Vtx_t *v = &src[i].v;
         RspVtx *d = &R.vtx[dst + i];
         float x = v->ob[0], y = v->ob[1], z = v->ob[2];
+        memcpy(d->ob, v->ob, sizeof d->ob);
         float (*m)[4] = R.mvp;
         float s = v->tc[0], t = v->tc[1];
         d->x = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
@@ -303,6 +305,99 @@ static void emitVertex(const RspVtx *v) {
     o->t = v->t;
 }
 
+/* ---------------------------------------------------------------- debug pixel probe */
+
+#define PROBE_MAX_HITS 16
+#define PROBE_LOADS 8
+
+static struct {
+    float x, y;
+    int state; /* 0 idle, 1 armed for the next task, 2 recording, 3 done */
+    int hits, len;
+    u32 loads[PROBE_LOADS][6]; /* ring of recent texture loads: kind (1 block, 2 tile, 3 tlut), timg, siz, width, w0, w1 */
+    int loadNext;
+    char buf[24576];
+} sProbe;
+
+void gfxProbeArm(float x, float y) {
+    sProbe.x = x;
+    sProbe.y = y;
+    sProbe.state = 1;
+    sProbe.hits = 0;
+    sProbe.len = 0;
+    sProbe.buf[0] = 0;
+}
+
+const char *gfxProbeResult(void) {
+    if (sProbe.state != 3) {
+        return "";
+    }
+    return sProbe.hits ? sProbe.buf : "no triangle covers this point\n";
+}
+
+static void probeLoad(u32 kind, u32 w0, u32 w1) {
+    u32 *l = sProbe.loads[sProbe.loadNext++ % PROBE_LOADS];
+    l[0] = kind;
+    l[1] = R.timg;
+    l[2] = R.timgSiz;
+    l[3] = R.timgWidth;
+    l[4] = w0;
+    l[5] = w1;
+}
+
+static float probeEdge(const RspVtx *a, const RspVtx *b) {
+    return (b->sx - a->sx) * (sProbe.y - a->sy) - (b->sy - a->sy) * (sProbe.x - a->sx);
+}
+
+#define PP(...) (sProbe.len += snprintf(sProbe.buf + sProbe.len, sizeof sProbe.buf - sProbe.len, __VA_ARGS__))
+
+static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+    const RspVtx *v[3] = { v0, v1, v2 };
+    float e0, e1, e2;
+    int i, k;
+    if (sProbe.state != 2 || sProbe.hits >= PROBE_MAX_HITS || v0->w <= 0 || v1->w <= 0 || v2->w <= 0) {
+        return;
+    }
+    e0 = probeEdge(v0, v1);
+    e1 = probeEdge(v1, v2);
+    e2 = probeEdge(v2, v0);
+    if (!((e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0))) {
+        return;
+    }
+    sProbe.hits++;
+    PP("#%d dl=%s\n  othermode H=%08x L=%08x combine=%08x:%08x geometry=%08x texOn=%d tile=%d levels=%d texScale=%.4f,%.4f\n"
+       "  prim=%d,%d,%d,%d lodfrac=%d env=%d,%d,%d,%d\n",
+       sProbe.hits, dlStackString(), (unsigned)gGfx.otherH, (unsigned)gGfx.otherL, (unsigned)gGfx.combineHi,
+       (unsigned)gGfx.combineLo, (unsigned)gGfx.geometry, gGfx.texOn, gGfx.texTile, gGfx.texLevels, R.texScaleS,
+       R.texScaleT, gGfx.prim[0], gGfx.prim[1], gGfx.prim[2], gGfx.prim[3], gGfx.primLodFrac, gGfx.env[0], gGfx.env[1],
+       gGfx.env[2], gGfx.env[3]);
+    for (i = 0; i < 3; i++) {
+        PP("  v%d ob=(%d,%d,%d) st=(%.2f,%.2f) screen=(%.1f,%.1f,%.0f) w=%.1f rgba=(%.2f,%.2f,%.2f,%.2f)\n", i, v[i]->ob[0],
+           v[i]->ob[1], v[i]->ob[2], v[i]->s, v[i]->t, v[i]->sx, v[i]->sy, v[i]->sz, v[i]->w, v[i]->r, v[i]->g, v[i]->b,
+           v[i]->a);
+    }
+    for (i = 0; i < 8; i++) {
+        const GfxTile *t = &gGfx.tiles[i];
+        if (t->line == 0 && t->tmem == 0 && t->lrs == 0 && t->lrt == 0) {
+            continue;
+        }
+        PP("  tile%d fmt=%d siz=%d line=%d tmem=0x%x pal=%d s(cm=%d mask=%d shift=%d) t(cm=%d mask=%d shift=%d) "
+           "size=%.2f,%.2f-%.2f,%.2f decoded=%ux%u\n",
+           i, t->fmt, t->siz, t->line, t->tmem, t->palette, t->cms, t->masks, t->shifts, t->cmt, t->maskt, t->shiftt,
+           t->uls / 4.0, t->ult / 4.0, t->lrs / 4.0, t->lrt / 4.0, (unsigned)gfxTileWidth(t), (unsigned)gfxTileHeight(t));
+    }
+    for (k = 1; k <= PROBE_LOADS; k++) {
+        const u32 *l = sProbe.loads[(sProbe.loadNext - k + PROBE_LOADS * 4) % PROBE_LOADS];
+        if (l[0] != 0) {
+            PP("  load-%d %s timg=0x%x siz=%u width=%u cmd=%08x:%08x\n", k,
+               l[0] == 1 ? "block" : l[0] == 2 ? "tile" : "tlut", (unsigned)l[1], (unsigned)l[2], (unsigned)l[3],
+               (unsigned)l[4], (unsigned)l[5]);
+        }
+    }
+}
+
+#undef PP
+
 static void triangle(int a, int b, int c) {
     RspVtx *v0, *v1, *v2;
     if (a >= MAX_VTX || b >= MAX_VTX || c >= MAX_VTX) {
@@ -333,6 +428,7 @@ static void triangle(int a, int b, int c) {
             return;
         }
     }
+    probeTriangle(v0, v1, v2);
     emitVertex(v0);
     emitVertex(v1);
     emitVertex(v2);
@@ -717,16 +813,19 @@ static void runDl(u32 addr, int depth) {
             break;
         case G_LOADBLOCK:
             flush();
+            probeLoad(1, w0, w1);
             gfxTmemLoadBlock(&gGfx, R.timg, R.timgSiz, R.timgWidth, (w1 >> 24) & 7, (w0 >> 12) & 0xFFF, w0 & 0xFFF,
                              (w1 >> 12) & 0xFFF, w1 & 0xFFF);
             break;
         case G_LOADTILE:
             flush();
+            probeLoad(2, w0, w1);
             gfxTmemLoadTile(&gGfx, R.timg, R.timgSiz, R.timgWidth, (w1 >> 24) & 7, (w0 >> 12) & 0xFFF, w0 & 0xFFF,
                             (w1 >> 12) & 0xFFF, w1 & 0xFFF);
             break;
         case G_LOADTLUT:
             flush();
+            probeLoad(3, w0, w1);
             gfxTmemLoadTlut(&gGfx, R.timg, (w1 >> 24) & 7, (w1 >> 14) & 0x3FF);
             break;
         case G_SETCOMBINE:
@@ -797,8 +896,14 @@ void portGfxRunTask(OSTask *task) {
     R.texScaleS = R.texScaleT = 1.0f;
     gGfx.texOn = 0;
     gfxBackendBeginTask();
+    if (sProbe.state == 1) {
+        sProbe.state = 2;
+    }
     runDl((u32)task->t.data_ptr, 0);
     flush();
+    if (sProbe.state == 2) {
+        sProbe.state = 3;
+    }
     gfxBackendEndTask();
 }
 

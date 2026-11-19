@@ -341,9 +341,10 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
-    /* texture LOD (triangles only: rects have no per-pixel LOD in our path) */
+    /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD
+     * left set by an earlier draw. Triangles only: rects have no per-pixel LOD. */
     maxLevel = 0;
-    if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc < 2) {
+    if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc == 1) {
         maxLevel = bindMipTiles(st, t0, st->texLevels, tile0, size0, mipTile, mipSize);
     }
     key.lod = maxLevel > 0;
@@ -543,6 +544,21 @@ void gfxBackendPresent(u32 fb, int black) {
         sCaptureReq = 0;
         sCaptureSeq++;
     }
+}
+
+/* debug pixel probe at a point of the canvas (fractions of its drawable, top-left origin); 0 when the point is off
+ * the presented image. The result (port_debug_probe_result) fills once the next gfx task ran. */
+EMSCRIPTEN_KEEPALIVE int port_debug_probe(float fx, float fy) {
+    float x, y;
+    if (!gfxFbPresentedToN64(fx, fy, &x, &y)) {
+        return 0;
+    }
+    gfxProbeArm(x, y);
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *port_debug_probe_result(void) {
+    return gfxProbeResult();
 }
 
 EMSCRIPTEN_KEEPALIVE void port_debug_capture_request(void) {

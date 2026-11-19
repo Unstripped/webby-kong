@@ -15,6 +15,10 @@ come from `patches/0014-port-debug-trace-hooks.patch`.
 - Tell the user to open `http://localhost:8080/?rom=/dev-rom.z64` in Chrome. **F2** toggles the debug panel
   (state, trace category toggles, recent trace events, Mark / Export / Clear buttons); **F8** drops a mark
   (state + last 50 trace events + frame grab). Ask them to mark the moment something looks wrong and describe it.
+  For a rendering glitch, ask them to **Alt+click** the broken spot: that drops a mark whose `probe` field lists the
+  RDP state of every triangle drawn through that pixel on the next frame (display-list path, other modes, combiner,
+  G_TEXTURE tile/levels/scale, the 8 tile descriptors with decoded sizes, the last 8 texture loads, and each vertex's
+  object position, st, screen position and shade). Works from an exported marks file too, so no tab access is needed.
 - **F5** quicksaves, **F9** quickloads (`web/quicksave.js`). A reload of the same `dk64.wasm` restores the snapshot;
   after a rebuild the page boots straight into the resume point (map + position, adventure mode only). So after a
   rebuild the user only reloads (⌘⇧R) instead of replaying to the bug. `dk64qs.status()` shows what is stored.
@@ -44,6 +48,8 @@ Release with `browser.close({ name: 'dk64-live' })`; for an adopted tab this onl
   ```
   then `read` `/tmp/dk64-mark-<id>.jpg` to view it.
 - Fresh grab without a mark: `await tab.evaluate(() => dk64dbg.capture())` (same data URL format).
+- Pixel probe without a mark: `await tab.evaluate(() => dk64dbg.probe(fx, fy))`, `fx`/`fy` as fractions of the canvas
+  (top-left origin). Rejects when the point is off the game image.
 - `tab.console()` shows browser-side warnings (e.g. `GL_INVALID_*`) logged since attach.
 
 ## 4. Trace

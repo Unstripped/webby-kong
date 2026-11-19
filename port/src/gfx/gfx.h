@@ -69,4 +69,9 @@ void gfxBackendSyncRdram(u32 addr, u32 len);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);
+
+/* debug pixel probe (web/debug.js): the next gfx task records the RDP state of every triangle covering N64 pixel
+ * (x, y); gfxProbeResult is "" until that task ran */
+void gfxProbeArm(float x, float y);
+const char *gfxProbeResult(void);
 #endif

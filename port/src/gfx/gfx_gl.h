@@ -57,6 +57,8 @@ void gfxFbResolve(GfxFb *fb);
 void gfxFbUploadRdram(GfxFb *fb);
 void gfxFbClearDepth(void);
 void gfxFbPresent(u32 addr, int black, int winW, int winH);
+/* a point of the drawable (fractions, top-left origin) in N64 pixels of the last presented image; 0 off-image */
+int gfxFbPresentedToN64(float fx, float fy, float *x, float *y);
 void gfxFbCpuWrote(u32 addr, u32 len);
 void gfxFbSyncRdram(u32 addr, u32 len);
 

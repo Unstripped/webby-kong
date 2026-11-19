@@ -26,6 +26,11 @@ static u32 sScaleOverride; /* 0: follow the window height */
 static u32 sLoggedScale, sLoggedViW;
 static int sMsaaRequest = 4;
 static int sSamples; /* 0: MSAA off */
+/* where the last present put its image on the canvas (gfxFbPresentedToN64, the debug pixel probe) */
+static struct PresentedImage {
+    int winW, winH, vx, vy, vw, vh;
+    u32 physW, physH, ox, scale;
+} sPresented;
 
 /* the shared depth goes on colour FBOs of its size; the rest detach it so they stay complete */
 static void attachDepth(const GfxFb *fb) {
@@ -149,6 +154,7 @@ int gfxFbQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sLoggedViW);
     out[n++] = QS_RANGE(sMsaaRequest);
     out[n++] = QS_RANGE(sSamples);
+    out[n++] = QS_RANGE(sPresented);
     return n;
 }
 
@@ -456,8 +462,34 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH) {
     }
     vx = (winW - vw) / 2;
     vy = (winH - vh) / 2;
+    sPresented.winW = winW;
+    sPresented.winH = winH;
+    sPresented.vx = vx;
+    sPresented.vy = vy;
+    sPresented.vw = vw;
+    sPresented.vh = vh;
+    sPresented.physW = fb->physW;
+    sPresented.physH = fb->physH;
+    sPresented.ox = fb->ox;
+    sPresented.scale = fb->scale;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->resolveFbo);
     glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+}
+
+int gfxFbPresentedToN64(float fx, float fy, float *x, float *y) {
+    const struct PresentedImage *p = &sPresented;
+    float px, py;
+    if (p->vw <= 0 || p->vh <= 0 || p->scale == 0) {
+        return 0;
+    }
+    px = (fx * p->winW - p->vx) / p->vw;
+    py = (fy * p->winH - p->vy) / p->vh; /* the letterbox is symmetric, so top and bottom margins match */
+    if (px < 0 || px >= 1 || py < 0 || py >= 1) {
+        return 0;
+    }
+    *x = (px * p->physW - p->ox) / p->scale;
+    *y = py * p->physH / p->scale;
+    return 1;
 }
 
 void gfxFbCpuWrote(u32 addr, u32 len) {
