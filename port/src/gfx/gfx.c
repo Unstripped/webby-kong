@@ -313,7 +313,7 @@ static void emitVertex(const RspVtx *v) {
 static struct {
     float x, y;
     int state; /* 0 idle, 1 armed for the next task, 2 recording, 3 done */
-    int hits, len;
+    int hits, len, truncated;
     u32 loads[PROBE_LOADS][6]; /* ring of recent texture loads: kind (1 block, 2 tile, 3 tlut), timg, siz, width, w0, w1 */
     int loadNext;
     char buf[24576];
@@ -325,12 +325,20 @@ void gfxProbeArm(float x, float y) {
     sProbe.state = 1;
     sProbe.hits = 0;
     sProbe.len = 0;
+    sProbe.truncated = 0;
     sProbe.buf[0] = 0;
 }
+
+#define PROBE_TRUNCATED "(truncated: probe buffer full)\n"
 
 const char *gfxProbeResult(void) {
     if (sProbe.state != 3) {
         return "";
+    }
+    if (sProbe.truncated && sProbe.len + sizeof PROBE_TRUNCATED <= sizeof sProbe.buf) {
+        memcpy(sProbe.buf + sProbe.len, PROBE_TRUNCATED, sizeof PROBE_TRUNCATED);
+        sProbe.len += sizeof PROBE_TRUNCATED - 1;
+        sProbe.truncated = 0;
     }
     return sProbe.hits ? sProbe.buf : "no triangle covers this point\n";
 }
@@ -349,13 +357,34 @@ static float probeEdge(const RspVtx *a, const RspVtx *b) {
     return (b->sx - a->sx) * (sProbe.y - a->sy) - (b->sy - a->sy) * (sProbe.x - a->sx);
 }
 
-#define PP(...) (sProbe.len += snprintf(sProbe.buf + sProbe.len, sizeof sProbe.buf - sProbe.len, __VA_ARGS__))
+/* appends whole lines only: one that doesn't fit (with room kept for the truncation note) is dropped and stops the
+ * recording */
+static void probePrintf(const char *fmt, ...) {
+    size_t avail = sizeof sProbe.buf - sizeof PROBE_TRUNCATED - sProbe.len;
+    va_list ap;
+    int n;
+    if (sProbe.truncated) {
+        return;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(sProbe.buf + sProbe.len, avail, fmt, ap);
+    va_end(ap);
+    if (n < 0 || (size_t)n >= avail) {
+        sProbe.buf[sProbe.len] = 0;
+        sProbe.truncated = 1;
+        return;
+    }
+    sProbe.len += n;
+}
+
+#define PP probePrintf
 
 static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
     const RspVtx *v[3] = { v0, v1, v2 };
     float e0, e1, e2;
     int i, k;
-    if (sProbe.state != 2 || sProbe.hits >= PROBE_MAX_HITS || v0->w <= 0 || v1->w <= 0 || v2->w <= 0) {
+    if (sProbe.state != 2 || sProbe.truncated || sProbe.hits >= PROBE_MAX_HITS || v0->w <= 0 || v1->w <= 0 ||
+        v2->w <= 0) {
         return;
     }
     e0 = probeEdge(v0, v1);
