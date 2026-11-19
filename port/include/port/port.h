@@ -62,6 +62,7 @@ u32 portIoRead(u32 reg);
 void portIoWrite(u32 reg, u32 value);
 
 /* ---- widescreen ---- */
+f32 portGfxWideFactor(void); /* displayed width / the game's 4:3 width (>= 1); 1 when not wide */
 f32 portGfxWideHalfYaw(f32 halfYawDeg); /* horizontal half-FOV widened by window aspect / (4:3); identity when not wide */
 void portGfxWideClipX(s16 *left, s16 *right); /* screen x bounds reaching the image edge move out to the wide edge */
 

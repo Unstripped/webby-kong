@@ -57,6 +57,10 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)len;
 }
 
+f32 portGfxWideFactor(void) {
+    return 1.0f;
+}
+
 f32 portGfxWideHalfYaw(f32 halfYawDeg) {
     return halfYawDeg;
 }

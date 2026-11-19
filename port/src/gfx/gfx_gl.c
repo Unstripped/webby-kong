@@ -207,15 +207,21 @@ static int spansWidth(float x0, float x1) {
     return sTarget->ox > 0 && x0 <= w / 16.0f && x1 >= w - w / 16.0f;
 }
 
-/* N64 scissor (pixels, y down) -> GL scissor in the bound FBO */
+/* N64 scissor (pixels, y down) -> GL scissor in the bound FBO. On a widened target each edge within the overscan
+ * margin of the image edge moves out to the wide edge on its own: the map clips a chunk seen through a portal to
+ * the portal's screen rect, and a rect touching one side must still reach into that side area. */
 static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
     s32 h = (s32)sTarget->height, px0, px1;
-    if (spansWidth((float)x0, (float)x1)) {
-        px0 = 0;
-        px1 = (s32)sTarget->physW;
-    } else {
-        px0 = (s32)sTarget->ox + x0 * PORT_GFX_SCALE;
-        px1 = (s32)sTarget->ox + x1 * PORT_GFX_SCALE;
+    float w = (float)sTarget->width;
+    px0 = (s32)sTarget->ox + x0 * PORT_GFX_SCALE;
+    px1 = (s32)sTarget->ox + x1 * PORT_GFX_SCALE;
+    if (sTarget->ox > 0) {
+        if ((float)x0 <= w / 16.0f) {
+            px0 = 0;
+        }
+        if ((float)x1 >= w - w / 16.0f) {
+            px1 = (s32)sTarget->physW;
+        }
     }
     glEnable(GL_SCISSOR_TEST);
     glScissor(px0, (h - y1) * PORT_GFX_SCALE, px1 - px0, (y1 - y0) * PORT_GFX_SCALE);
@@ -466,8 +472,13 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     gfxFbSyncRdram(addr, len);
 }
 
-f32 portGfxWideHalfYaw(f32 halfYawDeg) {
+f32 portGfxWideFactor(void) {
     float wide = gfxFbPhysWidth(gPortViWidth) / (float)(gPortViWidth * PORT_GFX_SCALE);
+    return wide > 1.0f ? wide : 1.0f;
+}
+
+f32 portGfxWideHalfYaw(f32 halfYawDeg) {
+    float wide = portGfxWideFactor();
     if (wide <= 1.0f || halfYawDeg >= 89.0f) {
         return halfYawDeg;
     }
