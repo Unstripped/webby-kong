@@ -2,7 +2,7 @@
 // - boot(FS): before main reads /saves/dk64.eep, uploads the browser copy (kept as a version), then restores the
 //   server's newest save (highest client mtime) into IDBFS if it differs. Never rejects.
 // - upload(FS): called from port_save_sync (port/src/save.c) after each EEPROM flush.
-// Without the server (plain http.server answers 501) the game runs on the IDBFS copy alone and warns once.
+// Without the server (plain http.server answers 501) the game runs on the IDBFS copy alone and toasts a warning.
 (function () {
   'use strict';
 

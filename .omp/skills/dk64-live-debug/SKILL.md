@@ -10,8 +10,9 @@ All commands run from the repo root. The page exposes `window.dk64dbg` (`web/deb
 come from `patches/0014-port-debug-trace-hooks.patch`.
 
 ## 1. Start
-- If `lsof -iTCP:8080 -sTCP:LISTEN` prints nothing, start the bash service `python3 -m http.server -d build/web 8080`
-  with name `dk64-web` (ready: port 8080).
+- If `lsof -iTCP:8080 -sTCP:LISTEN` prints nothing, start the bash service `python3 tools/serve.py` with name
+  `dk64-web` (ready: port 8080). It also stores the EEPROM save in `~/.local/share/webby-kong/saves.sqlite3`; never
+  replace it with `python3 -m http.server`, which leaves saves in the browser only.
 - Tell the user to open `http://localhost:8080/?rom=/dev-rom.z64` in Chrome. **F2** toggles the debug panel
   (state, trace category toggles, recent trace events, Mark / Export / Clear buttons); **F8** drops a mark
   (state + last 50 trace events + frame grab). Ask them to mark the moment something looks wrong and describe it.

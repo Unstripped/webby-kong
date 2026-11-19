@@ -33,8 +33,11 @@ emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 ```
 
-Run in a browser: `python3 -m http.server -d build/web 8080`, open `http://localhost:8080/`, pick the ROM
+Run in a browser: `tools/serve.py` (serves `build/web` on port 8080), open `http://localhost:8080/`, pick the ROM
 (development: copy the ROM to `build/web/dev-rom.z64` and open `http://localhost:8080/?rom=/dev-rom.z64`).
+The game save (EEPROM) lives in IndexedDB; `web/saves.js` also uploads every version to the server, which keeps them in
+`~/.local/share/webby-kong/saves.sqlite3` and restores the newest one at page load (recovery SQL in the `tools/serve.py`
+docstring). Under a plain static server the page warns and keeps the save in the browser only.
 Objects (trees, buildings, pickups, actors) draw and enemies spawn out to 4× the game's distances, capped at each map's
 far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64 behaviour, any value 1–16 sets the factor.
 `Module.ccall('port_debug_stats', 'string')` in the console returns the runtime counters (VI ticks, frames,
