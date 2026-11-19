@@ -128,7 +128,7 @@ index 97bcfcd..b83229f 100644
              case 6:
                  transitionRunFrame(gInitialMap, gInitialExit);
 diff --git a/src/global/CC800.c b/src/global/CC800.c
-index b903fab..a391b27 100644
+index 77524c6..1211892 100644
 --- a/src/global/CC800.c
 +++ b/src/global/CC800.c
 @@ -615,11 +615,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {

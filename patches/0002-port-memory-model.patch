@@ -1043,6 +1043,28 @@ index cae13dc..e314832 100644
  
  Gfx *renderBannerText(Gfx *gdl, Actor *actor) {
      f32 sx;
+diff --git a/src/global/CC800.c b/src/global/CC800.c
+index b903fab..77524c6 100644
+--- a/src/global/CC800.c
++++ b/src/global/CC800.c
+@@ -548,7 +548,7 @@ u8 playerLookupKongByActorType(s16 actorType) {
+ 
+     for (i = 0; i < 10; i++) {
+         if (actorType == gKongCharacterTable[i].actorType) {
+-            return gKongCharacterTable[i].b.characterId;
++            return (u8)gKongCharacterTable[i].characterIndex; // PORT: b.characterId is the word's low byte, +3 on the N64 only
+         }
+     }
+     return 0;
+@@ -600,7 +600,7 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+     gCurrentCharacterIndex = row->characterIndex;
+     controllerAnimFree(gActivePlayerActor);
+     actorSub140Free(gActivePlayerActor->collision);
+-    controllerAnimInit(gActivePlayerActor, row->m.modelId);
++    controllerAnimInit(gActivePlayerActor, (u16)row->model); // PORT: m.modelId is the word's low half, +2 on the N64 only
+     gActivePlayerActor->collision = actorSub140CreateFromModel(gActivePlayerActor);
+     gActivePlayerActor->flags &= ~0x1000;
+     gActivePlayerActor->flags |= row->actorFlags;
 diff --git a/src/global/F56F0.c b/src/global/F56F0.c
 index 307d63e..e6b0c33 100644
 --- a/src/global/F56F0.c
