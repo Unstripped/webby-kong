@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Thu, 19 Nov 2026 21:47:31 -0700
+Subject: [PATCH] port: race reward flag endianness
+
+
+diff --git a/src/race/0.c b/src/race/0.c
+index 236a0c3..0fe2537 100644
+--- a/src/race/0.c
++++ b/src/race/0.c
+@@ -132,6 +132,9 @@ typedef struct RaceCoinConfig { // component at Actor 0x17C of the coin-race opp
+     u8 pad0[4];
+     RaceParticipant *rival;
+     u8 pad8[0x18 - 0x8];
++    /* PORT: written as the s32 `w` and read through `h.rewardFlag` (+2), which on the N64 is the low half. On
++     * little-endian wasm +2 is the high half (0), so every reader takes `(s16)reward.w` instead. Reading flag 0
++     * instead of 0x4B/0x103, once it was set, made the beetle races skip their intro and never pay out the banana. */
+     union {
+         s32 w;
+         struct {
+@@ -145,7 +148,7 @@ typedef struct RaceCoinConfig { // component at Actor 0x17C of the coin-race opp
+ extern u16 gMinigameCoinCount;
+ 
+ int raceCheckCoinRequirement(RaceParticipant *controller, RaceCoinConfig *config) {
+-    return controller->place != 0 && flagGet(config->reward.h.rewardFlag, 0) == 0 && gMinigameCoinCount >= config->requiredCoins;
++    return controller->place != 0 && flagGet((s16)config->reward.w, 0) == 0 && gMinigameCoinCount >= config->requiredCoins;
+ }
+ 
+ 
+@@ -218,7 +221,7 @@ void raceOpponentBehaviourUpdate(void) {
+             config->reward.w = 0x4B;
+             flag = 0x66;
+         }
+-        if (flagGet(flag, 2) == 0 && flagGet(config->reward.h.rewardFlag, 0) == 0) {
++        if (flagGet(flag, 2) == 0 && flagGet((s16)config->reward.w, 0) == 0) {
+             camStartPath(gCurrentActor, 0, 1);
+             currentActorClearFlag();
+             flagSet(flag, 1, 2);
+@@ -451,7 +454,7 @@ void raceOpponentBehaviourUpdate(void) {
+         if (controller->unk35 == 0) {
+             slotQueueCancel(0xB, 0);
+             controller->unkD0 = 0;
+-            if (flagGet(config->reward.h.rewardFlag, 0) == 0) {
++            if (flagGet((s16)config->reward.w, 0) == 0) {
+                 pathId = raceResultCamPathIds[raceCheckLapCompletionThreshold(controller, config->rival, config->requiredCoins)];
+                 camStartPath(gCurrentActor, pathId, 1);
+                 currentActorClearFlag();
+@@ -464,7 +467,7 @@ void raceOpponentBehaviourUpdate(void) {
+     case 5:
+         switch (controller->unk35) {
+         case 0:
+-            if (flagGet(config->reward.h.rewardFlag, 0) == 0) {
++            if (flagGet((s16)config->reward.w, 0) == 0) {
+                 sfxStopSlotSound(gActivePlayerActor, 0);
+                 playerStateQueueCallback(0x55, NULL, 0);
+                 gCurrentActor->speedXZ = 0.0f;
+@@ -505,14 +508,14 @@ void raceOpponentBehaviourUpdate(void) {
+             }
+             break;
+         case 4:
+-            if (flagGet(config->reward.h.rewardFlag, 0) != 0) {
++            if (flagGet((s16)config->reward.w, 0) != 0) {
+                 controller->unk35++;
+             }
+             break;
+         case 5:
+             if (currentActorTestClearFlag() != 0) {
+                 currentActorClearFlag();
+-                if (flagGet(config->reward.h.rewardFlag, 0) != 0) {
++                if (flagGet((s16)config->reward.w, 0) != 0) {
+                     mapCheckAutoTransition();
+                 } else {
+                     hudSpawnTextScreen(1);
