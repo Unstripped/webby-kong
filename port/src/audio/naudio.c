@@ -27,7 +27,8 @@
  *                w0, a stale scalar $2 and w1 into DMEM 0xFE0/0xFE2/0xFE4. The pole filter the game means to
  *                run (code at IMEM 0x163C) is unreachable in this ucode.
  *   0x0F 0x1374  SETLOOP     address word at DMEM 0x0E
- * Ops 0x10..0x7F index ucode constants rather than handlers and are reported as unknown.
+ * Ops 0x10..0x7F index ucode constants rather than handlers and are reported as unknown, except the port's own
+ * 0x7E/0x7F (PORT_AOP_SPATIAL_BEGIN/END, port.h), which game code only emits with 3D sound on.
  *
  * Command lists are fetched 0x140 bytes at a time into DMEM 0x2B0. Op 0x00 (the game's ratio<<16|max
  * commands from n_alAuxBusPull/n_alResamplePull, written for a ucode with a handler there) does not
@@ -39,6 +40,8 @@
  * hardware's big-endian byte b at host offset b ^ 1, except the ADPCM frame fetch, which reads raw bytes.
  */
 #include "port_internal.h"
+#include "audio/hrtf.h"
+#include <string.h>
 
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, "naudio DMEM model assumes a little-endian host");
 _Static_assert(sizeof(OSTask_t) == 0x40, "OSTask layout");
@@ -53,7 +56,7 @@ extern u8 D_80760590[];
 #define CMD_CHUNK 0x140
 #define STATE 0xFA0 /* $24 */
 
-static u8 sDmem[DMEM_SIZE];
+static u8 sDmem[DMEM_SIZE] __attribute__((aligned(16))); /* sample buffers are native s16 arrays (hrtf.c) */
 static u16 sUcodeData[UCODE_DATA_SIZE / 2];
 static int sUcodeReady;
 static u32 sR2;          /* scalar $2: read by op 0x0E (stored to DMEM 0xFE2) */
@@ -915,6 +918,18 @@ static void opSetloop(u32 w1) {
     dmWr16(0x10, a);
 }
 
+/* PORT_AOP_SPATIAL_BEGIN/END (port-only, see port.h and hrtf.c): the dry buffers before one voice's ENVMIXER */
+static s16 sSpatialDry[2][HRTF_FRAME];
+
+static void opSpatialBegin(void) {
+    memcpy(sSpatialDry[0], &sDmem[0x9D0], sizeof sSpatialDry[0]);
+    memcpy(sSpatialDry[1], &sDmem[0xB40], sizeof sSpatialDry[1]);
+}
+
+static void opSpatialEnd(u32 w1) {
+    portHrtfMix(w1, sSpatialDry[0], sSpatialDry[1], (s16 *)&sDmem[0x9D0], (s16 *)&sDmem[0xB40]);
+}
+
 /* ------------------------------------------------------------- task ---- */
 
 static void loadUcodeData(void) {
@@ -981,7 +996,14 @@ void portAudioRunTask(OSTask *t) {
             u32 pc = 0x1000 | ((u16)dmRd16(op * 2) & 0xFFC);
             dram += 8;
             remain -= 8;
-            if (pc == 0x10E8) {
+            if (op == PORT_AOP_SPATIAL_BEGIN || op == PORT_AOP_SPATIAL_END) {
+                chunk -= 8;
+                if (op == PORT_AOP_SPATIAL_BEGIN) {
+                    opSpatialBegin();
+                } else {
+                    opSpatialEnd(w1);
+                }
+            } else if (pc == 0x10E8) {
                 if (!sLoggedOp0) {
                     sLoggedOp0 = 1;
                     portLog("PORT: naudio op 0x%02x has no handler in this ucode (slot not consumed)", w0 >> 24);

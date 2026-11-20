@@ -20,6 +20,21 @@ static float setDrawDistance(double v) {
     return gPortDrawDistance;
 }
 
+/* --audio-rate 22050|44100: synthesizer and output rate (22050 = N64); before boot only */
+static void setAudioRate(int rate) {
+    if (rate == 22050 || rate == 44100) {
+        gPortAudioRate = rate;
+    } else {
+        portLog("PORT: ignoring audio rate %d (22050 or 44100)", rate);
+    }
+}
+
+/* --hrtf 0|1: binaural 3D sound for positional effects; returns the value in effect */
+static s32 setAudioHrtf(s32 on) {
+    gPortAudioHrtf = on != 0;
+    return gPortAudioHrtf;
+}
+
 static void runAll(void) {
     portRunUntilIdle();
     while (portSpRunPendingTasks()) {
@@ -210,6 +225,10 @@ int main(int argc, char **argv) {
             resume = argv[++a];
         } else if (strcmp(argv[a], "--drawdist") == 0 && a + 1 < argc) {
             setDrawDistance(atof(argv[++a]));
+        } else if (strcmp(argv[a], "--audio-rate") == 0 && a + 1 < argc) {
+            setAudioRate(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--hrtf") == 0 && a + 1 < argc) {
+            setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
         }
@@ -217,7 +236,7 @@ int main(int argc, char **argv) {
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
                "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
-               "[--progress]\n");
+               "[--audio-rate 22050|44100] [--hrtf 0|1] [--progress]\n");
         return 2;
     }
     if (input != NULL) {
@@ -292,7 +311,8 @@ int portMainQsRanges(QsRange *out) {
     out[1] = QS_RANGE(sLastMs);
     out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
     out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
-    return 4;
+    out[4] = QS_RANGE(gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
+    return 5;
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
@@ -308,6 +328,8 @@ EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 
 static void port_frame(void) {
     double now, dt;
@@ -329,6 +351,10 @@ int main(int argc, char **argv) {
             msaa = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--drawdist") == 0) {
             setDrawDistance(atof(argv[++a]));
+        } else if (strcmp(argv[a], "--audio-rate") == 0) {
+            setAudioRate(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--hrtf") == 0) {
+            setAudioHrtf(atoi(argv[++a]));
         }
     }
     if (portRomSize() == 0) {
