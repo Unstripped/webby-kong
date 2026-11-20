@@ -289,6 +289,14 @@
     }),
     segSetting('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
       () => 'Auto: shown on touch screens without a gamepad'),
+    segSetting('audio3d', '3D sound', [[0, 'Off'], [1, 'Headphones']],
+      () => 'Positional effects come from their direction, front and back included'),
+    segSetting('audiorate', 'Audio quality', [[22050, '22 kHz (N64)'], [44100, '44 kHz']], () => {
+      const running = window.dk64settings.audioRate();
+      return running && running !== window.dk64settings.get('audiorate')
+        ? `Applies when the game is reloaded (running at ${running / 1000} kHz)`
+        : 'Sample rate of the sound mix';
+    }),
   ];
   settingsEl.append(...SETTINGS.map((s) => s.box));
 

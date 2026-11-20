@@ -1,5 +1,6 @@
-// Player settings (draw distance, render scale, MSAA, touch controller): stored in localStorage `dk64.settings`, a
-// URL parameter overrides the stored value for that page load; the Esc menu changes them live.
+// Player settings (draw distance, render scale, MSAA, touch controller, 3D sound, audio rate): stored in localStorage
+// `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu changes them live,
+// except the audio rate, which the game reads at boot (it applies on the next load).
 (function () {
   'use strict';
 
@@ -14,7 +15,10 @@
       valid: (v) => v === 'auto' || v === 'on' || v === 'off',
       parse: (s) => (s === '1' ? 'on' : s === '0' ? 'off' : s),
       fn: null,
+      apply: (v) => window.dk64touch && window.dk64touch.setMode(v),
     },
+    audio3d: { def: 1, valid: (v) => v === 0 || v === 1, parse: num, fn: 'port_set_audio_hrtf' },
+    audiorate: { def: 44100, valid: (v) => v === 22050 || v === 44100, parse: num, fn: null },
   };
 
   let stored = {};
@@ -55,13 +59,16 @@
     }
     if (isStarted) {
       if (d.fn) window.Module.ccall(d.fn, 'number', ['number'], [value]);
-      else if (window.dk64touch) window.dk64touch.setMode(value);
+      else if (d.apply) d.apply(value);
     }
     return values[key];
   }
 
   function args() {
-    return ['--drawdist', String(values.drawdist), '--scale', String(values.scale), '--msaa', String(values.msaa)];
+    return [
+      '--drawdist', String(values.drawdist), '--scale', String(values.scale), '--msaa', String(values.msaa),
+      '--hrtf', String(values.audio3d), '--audio-rate', String(values.audiorate),
+    ];
   }
 
   function started() {
@@ -72,5 +79,10 @@
     return isStarted ? window.Module.ccall('port_gfx_max_samples', 'number') : 0;
   }
 
-  window.dk64settings = { get, set, args, started, maxSamples };
+  // the rate the running game uses: a quickload restores the rate its snapshot was made at
+  function audioRate() {
+    return isStarted ? window.Module.ccall('port_audio_rate', 'number') : 0;
+  }
+
+  window.dk64settings = { get, set, args, started, maxSamples, audioRate };
 })();
