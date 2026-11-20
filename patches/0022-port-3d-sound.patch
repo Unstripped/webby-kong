@@ -5,7 +5,7 @@ Subject: [PATCH] port: 3d sound
 
 
 diff --git a/src/global/13A7A0.c b/src/global/13A7A0.c
-index 8824a07..4f82fa8 100644
+index 8824a07..1075737 100644
 --- a/src/global/13A7A0.c
 +++ b/src/global/13A7A0.c
 @@ -348,6 +348,7 @@ void __n_handleEvent(GeSndEvt *event) {
@@ -24,21 +24,26 @@ index 8824a07..4f82fa8 100644
      if (gSndpUsedHead == state) {
          gSndpUsedHead = state->next;
      }
-@@ -518,6 +520,13 @@ u8 n_alSndpGetState(GfSndState *state) {
+@@ -518,6 +520,18 @@ u8 n_alSndpGetState(GfSndState *state) {
      }
  }
  
-+// PORT: 3D sound: a looping positional sound's direction, updated every frame by the sfx code (7130.c)
++// PORT: 3D sound: a looping positional sound's direction, updated every frame by the sfx code (7130.c).
++// Like the player's events (__n_handleEvent), it covers the handle's layered states: next states up to the
++// next group head (flags & 1).
 +void n_alSndpSetSpatial(GfSndState *state, u32 dir) {
 +    if (state) {
 +        portSpatialBind(&state->voice, dir);
++        for (state = state->next; state != NULL && !(state->flags & 1); state = state->next) {
++            portSpatialBind(&state->voice, dir);
++        }
 +    }
 +}
 +
  GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 fxMix, GfSndState **handle) {
      GfSndState *state;
      GfSndState *ret;
-@@ -530,15 +539,18 @@ GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 f
+@@ -530,15 +544,18 @@ GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 f
      s32 val;
      GeSndEvt ev1;
      GeSndEvt ev2;
