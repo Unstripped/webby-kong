@@ -27,8 +27,10 @@ import bisect
 import hashlib
 import os
 import re
+import shutil
 import struct
 import sys
+import tempfile
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -1093,8 +1095,33 @@ def check_ref_fingerprint():
 
 def gen_ref():
     """--ref: port/ref from the reference decomp build (ELFs, splat's auto symbols, asm), with every byte run the
-    boot fill copies checked against the segments' inflated ROM streams (decomp/bin/segments)."""
-    REF.mkdir(parents=True, exist_ok=True)
+    boot fill copies checked against the segments' inflated ROM streams (decomp/bin/segments). Written to a staging
+    directory that replaces port/ref only when no check failed, so a failed run never stamps a new fingerprint."""
+    global REF
+    final = REF
+    final.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".ref-", dir=final.parent))
+    errors = REPORT.errors
+    REF = stage
+    try:
+        write_ref()
+    except BaseException:
+        shutil.rmtree(stage)
+        raise
+    finally:
+        REF = final
+    if REPORT.errors > errors:
+        shutil.rmtree(stage)
+        REPORT.note(f"ref: {final.relative_to(ROOT)} left unchanged")
+        return
+    stage.chmod(0o755)
+    if final.exists():
+        shutil.rmtree(final)
+    stage.rename(final)
+
+
+def write_ref():
+    """gen_ref's body: writes the manifest into REF (the staging directory)."""
     elves = load_elves(ref=False)
     for seg, e in elves.items():
         lines = [f"# {seg} ELF symbols of the reference decomp build (tools/gen_data.py --ref): name addr size type; "
@@ -1102,8 +1129,6 @@ def gen_ref():
         lines += [f"{n} 0x{a:08X} 0x{s:X} {t}" for n, (a, s, t) in e.defined.items()]
         lines += [f"{n} 0x{a:08X} 0x0 ABS" for n, a in e.absolute.items() if SEG_SYM_RE.search(n)]
         write_if_changed(REF / f"symbols.{seg}.txt", "\n".join(lines) + "\n")
-    for p in REF.glob("undefined_syms_auto.*.txt"):
-        p.unlink()
     for p in sorted((DECOMP / "build").glob("undefined_syms_auto.*.txt")):
         (REF / p.name).write_bytes(p.read_bytes())
     abs_syms = abs_symbols(elves)
@@ -1178,7 +1203,7 @@ def main():
     GEN.mkdir(parents=True, exist_ok=True)
     if args.ref:
         gen_ref()
-        msg = "gen: reference manifest written to port/ref"
+        msg = "gen: port/ref left unchanged" if REPORT.errors else "gen: reference manifest written to port/ref"
     else:
         check_ref_fingerprint()
         elves = load_elves()
