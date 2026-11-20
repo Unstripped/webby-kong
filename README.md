@@ -87,7 +87,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters (`drawdist`, `scale`, `msaa` and `touch` override the Esc menu's stored setting for that page load):
+URL parameters (`drawdist`, `scale`, `msaa`, `touch`, `audio3d` and `audiorate` override the Esc menu's stored
+setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |
@@ -96,6 +97,8 @@ URL parameters (`drawdist`, `scale`, `msaa` and `touch` override the Esc menu's 
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
+| `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |
+| `audiorate=22050\|44100` | Sound mix sample rate; 22050 = N64, default 44100; applies at load |
 | `noresume` | Do not boot into the quicksave resume point after a rebuild |
 
 ## Repository layout
@@ -135,5 +138,7 @@ every push to `development` publishes `:latest`. Neither contains ROM data.
 
 ## License
 
-[CC0 1.0 Universal](LICENSE), the same as the decomp. Exception: `web/nipplejs.js` is nipplejs under the MIT
-license (see its header).
+[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: `web/nipplejs.js` is nipplejs under the MIT
+license (see its header); `port/src/audio/hrir_kemar.c` is derived from the KEMAR HRTF measurements by Bill Gardner
+and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this citation
+(<https://sound.media.mit.edu/resources/KEMAR.html>).
