@@ -8,12 +8,14 @@
           onto the current decomp/{src,include} (`base`); resolve conflicts there, then run export
   export  rewrite patches/ from build/tree commits base..HEAD
   gen     run tools/gen_data.py (--headers: overlay headers and port_abs.h only)
+  check   apply patches/*.patch to decomp/{src,include} in a temporary tree (CI; no ROM needed)
   all     tree, then gen
 """
 import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,31 +36,31 @@ def require_reference_build():
                  "run Step 2 (reference decomp build: tools/dk make setup && tools/dk make in decomp/)")
 
 
-def init_tree():
-    """Recreate build/tree; refuses while it holds uncommitted changes or an unfinished am/rebase/merge."""
-    if (TREE / ".git").exists():
-        busy = [n for n in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD") if (TREE / ".git" / n).exists()]
-        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=TREE, capture_output=True, text=True).stdout
+def init_tree(tree=TREE):
+    """Recreate build/tree (or `tree`); refuses while it holds uncommitted changes or an unfinished am/rebase/merge."""
+    if (tree / ".git").exists():
+        busy = [n for n in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD") if (tree / ".git" / n).exists()]
+        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=tree, capture_output=True, text=True).stdout
         if busy or dirty:
             sys.exit(f"prepare: build/tree has {'an unfinished ' + busy[0] if busy else 'uncommitted changes'}; "
                      "finish or commit them (then export) or move build/tree away first")
-    if TREE.exists():
-        shutil.rmtree(TREE)
-    TREE.mkdir(parents=True)
-    git("init", "-q", "-b", "main")
-    git("config", "user.name", "webby-kong port")
-    git("config", "user.email", "port@webby-kong.invalid")
-    git("config", "core.autocrlf", "false")
+    if tree.exists():
+        shutil.rmtree(tree)
+    tree.mkdir(parents=True)
+    git("init", "-q", "-b", "main", cwd=tree)
+    git("config", "user.name", "webby-kong port", cwd=tree)
+    git("config", "user.email", "port@webby-kong.invalid", cwd=tree)
+    git("config", "core.autocrlf", "false", cwd=tree)
 
 
-def commit_decomp_base():
+def commit_decomp_base(tree=TREE):
     """Commit decomp/{src,include} as the tree's `base`."""
     for sub in ("src", "include"):
-        shutil.rmtree(TREE / sub, ignore_errors=True)
-        shutil.copytree(DECOMP / sub, TREE / sub, symlinks=True)
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    git("tag", "base")
+        shutil.rmtree(tree / sub, ignore_errors=True)
+        shutil.copytree(DECOMP / sub, tree / sub, symlinks=True)
+    git("add", "-A", cwd=tree)
+    git("commit", "-q", "-m", "base", cwd=tree)
+    git("tag", "base", cwd=tree)
 
 
 def cmd_tree(_args):
@@ -125,6 +127,22 @@ def cmd_all(args):
     cmd_gen(args)
 
 
+def cmd_check(_args):
+    """Apply patches/*.patch to decomp/{src,include} in a scratch tree; needs no ROM or reference build."""
+    if not (DECOMP / "src").is_dir():
+        sys.exit("prepare: decomp/ is empty; run `git submodule update --init`")
+    patches = sorted(PATCHES.glob("*.patch"))
+    with tempfile.TemporaryDirectory(prefix="webby-kong-check-") as tmp:
+        tree = Path(tmp) / "tree"
+        init_tree(tree)
+        commit_decomp_base(tree)
+        if patches and git("am", "-q", "--3way", "--keep-cr", *map(str, patches), cwd=tree, check=False).returncode != 0:
+            sys.exit("prepare: patches/ do not apply to decomp/; run `tools/prepare.py tree` and resolve in build/tree")
+    head = subprocess.run(["git", "-C", str(DECOMP), "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    print(f"prepare: {len(patches)} patches apply to decomp {head}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -137,6 +155,7 @@ def main():
     g.add_argument("--headers", action="store_true")
     g.set_defaults(fn=cmd_gen)
     sub.add_parser("all").set_defaults(fn=cmd_all)
+    sub.add_parser("check").set_defaults(fn=cmd_check)
     args = ap.parse_args()
     args.fn(args)
 

@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: [development]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  rom-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 tools/check_no_roms.py
+  patches:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python tools/prepare.py check
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Python syntax
+        run: python -m compileall -q tools tests/tools
+      - name: JavaScript syntax
+        run: for f in web/*.js; do node --check "$f"; done
+      - name: Shell syntax
+        run: sh -n tools/link_check.sh && sh -n .githooks/pre-commit
+      - name: Unit tests
+        run: python -m unittest discover -s tests/tools -v
