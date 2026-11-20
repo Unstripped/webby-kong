@@ -100,7 +100,8 @@ list(REMOVE_ITEM PORT_COMMON_SRC ${CMAKE_SOURCE_DIR}/port/src/ultra/ai.c)
 list(APPEND PORT_COMMON_SRC
   ${CMAKE_SOURCE_DIR}/port/src/mem.c ${CMAKE_SOURCE_DIR}/port/src/boot.c ${CMAKE_SOURCE_DIR}/port/src/overlay.c
   ${CMAKE_SOURCE_DIR}/port/src/debug.c ${CMAKE_SOURCE_DIR}/port/src/qs.c ${CMAKE_SOURCE_DIR}/port/src/progress.c
-  ${GEN}/gen_layout_check.c ${GEN}/rom_layout.c ${GEN}/ovl_entry.c)
+  ${CMAKE_SOURCE_DIR}/port/src/romfill.c
+  ${GEN}/gen_layout_check.c ${GEN}/rom_layout.c ${GEN}/rom_fill.c ${GEN}/ovl_entry.c)
 add_library(dk64_port OBJECT ${PORT_COMMON_SRC})
 target_compile_options(dk64_port PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_port PRIVATE ${PORT_INCLUDES})

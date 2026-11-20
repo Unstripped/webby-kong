@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate port sources from the reference decomp build.
+"""Generate port sources from the decomp and the committed reference manifest (port/ref).
 
 The decomp defines its static data in C; what is left as splat assembly is data only handwritten asm reads
 (registered in decomp/handwritten_asm.json) and asm .bss. That data is re-emitted from the asm directives:
@@ -13,11 +13,18 @@ All outputs go under build/gen/:
   data_<seg>.c             asm-only data as native C objects
   gen_layout_check.c       portGenLayoutCheck()
   rom_layout.c             gPortSegRom
+  rom_fill.c               gPortRomFillSegs: placeholders filled from the user's ROM at boot (port/src/romfill.c)
   ovl_entry.c              portOverlayEntry(), overlay function dispatchers and OVL_FN thunks
   report.txt               everything reported; any error makes gen exit non-zero
+
+The wasm carries no ROM bytes: data whose bytes come from the ROM extraction (asm data, data_inc includes, shadow
+snapshots) is emitted as placeholders. Metadata of the ROM extraction (ELF symbols, splat's auto symbols, asm label
+sizes and directive widths) comes from port/ref, which --ref regenerates from the reference decomp build
+(decomp/{asm,assets,bin,build}; `tools/prepare.py ref`, after a decomp bump).
 """
 import argparse
 import bisect
+import hashlib
 import os
 import re
 import struct
@@ -26,12 +33,11 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from elftools.elf.elffile import ELFFile
-
 ROOT = Path(__file__).resolve().parent.parent
 DECOMP = ROOT / "decomp"
 TREE = ROOT / "build" / "tree"
 GEN = ROOT / "build" / "gen"
+REF = ROOT / "port" / "ref"
 
 OVERLAYS = ["multiplayer", "minecart", "bonus", "race", "critter", "boss", "arcade", "jetpac", "menu"]
 SEGMENTS = ["boot", "global"] + OVERLAYS
@@ -45,6 +51,12 @@ DATA_IN_TEXT = {  # global .text ranges of handwritten asm holding data; extra n
 RAW_FILES = {  # RSP DMEM images (6710/14CF0 osTask data): byte copies into DMEM, so kept in N64 byte order
     "asm/global/data/165290.rodata.s",
 }
+SEG_INDEX = {"global": 1, **{o: i + 2 for i, o in enumerate(OVERLAYS)}}  # gPortSegRom rows (gen_rom_layout order)
+
+
+def stream_file(seg):
+    """decomp/bin/segments/<file>: the segment's inflated stream (text gzip member + data gzip member)."""
+    return "global.bin" if seg == "global" else f"ovl{SEG_INDEX[seg]:02d}.bin"
 
 
 class Report:
@@ -70,16 +82,33 @@ def write_if_changed(path: Path, text: str):
     path.write_text(text)
 
 
+def decomp_fingerprint():
+    """SHA-1 of the decomp inputs port/ref is derived from; needs no git (Docker build contexts have no .git)."""
+    files = {p for sub in ("src", "include") for p in (DECOMP / sub).rglob("*")
+             if p.is_file() and p.suffix in (".c", ".h")}
+    for pat in ("*.yaml", "symbol_addrs*.txt", "undefined_syms.us.txt", "data_inc.us.txt", "handwritten_asm.json"):
+        files.update(p for p in DECOMP.glob(pat) if p.is_file())
+    h = hashlib.sha1()
+    for rel, p in sorted((p.relative_to(DECOMP).as_posix(), p) for p in files):
+        h.update(rel.encode() + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
 # ----------------------------------------------------------------------------- ELF symbols
 
 class ElfSyms:
-    """Symbols of one segment ELF."""
+    """Symbols of one segment ELF: read from the reference build's ELF (--ref) or port/ref/symbols.<seg>.txt."""
 
     def __init__(self, seg):
         self.seg = seg
         self.path = DECOMP / "build" / f"{ELF_NAMES[seg]}.elf"
         self.defined = {}      # name -> (addr, size, type)
         self.absolute = {}     # name -> addr
+
+    @classmethod
+    def from_elf(cls, seg):
+        from elftools.elf.elffile import ELFFile
+        self = cls(seg)
         with open(self.path, "rb") as fh:
             elf = ELFFile(fh)
             for s in elf.get_section_by_name(".symtab").iter_symbols():
@@ -92,10 +121,29 @@ class ElfSyms:
                     self.absolute[s.name] = s["st_value"]
                     continue
                 self.defined[s.name] = (s["st_value"], s["st_size"], s["st_info"]["type"])
+        return self
+
+    @classmethod
+    def from_ref(cls, seg):
+        self = cls(seg)
+        path = REF / f"symbols.{seg}.txt"
+        if not path.is_file():
+            REPORT.error(f"port/ref/symbols.{seg}.txt missing: run tools/prepare.py ref")
+            return self
+        for line in path.read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            name, addr, size, typ = line.split()
+            if typ == "ABS":
+                self.absolute[name] = int(addr, 16)
+            else:
+                self.defined[name] = (int(addr, 16), int(size, 16), typ)
+        return self
 
 
-def load_elves():
-    return {seg: ElfSyms(seg) for seg in SEGMENTS}
+def load_elves(ref=True):
+    make = ElfSyms.from_ref if ref else ElfSyms.from_elf
+    return {seg: make(seg) for seg in SEGMENTS}
 
 
 def overlay_clashes(elves):
@@ -129,9 +177,10 @@ def gen_overlay_headers(clashes):
 
 
 def parse_undefined_syms():
-    """undefined_syms.us.txt plus splat's build/undefined_syms_auto.*.txt (addresses the decomp links by value)."""
+    """undefined_syms.us.txt plus splat's undefined_syms_auto.*.txt (addresses the decomp links by value; copied
+    from decomp/build to port/ref by --ref)."""
     out = {}
-    paths = [DECOMP / "undefined_syms.us.txt"] + sorted((DECOMP / "build").glob("undefined_syms_auto.*.txt"))
+    paths = [DECOMP / "undefined_syms.us.txt"] + sorted(REF.glob("undefined_syms_auto.*.txt"))
     for path in paths:
         text = re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)
         for m in re.finditer(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*;", text, re.M):
@@ -221,26 +270,31 @@ def gen_ovl_fn_header(uses):
     write_if_changed(GEN / "include" / "port_ovl_fn.h", "\n".join(lines) + "\n")
 
 
-def gen_data_inc():
-    """include/inc/<seg>/<name>.inc.c from decomp/assets/inc (decomp tools/data_inc.py, `make split`): the rows of
-    data_inc.us.txt are ROM asset bytes (textures the RDP reads in N64 byte order), so u16/u32 initialisers are
-    byte-swapped to leave the N64 bytes in the little-endian object."""
-    n = 0
+def data_inc_rows():
+    """data_inc.us.txt -> [(seg, name, vram, size, width, file)]."""
+    rows = []
     for line in (DECOMP / "data_inc.us.txt").read_text().splitlines():
         line = line.split("#", 1)[0].split()
-        if not line:
-            continue
-        seg, name, width = line[0], line[1], int(line[4], 0)
-        src = DECOMP / "assets" / "inc" / seg / f"{name}.inc.c"
-        if not src.is_file():
-            REPORT.error(f"data_inc: {src.relative_to(ROOT)} missing (run `tools/dk make split` in decomp/)")
-            continue
-        text = src.read_text()
-        if width > 1:
-            text = re.sub(r"0x([0-9A-Fa-f]+)",
-                          lambda m: f"0x{int.from_bytes(int(m.group(1), 16).to_bytes(width, 'big'), 'little'):0{width * 2}X}",
-                          text)
-        write_if_changed(GEN / "include" / "inc" / seg / f"{name}.inc.c", text)
+        if line:
+            rows.append((line[0], line[1], int(line[2], 0), int(line[3], 0), int(line[4], 0), line[5]))
+    return rows
+
+
+INC_PLACEHOLDER = ("/* generated by tools/gen_data.py: placeholder filled from the ROM at boot (build/gen/rom_fill.c); "
+                   "non-zero so the object stays in .data */\n1\n")
+
+
+def gen_data_inc(fills, clashes):
+    """include/inc/<seg>/<name>.inc.c for the rows of data_inc.us.txt, the ROM asset bytes the decomp extracts to
+    assets/inc: placeholders, filled at boot with the ROM bytes in N64 byte order (textures the RDP reads that way)."""
+    compiled = {p.relative_to(TREE) for p in game_sources()}
+    n = 0
+    for seg, name, vram, size, width, file in data_inc_rows():
+        write_if_changed(GEN / "include" / "inc" / seg / f"{name}.inc.c", INC_PLACEHOLDER)
+        if Path(file) in compiled:
+            fills.add(seg, asm_name(name, seg, clashes), 0, vram, size, 1)
+        else:
+            REPORT.note(f"data_inc: {name} ({file}) not compiled")
         n += 1
     REPORT.note(f"data_inc: {n} includes")
 
@@ -519,7 +573,8 @@ def asm_data_files():
     return files
 
 
-def collect_labels(index, elves):
+def parse_asm_labels():
+    """seg -> the asm data labels of decomp/asm (--ref), split at symbol_addrs.us.txt names inside DATA_IN_TEXT."""
     names = symbol_addrs()
     per_seg = {}
     for seg, fl in asm_data_files().items():
@@ -532,18 +587,89 @@ def collect_labels(index, elves):
                 labels = split_labels([l for l in labels if lo <= l.vram < hi], lo, hi, names)
                 for l in labels:
                     l.kind = "rodata"
-            for l in labels:
-                if l.name in index.c_defined:
-                    REPORT.error(f"{l.name}: defined in C and in {rel}")
-                    continue
-                out.append(l)
-        out = split_interior(out, seg, index, elves)
-        out.extend(shadow_labels(seg, elves))
+            out += labels
         per_seg[seg] = out
     return per_seg
 
 
+def leaves(label):
+    """-> [(off, size)]: directive widths; bytes without a directive stay single bytes."""
+    if label.file in RAW_FILES:
+        return [(o, 1) for o in range(label.size)]
+    out = []
+    pos = 0
+    while pos < label.size:
+        w = label.widths.get(pos)
+        if w and pos + w <= label.size:
+            out.append((pos, w))
+            pos += w
+        else:
+            out.append((pos, 1))
+            pos += 1
+    return out
+
+
+def fill_runs(label):
+    """-> [(off, size, width)]: runs of consecutive same-width leaves; the boot fill swaps each run at its width
+    (asm data is read natively at its directive widths by port/src/asm)."""
+    lv = leaves(label)
+    out = []
+    i = 0
+    while i < len(lv):
+        off, size = lv[i]
+        j = i
+        while j < len(lv) and lv[j] == (off + (j - i) * size, size):
+            j += 1
+        out.append((off, (j - i) * size, size))
+        i = j
+    return out
+
+
+def ref_asm_data():
+    """port/ref/asm_data.txt -> ({seg: [Label]} without data, {seg: [(vram, size, width)]} ROM byte runs)."""
+    labels = {seg: [] for seg in SEGMENTS}
+    runs = defaultdict(list)
+    path = REF / "asm_data.txt"
+    if not path.is_file():
+        REPORT.error("port/ref/asm_data.txt missing: run tools/prepare.py ref")
+        return labels, runs
+    for line in path.read_text().splitlines():
+        f = line.split()
+        if not f or f[0].startswith("#"):
+            continue
+        if f[0] == "label":
+            _, seg, file, name, vram, size, kind = f
+            l = Label(name, int(vram, 16), seg, file, kind)
+            l.size = int(size, 16)
+            labels[seg].append(l)
+        elif f[0] == "fill":
+            _, seg, vram, size, width = f
+            runs[seg].append((int(vram, 16), int(size, 16), int(width)))
+        else:
+            REPORT.error(f"port/ref/asm_data.txt: bad line {line!r}")
+    return labels, runs
+
+
+def collect_labels(index, elves):
+    """-> ({seg: [Label]}, {seg: [(vram, size, width)]}): the asm labels of port/ref, split at C-declared interior
+    names, plus shadow snapshots; and the asm ROM byte runs."""
+    labels, runs = ref_asm_data()
+    per_seg = {}
+    for seg in SEGMENTS:
+        out = []
+        for l in labels[seg]:
+            if l.name in index.c_defined:
+                REPORT.error(f"{l.name}: defined in C and in {l.file}")
+                continue
+            out.append(l)
+        out = split_interior(out, seg, index, elves)
+        out.extend(shadow_labels(seg))
+        per_seg[seg] = out
+    return per_seg, runs
+
+
 def elf_bytes(elves, seg, vram, size):
+    from elftools.elf.elffile import ELFFile
     with open(elves[seg].path, "rb") as fh:
         elf = ELFFile(fh)
         for sec in elf.iter_sections():
@@ -553,10 +679,8 @@ def elf_bytes(elves, seg, vram, size):
     return None
 
 
-def shadow_labels(seg, elves):
-    """port/shadow_data.txt: `NAME SIZE` emits NAME as a read-only snapshot of the original big-endian bytes at its
-    address. For aliases into C objects whose native layout differs (e.g. byte reads inside a function-pointer
-    table) and which the game never writes."""
+def shadow_entries():
+    """port/shadow_data.txt -> [(name, vram, size, seg)]."""
     path = ROOT / "port" / "shadow_data.txt"
     out = []
     if not path.exists():
@@ -571,18 +695,21 @@ def shadow_labels(seg, elves):
         if vram is None:
             REPORT.error(f"shadow_data.txt: {name} has no address")
             continue
-        lseg = "boot" if vram < OVL_VRAM[0] else "global"
+        out.append((name, vram, int(size, 0), "boot" if vram < OVL_VRAM[0] else "global"))
+    return out
+
+
+def shadow_labels(seg):
+    """port/shadow_data.txt: `NAME SIZE` emits NAME as a read-only snapshot of the original big-endian bytes at its
+    address (filled from the ROM at boot). For aliases into C objects whose native layout differs (e.g. byte reads
+    inside a function-pointer table) and which the game never writes."""
+    out = []
+    for name, vram, size, lseg in shadow_entries():
         if lseg != seg:
             continue
-        data = elf_bytes(elves, seg, vram, int(size, 0))
-        if data is None:
-            REPORT.error(f"shadow_data.txt: {name} not inside a {seg} section")
-            continue
         l = Label(name, vram, seg, f"shadow:{name}", "rodata")
-        l.data = bytearray(data)
-        l.size = len(data)
-        l.widths = {o: 1 for o in range(l.size)}
-        REPORT.note(f"shadow {name}: 0x{l.size:X} original bytes")
+        l.size = size
+        REPORT.note(f"shadow {name}: 0x{size:X} original bytes")
         out.append(l)
     return out
 
@@ -606,7 +733,7 @@ def split_interior(labels, seg, index, elves):
                     cands.setdefault(n, v)
     else:
         # names the overlay's own link resolved by value inside its VRAM
-        path = DECOMP / "build" / f"undefined_syms_auto.{seg}.txt"
+        path = REF / f"undefined_syms_auto.{seg}.txt"
         if path.exists():
             for m in re.finditer(r"^\s*([A-Za-z_]\w*)\s*=\s*(0x[0-9A-Fa-f]+)\s*;", path.read_text(), re.M):
                 v = int(m.group(2), 16)
@@ -642,7 +769,7 @@ def c_ident(name):
 
 
 class Emitter:
-    """Emits labels as packed structs of their directive-width fields, initialised in native byte order."""
+    """Emits labels as u8 placeholders at their N64 alignment; their bytes come from the ROM fill (RomFill)."""
 
     def __init__(self, seg, clashes):
         self.seg = seg
@@ -651,56 +778,14 @@ class Emitter:
     def asm(self, name):
         return asm_name(name, self.seg, self.clashes)
 
-    def leaves(self, label):
-        """-> [(off, size)]: directive widths; bytes without a directive stay single bytes."""
-        if label.file in RAW_FILES:
-            return [(o, 1) for o in range(label.size)]
-        out = []
-        pos = 0
-        while pos < label.size:
-            w = label.widths.get(pos)
-            if w and pos + w <= label.size:
-                out.append((pos, w))
-                pos += w
-            else:
-                out.append((pos, 1))
-                pos += 1
-        return out
-
     def emit_label(self, label, out):
         n = label.size
         align = 1
         while align < 16 and label.vram % (align * 2) == 0:
             align *= 2
         out.append(f"/* {label.name} @ 0x{label.vram:08X} size 0x{n:X} */")
-        if label.kind == "bss" or not any(label.data):
-            out.append(f'__attribute__((used, aligned({align}))) u8 {c_ident(label.name)}[{max(n, 1)}] '
-                       f'__asm__("{self.asm(label.name)}") = {{0}};')
-        else:
-            fields = []
-            inits = []
-            leaves = self.leaves(label)
-            i = 0
-            while i < len(leaves):
-                off, size = leaves[i]
-                j = i
-                vals = []
-                while j < len(leaves) and leaves[j] == (off + (j - i) * size, size):
-                    vals.append(int.from_bytes(label.data[leaves[j][0]:leaves[j][0] + size], "big"))
-                    j += 1
-                ctype = {1: "u8", 2: "u16", 4: "u32", 8: "u64"}[size]
-                suffix = {1: "", 2: "", 4: "u", 8: "ull"}[size]
-                fid = len(fields)
-                if len(vals) == 1:
-                    fields.append(f"{ctype} f{fid};")
-                    inits.append(f"0x{vals[0]:X}{suffix}")
-                else:
-                    fields.append(f"{ctype} f{fid}[{len(vals)}];")
-                    inits.append("{" + ",".join(f"0x{x:X}{suffix}" for x in vals) + "}")
-                i = j
-            out.append(f"__attribute__((used, aligned({align}))) struct __attribute__((packed)) {{ "
-                       + " ".join(fields) + f" }} {c_ident(label.name)} "
-                       f'__asm__("{self.asm(label.name)}") = {{ ' + ", ".join(inits) + " };")
+        out.append(f'__attribute__((used, aligned({align}))) u8 {c_ident(label.name)}[{max(n, 1)}] '
+                   f'__asm__("{self.asm(label.name)}") = {{0}};')
         for a in label.aliases:
             out.append(f'extern u8 alias_{a}[] __asm__("{a}") __attribute__((alias("{self.asm(label.name)}")));')
 
@@ -725,6 +810,69 @@ class Emitter:
             body.append("#pragma clang attribute pop")
         head = [f"/* generated by tools/gen_data.py: segment {self.seg}; do not edit */", '#include "port/port.h"']
         return "\n".join(head + body) + "\n"
+
+
+class RomFill:
+    """Objects whose bytes come from the ROM: emitted as placeholders, filled at boot (port/src/romfill.c) from the
+    segment's inflated stream (text gzip member + data gzip member)."""
+
+    def __init__(self, abs_syms):
+        self.abs_syms = abs_syms
+        self.pieces = defaultdict(list)  # seg -> [(stream offset, symbol, offset in symbol, size, width)]
+
+    def add(self, seg, sym, sym_off, vram, size, width):
+        if seg not in SEG_INDEX:
+            REPORT.error(f"rom fill: {sym} in {seg} holds ROM bytes; only global and overlays are filled")
+            return
+        self.pieces[seg].append((vram - self.abs_syms[f"{seg}_VRAM"], sym, sym_off, size, width))
+
+    def write(self):
+        externs = {}
+        body = []
+        segs = []
+        for seg in SEG_INDEX:
+            ps = sorted(self.pieces.get(seg, []))
+            if not ps:
+                continue
+            body.append(f"static const PortRomFill sFill_{seg}[] = {{")
+            for off, sym, sym_off, size, width in ps:
+                ident = "rf_" + re.sub(r"\W", "_", sym)
+                externs.setdefault(ident, f'extern u8 {ident}[] __asm__("{sym}");')
+                body.append(f"    {{ {ident} + 0x{sym_off:X}, 0x{off:X}u, 0x{size:X}u, {width}u }},")
+            body.append("};")
+            stream = self.abs_syms[f"{seg}_BSS_START"] - self.abs_syms[f"{seg}_VRAM"]
+            segs.append(f"    {{ {SEG_INDEX[seg]}u, 0x{stream:X}u, sFill_{seg}, {len(ps)}u }}, /* {seg} */")
+        lines = ["/* generated by tools/gen_data.py: objects filled from the ROM at boot (port/src/romfill.c) */",
+                 '#include "port_internal.h"', ""]
+        lines += list(externs.values()) + [""] + body
+        lines += ["const PortRomFillSeg gPortRomFillSegs[] = {"] + (segs or ["    { 0 },"]) + ["};",
+                  f"const u32 gPortRomFillSegCount = {len(segs)}u;"]
+        write_if_changed(GEN / "rom_fill.c", "\n".join(lines) + "\n")
+        REPORT.note(f"rom fill: {sum(len(p) for p in self.pieces.values())} pieces in {len(segs)} segments")
+
+
+def add_label_fills(fills, seg, labels, runs, clashes):
+    """Shadow snapshots, and the asm ROM byte runs cut at the labels they span (labels are split by split_interior
+    after port/ref recorded the runs)."""
+    asm = sorted((l for l in labels if not l.file.startswith("shadow:")), key=lambda l: l.vram)
+    for l in labels:
+        if l.file.startswith("shadow:"):
+            fills.add(seg, asm_name(l.name, seg, clashes), 0, l.vram, l.size, 1)
+    starts = [l.vram for l in asm]
+    for v, n, w in runs:
+        covered = 0
+        i = max(bisect.bisect_right(starts, v) - 1, 0)
+        while i < len(asm) and asm[i].vram < v + n:
+            l = asm[i]
+            s, e = max(v, l.vram), min(v + n, l.vram + l.size)
+            if s < e:
+                if (s - v) % w or (e - s) % w:
+                    REPORT.error(f"rom fill: {l.name} splits a {w}-byte run at 0x{s:08X}")
+                fills.add(seg, asm_name(l.name, seg, clashes), s - l.vram, s, e - s, w)
+                covered += e - s
+            i += 1
+        if covered != n:
+            REPORT.error(f"rom fill: run 0x{v:08X}+0x{n:X} not covered by labels")
 
 
 def gen_layout_check(per_seg, clashes):
@@ -914,36 +1062,138 @@ def report_unresolved(index, per_seg, elves, abs_syms):
                 REPORT.note(f"UNRESOLVED {name}: absolute 0x{v:08X} (PORT_ABS_{name}){where}")
 
 
-def run_full(elves, clashes, abs_syms, ovl_fns):
+def run_full(elves, clashes, abs_syms, ovl_fns, fills):
     index = Index().build()
-    per_seg = collect_labels(index, elves)
+    per_seg, runs = collect_labels(index, elves)
+    for seg in SEGMENTS:
+        add_label_fills(fills, seg, per_seg[seg], runs.get(seg, []), clashes)
     for seg in SEGMENTS:
         write_if_changed(GEN / f"data_{seg}.c", Emitter(seg, clashes).emit(per_seg[seg]))
     gen_layout_check(per_seg, clashes)
     gen_rom_layout(abs_syms)
     gen_ovl_entry(elves, clashes, index, ovl_fns)
+    fills.write()
     n = sum(len(v) for v in per_seg.values())
     REPORT.note(f"total labels: {n}")
     report_unresolved(index, per_seg, elves, abs_syms)
     return n
 
 
+# ----------------------------------------------------------------------------- reference manifest (port/ref)
+
+def check_ref_fingerprint():
+    path = REF / "decomp_fingerprint.txt"
+    if not path.is_file():
+        REPORT.error("port/ref/decomp_fingerprint.txt missing: run tools/prepare.py ref with the reference build")
+        return
+    if [l for l in path.read_text().splitlines() if l and not l.startswith("#")] != [decomp_fingerprint()]:
+        REPORT.error("port/ref was generated from a different decomp (decomp/ changed): "
+                     "run tools/prepare.py ref with the reference build")
+
+
+def gen_ref():
+    """--ref: port/ref from the reference decomp build (ELFs, splat's auto symbols, asm), with every byte run the
+    boot fill copies checked against the segments' inflated ROM streams (decomp/bin/segments)."""
+    REF.mkdir(parents=True, exist_ok=True)
+    elves = load_elves(ref=False)
+    for seg, e in elves.items():
+        lines = [f"# {seg} ELF symbols of the reference decomp build (tools/gen_data.py --ref): name addr size type; "
+                 "ABS = absolute; ELF symbol-table order (gen keeps the ELF's choice among names at one address)"]
+        lines += [f"{n} 0x{a:08X} 0x{s:X} {t}" for n, (a, s, t) in e.defined.items()]
+        lines += [f"{n} 0x{a:08X} 0x0 ABS" for n, a in e.absolute.items() if SEG_SYM_RE.search(n)]
+        write_if_changed(REF / f"symbols.{seg}.txt", "\n".join(lines) + "\n")
+    for p in REF.glob("undefined_syms_auto.*.txt"):
+        p.unlink()
+    for p in sorted((DECOMP / "build").glob("undefined_syms_auto.*.txt")):
+        (REF / p.name).write_bytes(p.read_bytes())
+    abs_syms = abs_symbols(elves)
+
+    lines = ["# asm-only data labels and the ROM byte runs filled at boot (tools/gen_data.py --ref): "
+             "label seg file name vram size kind / fill seg vram size width"]
+    runs = []
+    for seg, labels in parse_asm_labels().items():
+        for l in labels:
+            lines.append(f"label {seg} {l.file} {l.name} 0x{l.vram:08X} 0x{l.size:X} {l.kind}")
+            if l.kind != "bss" and any(l.data):
+                runs += [(seg, l.vram + off, l.data[off:off + n], w) for off, n, w in fill_runs(l)]
+    lines += [f"fill {seg} 0x{v:08X} 0x{len(b):X} {w}" for seg, v, b, w in runs]
+    write_if_changed(REF / "asm_data.txt", "\n".join(lines) + "\n")
+
+    streams = {}
+    for seg in SEG_INDEX:
+        path = DECOMP / "bin" / "segments" / stream_file(seg)
+        base = abs_syms[f"{seg}_VRAM"]
+        n = abs_syms[f"{seg}_BSS_START"] - base
+        if not path.is_file():
+            REPORT.error(f"ref: {path.relative_to(ROOT)} missing (tools/dk make setup in decomp/)")
+            continue
+        data = path.read_bytes()
+        if len(data) != n:
+            REPORT.error(f"ref: {seg} stream is 0x{len(data):X} bytes, expected 0x{n:X}")
+            continue
+        streams[seg] = (base, data)
+
+    def check(what, seg, vram, blob):
+        if seg not in SEG_INDEX:
+            REPORT.error(f"ref: {what} is in {seg}; only global and overlays are filled from the ROM")
+        elif seg in streams:
+            base, data = streams[seg]
+            off = vram - base
+            if off < 0 or data[off:off + len(blob)] != bytes(blob):
+                REPORT.error(f"ref: {what} at 0x{vram:08X} differs from the ROM stream")
+
+    for seg, v, b, w in runs:
+        check("asm fill run", seg, v, b)
+    n_inc = 0
+    for seg, name, vram, size, width, file in data_inc_rows():
+        if seg not in SEG_INDEX:
+            REPORT.note(f"ref: data_inc {name} ({seg}) not checked: not a filled segment")
+            continue
+        src = DECOMP / "assets" / "inc" / seg / f"{name}.inc.c"
+        if not src.is_file():
+            REPORT.error(f"data_inc: {src.relative_to(ROOT)} missing (run `tools/dk make split` in decomp/)")
+            continue
+        blob = b"".join(int(h, 16).to_bytes(width, "big") for h in re.findall(r"0x([0-9A-Fa-f]+)", src.read_text()))
+        if len(blob) != size:
+            REPORT.error(f"ref: data_inc {name} has 0x{len(blob):X} bytes, expected 0x{size:X}")
+        check(f"data_inc {name}", seg, vram, blob)
+        n_inc += 1
+    for name, vram, size, seg in shadow_entries():
+        data = elf_bytes(elves, seg, vram, size)
+        if data is None:
+            REPORT.error(f"shadow_data.txt: {name} not inside a {seg} section")
+            continue
+        check(f"shadow {name}", seg, vram, data)
+    (REF / "decomp_fingerprint.txt").write_text(
+        "# decomp_fingerprint() of the decomp the files beside this were generated from\n" + decomp_fingerprint() + "\n")
+    REPORT.note(f"ref: {len(runs)} asm runs, {n_inc} data_inc rows and the shadow entries match the ROM streams")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--headers", action="store_true", help="only the include/ headers")
+    ap.add_argument("--ref", action="store_true",
+                    help="regenerate port/ref from the reference decomp build (decomp/{asm,assets,bin,build})")
     args = ap.parse_args()
-    elves = load_elves()
-    clashes = overlay_clashes(elves)
-    abs_syms = abs_symbols(elves)
-    gen_overlay_headers(clashes)
-    gen_port_abs(abs_syms)
-    ovl_fns = ovl_fn_uses()
-    gen_ovl_fn_header(ovl_fns)
-    gen_data_inc()
-    if args.headers:
-        msg = "gen: headers written"
+    GEN.mkdir(parents=True, exist_ok=True)
+    if args.ref:
+        gen_ref()
+        msg = "gen: reference manifest written to port/ref"
     else:
-        msg = f"gen: {run_full(elves, clashes, abs_syms, ovl_fns)} labels"
+        check_ref_fingerprint()
+        elves = load_elves()
+        clashes = overlay_clashes(elves)
+        abs_syms = abs_symbols(elves)
+        fills = RomFill(abs_syms)
+        gen_overlay_headers(clashes)
+        gen_port_abs(abs_syms)
+        ovl_fns = ovl_fn_uses()
+        gen_ovl_fn_header(ovl_fns)
+        gen_data_inc(fills, clashes)
+        if args.headers:
+            msg = "gen: headers written"
+        else:
+            msg = f"gen: {run_full(elves, clashes, abs_syms, ovl_fns, fills)} labels"
     (GEN / "report.txt").write_text("\n".join(REPORT.lines) + "\n")
     print(f"{msg}, {REPORT.errors} errors (build/gen/report.txt)")
     return 1 if REPORT.errors else 0

@@ -43,6 +43,7 @@ static void viTick(void) {
 void portInit(void) {
     portMemCheck();
     portGenLayoutCheck();
+    portRomFill();
     portThreadsInit();
     portOverlayInit();
     portSaveInit();
