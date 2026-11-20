@@ -401,8 +401,11 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         int zcmp = (om & Z_CMP) && (st->geometry & G_ZBUFFER || forRect);
         int zupd = (om & Z_UPD) != 0;
         if (zcmp || zupd) {
+            /* RDP z compare on a fully covered pixel: opaque, interpenetrating and translucent modes pass only when
+             * strictly nearer (a coplanar redraw fails: Galleon's gold stacks draw a white untextured copy of their
+             * textured tops after them); decal passes on equal z (polygon offset below) */
             glEnable(GL_DEPTH_TEST);
-            glDepthFunc(zcmp ? GL_LEQUAL : GL_ALWAYS);
+            glDepthFunc(!zcmp ? GL_ALWAYS : (om & ZMODE_DEC) == ZMODE_DEC ? GL_LEQUAL : GL_LESS);
         } else {
             glDisable(GL_DEPTH_TEST);
         }
