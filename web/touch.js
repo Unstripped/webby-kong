@@ -1,4 +1,4 @@
-// On-screen N64 controller for touch devices: floating stick (nipplejs) + buttons -> port_touch_pad. ?touch=1/0 forces it on/off.
+// On-screen N64 controller for touch devices: floating stick (nipplejs) + buttons -> port_touch_pad. Auto/On/Off from web/settings.js (Esc menu or ?touch=1/0).
 (function () {
   'use strict';
 
@@ -23,6 +23,8 @@
     .dk64t-root { position: fixed; inset: 0; z-index: 2; pointer-events: none; display: none;
       user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
     .dk64t-root.on { display: block; }
+    .dk64t-root.menuonly { display: block; }
+    .dk64t-root.menuonly:not(.on) > :not(.dk64t-menu) { display: none; }
     .dk64t-zone { position: fixed; left: 0; top: 0; width: 50vw; height: 100vh; pointer-events: auto; touch-action: none; z-index: 2; }
     .dk64t-btn { position: fixed; z-index: 3; pointer-events: auto; touch-action: none; display: flex; align-items: center;
       justify-content: center; border-radius: 50%; border: 2px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14);
@@ -119,8 +121,7 @@
 
   document.body.appendChild(root);
 
-  const param = new URLSearchParams(location.search).get('touch');
-  const wanted = param === '1' ? true : param === '0' ? false : window.matchMedia('(pointer: coarse)').matches;
+  let mode = window.dk64settings.get('touch');
   let isStarted = false;
 
   function padConnected() {
@@ -132,7 +133,11 @@
   }
 
   function update() {
-    const show = isStarted && wanted && !padConnected();
+    const pad = padConnected();
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const show = isStarted && !pad && (mode === 'on' || (mode === 'auto' && coarse));
+    // Off on a touch screen keeps the ☰ button, or the menu (and this setting) would be unreachable without a keyboard
+    root.classList.toggle('menuonly', isStarted && !pad && !show && coarse);
     if (show === root.classList.contains('on')) return;
     if (show) {
       root.classList.add('on');
@@ -162,6 +167,11 @@
     update();
   }
 
+  function setMode(m) {
+    mode = m;
+    update();
+  }
+
   window.addEventListener('gamepadconnected', update);
   window.addEventListener('gamepaddisconnected', update);
   document.addEventListener('visibilitychange', () => {
@@ -169,5 +179,5 @@
   });
   window.addEventListener('blur', releaseAll);
 
-  window.dk64touch = { started, releaseAll };
+  window.dk64touch = { started, releaseAll, setMode };
 })();

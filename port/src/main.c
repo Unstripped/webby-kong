@@ -9,14 +9,15 @@ void portAudioOutDrain(double ms);
 static double sAccumMs;
 f32 gPortDrawDistance = 4.0f;
 
-/* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64 */
-static void setDrawDistance(const char *arg) {
-    double v = atof(arg);
+/* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64.
+ * Returns the value in effect. */
+static float setDrawDistance(double v) {
     if (v >= 1.0 && v <= 16.0) {
         gPortDrawDistance = (f32)v;
     } else {
-        portLog("PORT: ignoring drawdist %s (1..16)", arg);
+        portLog("PORT: ignoring drawdist %g (1..16)", v);
     }
+    return gPortDrawDistance;
 }
 
 static void runAll(void) {
@@ -207,7 +208,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[a], "--resume") == 0 && a + 1 < argc) {
             resume = argv[++a];
         } else if (strcmp(argv[a], "--drawdist") == 0 && a + 1 < argc) {
-            setDrawDistance(argv[++a]);
+            setDrawDistance(atof(argv[++a]));
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
         }
@@ -301,6 +302,12 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
     }
 }
 
+/* web/settings.js: applied between frames; each returns the value in effect */
+EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
+EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
+
 static void port_frame(void) {
     double now, dt;
     if (sMenuPaused) {
@@ -320,14 +327,15 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[a], "--msaa") == 0) {
             msaa = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--drawdist") == 0) {
-            setDrawDistance(argv[++a]);
+            setDrawDistance(atof(argv[++a]));
         }
     }
     if (portRomSize() == 0) {
         printf("PORT: Module.portRom not set\n");
         return 1;
     }
-    portGfxConfigure(scale, msaa);
+    portGfxSetScale(scale);
+    portGfxSetMsaa(msaa);
     portInit();
     emscripten_set_main_loop(port_frame, 0, 0);
     return 0;

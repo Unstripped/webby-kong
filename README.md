@@ -23,7 +23,8 @@ from your own ROM.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
 - EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite).
-- Esc menu with the current level's collectable progress.
+- Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
+  anti-aliasing, touch controls), remembered in `localStorage`.
 - F5 / F9 quicksave and quickload.
 - A headless node build with scripted input for regression runs.
 
@@ -80,7 +81,7 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters:
+URL parameters (`drawdist`, `scale`, `msaa` and `touch` override the Esc menu's stored setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |

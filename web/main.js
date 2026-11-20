@@ -79,12 +79,9 @@ async function start(romBytes) {
   module.portRom = rom;
   window.Module = module;
   if (window.dk64dbg) window.dk64dbg.moduleReady(); // before callMain: applies the saved trace mask from boot
-  const params = new URLSearchParams(location.search);
-  const args = [];
-  if (params.has('scale')) args.push('--scale', params.get('scale'));
-  if (params.has('msaa')) args.push('--msaa', params.get('msaa'));
-  if (params.has('drawdist')) args.push('--drawdist', params.get('drawdist'));
+  const args = window.dk64settings.args();
   module.callMain(args);
+  window.dk64settings.started();
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
   if (window.dk64touch) window.dk64touch.started();
   if (window.dk64menu) window.dk64menu.started();
