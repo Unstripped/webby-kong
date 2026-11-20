@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Serve build/web and keep every version of the game's EEPROM save in SQLite.
+"""Serve build/web, keep every version of the game's EEPROM save in SQLite and serve a mounted ROM.
 
-Static files are served like `python3 -m http.server -d build/web 8080`. web/saves.js adds:
+Static files are served like `python3 -m http.server -d build/web 8080`. web/saves.js and web/main.js add:
 
   GET /api/eeprom   latest save (highest client mtime): 2048 bytes, X-Save-Mtime / X-Save-Sha1 headers; 404 if none
   PUT /api/eeprom   2048-byte body plus an X-Save-Mtime header (ms since epoch); stored unless it repeats the
                     latest version or an identical (sha1, mtime) row
+  GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
+                    404 if none. web/main.js starts it without the file picker (the Docker image mounts /rom)
 
 Recovery with the sqlite3 CLI (DB defaults to ~/.local/share/webby-kong/saves.sqlite3):
 
@@ -26,6 +28,8 @@ import urllib.parse
 from pathlib import Path
 
 API_PATH = "/api/eeprom"
+ROM_PATH = "/api/rom"
+ROM_SUFFIXES = {".z64", ".n64", ".v64"}
 EEPROM_SIZE = 2048
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS eeprom (
@@ -39,18 +43,32 @@ CREATE INDEX IF NOT EXISTS eeprom_mtime ON eeprom(mtime_ms);
 LATEST = "SELECT mtime_ms, sha1, bytes FROM eeprom ORDER BY mtime_ms DESC, id DESC LIMIT 1"
 
 
+def find_rom(path):
+    """--rom value -> the ROM file to serve, or None."""
+    if path is None:
+        return None
+    if path.is_file():
+        return path
+    if path.is_dir():
+        roms = sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in ROM_SUFFIXES)
+        return roms[0] if roms else None
+    return None
+
+
 class Server(http.server.ThreadingHTTPServer):
     address_family = socket.AF_INET6
 
     def server_bind(self):
         # dual stack, like `python3 -m http.server`: localhost over IPv4 and IPv6 is the same origin as before
-        with contextlib.suppress(Exception):
-            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        if self.address_family == socket.AF_INET6:
+            with contextlib.suppress(Exception):
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
         super().server_bind()
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     db_path: Path
+    rom_path: Path | None = None
 
     def db(self):
         return contextlib.closing(sqlite3.connect(self.db_path, timeout=5, isolation_level=None))
@@ -59,7 +77,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return urllib.parse.urlsplit(self.path).path == API_PATH
 
     def do_GET(self):
-        if not self.is_api():
+        path = urllib.parse.urlsplit(self.path).path
+        if path == ROM_PATH:
+            return self.send_rom()
+        if path != API_PATH:
             return super().do_GET()
         with self.db() as conn:
             row = conn.execute(LATEST).fetchone()
@@ -74,6 +95,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("X-Save-Sha1", sha1)
         self.end_headers()
         self.wfile.write(data)
+
+    def send_rom(self):
+        rom = find_rom(self.rom_path)
+        if rom is None:
+            return self.send_error(404, "no ROM mounted")
+        with open(rom, "rb") as f:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(rom.stat().st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.copyfile(f, self.wfile)
 
     def do_PUT(self):
         if not self.is_api():
@@ -107,6 +140,8 @@ def main():
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--bind", default="::", help="address to listen on (default :: = all interfaces)")
     ap.add_argument("--db", type=Path, default=Path.home() / ".local/share/webby-kong/saves.sqlite3")
+    ap.add_argument("--rom", type=Path,
+                    help="ROM file, or a directory holding one *.z64/*.n64/*.v64; served at /api/rom")
     args = ap.parse_args()
 
     args.db.parent.mkdir(parents=True, exist_ok=True)
@@ -115,9 +150,15 @@ def main():
         conn.executescript(SCHEMA)
 
     Handler.db_path = args.db
+    Handler.rom_path = args.rom
+    if ":" not in args.bind:
+        Server.address_family = socket.AF_INET
     handler = functools.partial(Handler, directory=args.dir)
     with Server((args.bind, args.port), handler) as httpd:
         print(f"serving {args.dir} on [{args.bind}]:{args.port}, saves in {args.db}", flush=True)
+        if args.rom is not None:
+            rom = find_rom(args.rom)
+            print(f"rom: {rom}" if rom else f"rom: none in {args.rom}", flush=True)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

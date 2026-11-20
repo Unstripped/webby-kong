@@ -50,6 +50,7 @@ so the scenarios are yours to run.
    ```
 
    If the fast-forward fails, use `git merge development` instead.
-3. The Release workflow runs CI, picks the next version and publishes the GitHub Release with its tag.
+3. The Release workflow runs CI, picks the next version, publishes the GitHub Release with its tag, then pushes the
+   Docker image `ghcr.io/mjquinlan2000/webby-kong:<tag>` (`.github/workflows/docker.yml`).
 
 Never create `v*` tags by hand: the version rule reads them.

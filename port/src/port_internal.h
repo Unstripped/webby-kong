@@ -62,6 +62,14 @@ extern OSContPad gPortPad;
 u32 portRomSize(void);
 void portRomCopy(void *dst, u32 romOff, u32 len);
 u32 portRomRead32(u32 romOff);
+void portRomRead(void *dst, u32 romOff, u32 len); /* any host buffer; aborts past the ROM end */
+
+/* romfill.c; table in build/gen/rom_fill.c */
+typedef struct { void *dst; u32 off; u32 size; u32 width; } PortRomFill; /* off: in the inflated stream; width>1: swap */
+typedef struct { u32 seg; u32 streamSize; const PortRomFill *fills; u32 count; } PortRomFillSeg;
+extern const PortRomFillSeg gPortRomFillSegs[];
+extern const u32 gPortRomFillSegCount;
+void portRomFill(void);
 
 /* save.c */
 void portSaveInit(void);

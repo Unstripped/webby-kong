@@ -7,9 +7,10 @@
           build/tree gets OLD's src/include as `old-base` with the patches applied, then 3-way rebases them
           onto the current decomp/{src,include} (`base`); resolve conflicts there, then run export
   export  rewrite patches/ from build/tree commits base..HEAD
-  gen     run tools/gen_data.py (--headers: overlay headers and port_abs.h only)
+  gen     run tools/gen_data.py from decomp/ and port/ref (--headers: overlay headers and port_abs.h only); no ROM
+  ref     regenerate port/ref from the reference decomp build (after a decomp bump; needs the ROM)
   check   apply patches/*.patch to decomp/{src,include} in a temporary tree (CI; no ROM needed)
-  all     tree, then gen
+  all     tree, then gen (no ROM needed)
 """
 import argparse
 import shutil
@@ -30,10 +31,12 @@ def git(*args, cwd=TREE, check=True):
 
 
 def require_reference_build():
-    missing = [p for p in (DECOMP / "asm", DECOMP / "build" / "global.elf") if not p.exists()]
+    missing = [p for p in (DECOMP / "asm", DECOMP / "assets" / "inc", DECOMP / "bin" / "segments",
+                           DECOMP / "build" / "global.elf") if not p.exists()]
     if missing:
         sys.exit(f"prepare: missing {', '.join(str(p.relative_to(ROOT)) for p in missing)}; "
-                 "run Step 2 (reference decomp build: tools/dk make setup && tools/dk make in decomp/)")
+                 "run the reference decomp build (tools/dk make setup && tools/dk make in decomp/), "
+                 "then tools/prepare.py ref")
 
 
 def init_tree(tree=TREE):
@@ -64,7 +67,6 @@ def commit_decomp_base(tree=TREE):
 
 
 def cmd_tree(_args):
-    require_reference_build()
     init_tree()
     commit_decomp_base()
     patches = sorted(PATCHES.glob("*.patch"))
@@ -110,15 +112,20 @@ def cmd_export(_args):
     print(f"prepare: exported {len(list(PATCHES.glob('*.patch')))} patches")
 
 
-def cmd_gen(args):
-    require_reference_build()
+def run_gen_data(*args):
     py = str(VENV_PY) if VENV_PY.exists() else sys.executable
-    cmd = [py, str(ROOT / "tools" / "gen_data.py")]
-    if args.headers:
-        cmd.append("--headers")
-    r = subprocess.run(cmd, cwd=ROOT)
+    r = subprocess.run([py, str(ROOT / "tools" / "gen_data.py"), *args], cwd=ROOT)
     if r.returncode != 0:
         sys.exit(r.returncode)
+
+
+def cmd_gen(args):
+    run_gen_data(*(["--headers"] if args.headers else []))
+
+
+def cmd_ref(_args):
+    require_reference_build()
+    run_gen_data("--ref")
 
 
 def cmd_all(args):
@@ -154,6 +161,7 @@ def main():
     g = sub.add_parser("gen")
     g.add_argument("--headers", action="store_true")
     g.set_defaults(fn=cmd_gen)
+    sub.add_parser("ref").set_defaults(fn=cmd_ref)
     sub.add_parser("all").set_defaults(fn=cmd_all)
     sub.add_parser("check").set_defaults(fn=cmd_check)
     args = ap.parse_args()

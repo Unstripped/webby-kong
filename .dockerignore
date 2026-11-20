@@ -1,0 +1,27 @@
+.git
+**/.git
+.omp
+**/.omp
+.github
+build/
+tools/.venv/
+**/__pycache__/
+**/*.z64
+**/*.n64
+**/*.v64
+**/*.wasm
+# the decomp's ROM extraction (the image build reads port/ref instead)
+decomp/asm/
+decomp/assets/
+decomp/bin/
+decomp/build/
+decomp/build_nonmatching/
+decomp/expected/
+decomp/.dkd/
+decomp/.scratch/
+decomp/.splat/
+decomp/emu/
+# decomp notes the port build never reads
+decomp/drafts/
+decomp/knowledge/
+decomp/reports/

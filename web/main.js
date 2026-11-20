@@ -102,7 +102,7 @@ window.addEventListener('keydown', () => {
   if (ctx && ctx.state !== 'running') ctx.resume();
 });
 
-// dev only: ?rom=<url>
+// ?rom=<url> (dev) or the server's mounted ROM
 const romUrl = new URLSearchParams(location.search).get('rom');
 if (romUrl) {
   setStatus('Fetching ROM…');
@@ -110,4 +110,11 @@ if (romUrl) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.arrayBuffer();
   }).then(start).catch((err) => setStatus(`ROM fetch failed: ${err.message}`));
+} else {
+  // tools/serve.py --rom (the Docker image); 404 = none mounted: keep the file picker
+  fetch('api/rom', { cache: 'no-store' }).then((r) => {
+    if (!r.ok) return;
+    setStatus('Loading ROM from server…');
+    return r.arrayBuffer().then(start);
+  }).catch((err) => { console.warn('server ROM fetch failed', err); setStatus('Select your ROM to start.'); });
 }

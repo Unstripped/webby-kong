@@ -37,6 +37,15 @@ u32 portRomRead32(u32 romOff) {
     return portReadBE32(b);
 }
 
+void portRomRead(void *dst, u32 romOff, u32 len) {
+    if (len == 0) {
+        return;
+    }
+    if (!port_rom_copy(dst, romOff, len)) {
+        portAbort("PORT: ROM read out of range off 0x%x len 0x%x", romOff, len);
+    }
+}
+
 void osCreatePiManager(OSPri pri, OSMesgQueue *cmdQ, OSMesg *cmdBuf, s32 cmdMsgCnt) {
     (void)pri;
     (void)cmdQ;
