@@ -1,6 +1,12 @@
 /build/
+/tools/.venv/
+__pycache__/
+# Never commit ROMs, build output or save files: they are Nintendo's data or derived from it
 *.z64
 *.n64
 *.v64
-/tools/.venv/
-__pycache__/
+*.u64
+*.rom
+*.ndd
+*.wasm
+*.eep
