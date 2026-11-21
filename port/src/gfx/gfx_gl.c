@@ -151,7 +151,7 @@ static size_t sCaptureCap;
 
 /* frame interpolation (gfx.c): during the second pass VI images draw into the in-between image and offscreen
  * images are skipped; the image then waits for the VI between the game frame's swaps (portGfxPresentInterp) */
-static int sInterpOn = 1; /* player setting (?interp, Esc menu): outside the quicksave, a quickload keeps it */
+static int sInterpOn = 1; /* player setting (?interp, Esc menu): a keep range, so a quickload leaves it as set */
 static struct {
     int pass;    /* the second pass is drawing */
     int drawn;   /* it drew a VI image this pass */
@@ -181,6 +181,7 @@ int gfxBackendQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sMipChain);
     out[n++] = QS_RANGE(sMipChainCap);
     out[n++] = QS_RANGE(sInterpGl);
+    out[n++] = QS_RANGE(sInterpOn);
     n += gfxInterpQsRanges(out + n);
     n += gfxFbQsRanges(out + n);
     n += gfxCombinerQsRanges(out + n);
