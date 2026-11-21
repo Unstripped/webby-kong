@@ -260,6 +260,18 @@ void gfxBackendEndTask(void) {
     glBindVertexArray(sVao);
 }
 
+/* black over a widened target's columns outside [left, right) (physical pixels) */
+static void clearSides(GfxFb *fb, u32 left, u32 right) {
+    u32 sh = fb->physH;
+    glEnable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 1);
+    glScissor(0, 0, left, sh);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(right, 0, fb->physW - right, sh);
+    glClear(GL_COLOR_BUFFER_BIT);
+    fb->resolveDirty = 1;
+}
+
 void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     (void)siz;
     if (addr == gGfx.zimg) {
@@ -287,17 +299,27 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     if (sTarget->ox > 0 && sTarget->sideTask != sTaskSerial) {
         /* the game only covers its 4:3 image; blank the side areas once per task so frames that draw no
          * full-width clear don't show stale pixels there */
-        u32 sh = sTarget->physH, right = sTarget->ox + sTarget->width * sTarget->scale;
         sTarget->sideTask = sTaskSerial;
-        glEnable(GL_SCISSOR_TEST);
-        glClearColor(0, 0, 0, 1);
-        glScissor(0, 0, sTarget->ox, sh);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glScissor(right, 0, sTarget->physW - right, sh);
-        glClear(GL_COLOR_BUFFER_BIT);
-        sTarget->resolveDirty = 1;
+        clearSides(sTarget, sTarget->ox, sTarget->ox + sTarget->width * sTarget->scale);
     }
     glsReset(); /* gfxFbFor/gfxFbBind may have uploaded or copied images with their own GL state */
+}
+
+/* the widened scissor lets the screen wipe's 4:3 capture (and tiles it draws past its edge) reach the overscan
+ * border and the side areas, beside live scene: black everything left and right of the game's scissor, as the N64
+ * shows it */
+void gfxBackendBlankSides(const GfxState *st) {
+    s32 x0 = st->scissor[0], x1 = st->scissor[2], w;
+    if (sTarget == NULL || sTarget->ox == 0) {
+        return;
+    }
+    w = (s32)sTarget->width;
+    x0 = x0 < 0 ? 0 : x0 > w ? w : x0;
+    x1 = x1 < x0 ? x0 : x1 > w ? w : x1;
+    gfxFbBind(sTarget);
+    clearSides(sTarget, sTarget->ox + (u32)x0 * sTarget->scale, sTarget->ox + (u32)x1 * sTarget->scale);
+    gfxFbDrew(sTarget);
+    glsReset();
 }
 
 /* ---------------------------------------------------------------- textures */

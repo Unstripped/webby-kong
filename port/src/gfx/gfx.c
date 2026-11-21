@@ -587,10 +587,11 @@ static void moveWord(u32 w0, u32 w1) {
 /* ---------------------------------------------------------------- frame interpolation
  * The game draws 30 frames/s. After a task that draws the VI image, its display list runs a second time with every
  * matrix halfway between this frame's and the previous frame's value, into an in-between image that main.c presents
- * on the VI between the two swaps (the game frames themselves keep their VIs). Matrices pair up across frames by
- * load kind, the vertex data they first transform and occurrence; unmatched matrices and ones that jump (cuts,
- * teleports) keep this frame's value. The second pass replays the first pass's G_BRANCH_Z / G_CULLDL outcomes, so
- * it walks exactly the same commands and its n-th matrix is the first pass's n-th. */
+ * on the VI between the two swaps (the game frames themselves keep their VIs). A matrix pairs with the previous
+ * frame's matrix of the same load kind and vertex data in the same draw position, or a clearly nearer one of those
+ * (interpFindPrev); unmatched matrices and ones that jump (cuts, teleports) keep this frame's value. The second pass
+ * replays the first pass's G_BRANCH_Z / G_CULLDL outcomes, so it walks exactly the same commands and its n-th
+ * matrix is the first pass's n-th. */
 typedef struct {
     u32 kind; /* G_MTX parameter bits */
     u32 sig;  /* host address of the first vertices loaded after this matrix, 0 if none */
@@ -614,8 +615,9 @@ static struct {
     u32 pendingSig;      /* records from here on wait for the vertices that give their sig */
     float (*blend)[4][4]; /* the replay's matrices, in first-pass order */
     u32 blendCap, blendCount;
-    u32 *table;          /* open-addressing index: record index + 1, 0 empty */
-    u32 tableCap, tableMask;
+    u32 *table;          /* open-addressing index of the previous frame by (kind, sig): record index + 1, 0 empty */
+    u32 *curTable;       /* the same for this frame: its latest record of each (kind, sig) */
+    u32 tableCap, curTableCap, tableMask;
     u8 *branch;          /* recorded G_BRANCH_Z / G_CULLDL outcomes */
     u32 branchCount, branchCap, branchNext;
     u32 mtxNext;
@@ -683,44 +685,41 @@ static int interpBranch(int taken) {
     return taken;
 }
 
-static u32 interpHash(u32 kind, u32 sig, u32 occ) {
-    u32 h = kind * 0x9E3779B1u ^ sig * 0x85EBCA77u ^ occ * 0xC2B2AE3Du;
+static u32 interpHash(u32 kind, u32 sig) {
+    u32 h = kind * 0x9E3779B1u ^ sig * 0x85EBCA77u;
     return h ^ (h >> 15);
 }
 
-/* fills occ for the current frame (a pass over a (kind, sig) -> latest record table), then indexes the previous
- * frame by (kind, sig, occ) when there is one */
-static void interpIndex(int withPrev) {
+/* fills occ for the current frame (curTable maps (kind, sig) to its latest record), then indexes the previous
+ * frame by (kind, sig): every record of a group lands in one probe run */
+static void interpIndex(void) {
     MtxFrame *cur = &sInterp.frame[sInterp.cur], *prev = &sInterp.frame[sInterp.cur ^ 1];
     u32 need = 1, mask, i;
     while (need < 2 * (cur->count > prev->count ? cur->count : prev->count) + 2) {
         need *= 2;
     }
     sInterp.table = growArray(sInterp.table, &sInterp.tableCap, need, sizeof *sInterp.table);
+    sInterp.curTable = growArray(sInterp.curTable, &sInterp.curTableCap, need, sizeof *sInterp.curTable);
     mask = sInterp.tableMask = need - 1;
-    /* occurrences: the table maps (kind, sig) to the index + 1 of its latest record */
-    memset(sInterp.table, 0, need * sizeof *sInterp.table);
+    memset(sInterp.curTable, 0, need * sizeof *sInterp.curTable);
     for (i = 0; i < cur->count; i++) {
         MtxRec *r = &cur->rec[i];
-        u32 h = interpHash(r->kind, r->sig, 0) & mask;
+        u32 h = interpHash(r->kind, r->sig) & mask;
         r->occ = 0;
-        while (sInterp.table[h] != 0) {
-            MtxRec *o = &cur->rec[sInterp.table[h] - 1];
+        while (sInterp.curTable[h] != 0) {
+            MtxRec *o = &cur->rec[sInterp.curTable[h] - 1];
             if (o->kind == r->kind && o->sig == r->sig) {
                 r->occ = o->occ + 1;
                 break;
             }
             h = (h + 1) & mask;
         }
-        sInterp.table[h] = i + 1;
-    }
-    if (!withPrev) {
-        return;
+        sInterp.curTable[h] = i + 1;
     }
     memset(sInterp.table, 0, need * sizeof *sInterp.table);
     for (i = 0; i < prev->count; i++) {
         MtxRec *r = &prev->rec[i];
-        u32 h = interpHash(r->kind, r->sig, r->occ) & mask;
+        u32 h = interpHash(r->kind, r->sig) & mask;
         while (sInterp.table[h] != 0) {
             h = (h + 1) & mask;
         }
@@ -728,19 +727,83 @@ static void interpIndex(int withPrev) {
     }
 }
 
-static const MtxRec *interpFindPrev(const MtxRec *r) {
-    MtxFrame *prev = &sInterp.frame[sInterp.cur ^ 1];
+/* this frame has a record of (kind, sig) */
+static int interpInCur(u32 kind, u32 sig) {
+    MtxFrame *cur = &sInterp.frame[sInterp.cur];
     u32 mask = sInterp.tableMask, h;
-    for (h = interpHash(r->kind, r->sig, r->occ) & mask; sInterp.table[h] != 0; h = (h + 1) & mask) {
-        const MtxRec *o = &prev->rec[sInterp.table[h] - 1];
-        if (o->kind == r->kind && o->sig == r->sig && o->occ == r->occ) {
-            return o;
+    for (h = interpHash(kind, sig) & mask; sInterp.curTable[h] != 0; h = (h + 1) & mask) {
+        const MtxRec *o = &cur->rec[sInterp.curTable[h] - 1];
+        if (o->kind == kind && o->sig == sig) {
+            return 1;
         }
     }
-    return NULL;
+    return 0;
 }
 
-/* a jump too large to be motion between two frames: a cut, teleport or a different object in this slot */
+static float mtxDistSq(const float a[4][4], const float b[4][4]) {
+    float d = 0;
+    int k;
+    for (k = 0; k < 16; k++) {
+        float e = (&a[0][0])[k] - (&b[0][0])[k];
+        d += e * e;
+    }
+    return d;
+}
+
+/* the previous frame's record of the same kind and vertices: the one in the same draw position (occ), unless
+ * another lies at under half its distance. Instances sharing a mesh (trees) change draw order between frames, so
+ * the n-th one can be a different object far away; parts of one model can share a translation (bones, rigid
+ * pieces), so nearest alone mixes them up. */
+static const MtxRec *interpFindPrev(const MtxRec *r) {
+    MtxFrame *prev = &sInterp.frame[sInterp.cur ^ 1];
+    const MtxRec *best = NULL, *same = NULL;
+    float bestD = 0, sameD = 0;
+    u32 mask = sInterp.tableMask, h;
+    for (h = interpHash(r->kind, r->sig) & mask; sInterp.table[h] != 0; h = (h + 1) & mask) {
+        const MtxRec *o = &prev->rec[sInterp.table[h] - 1];
+        float d;
+        if (o->kind != r->kind || o->sig != r->sig) {
+            continue;
+        }
+        d = mtxDistSq(o->m, r->m);
+        if (o->occ == r->occ) {
+            same = o;
+            sameD = d;
+        }
+        if (best == NULL || d < bestD) {
+            best = o;
+            bestD = d;
+        }
+    }
+    if (best == NULL) {
+        /* vertices the CPU rebuilds into alternating buffers (shadows): sig changes every frame. The nearest
+         * previous record of the same kind whose vertices this frame no longer loads, if it is close by */
+        u32 i;
+        for (i = 0; i < prev->count; i++) {
+            const MtxRec *o = &prev->rec[i];
+            float d, dx, dy, dz;
+            if (o->kind != r->kind) {
+                continue;
+            }
+            dx = o->m[3][0] - r->m[3][0];
+            dy = o->m[3][1] - r->m[3][1];
+            dz = o->m[3][2] - r->m[3][2];
+            if (dx * dx + dy * dy + dz * dz > 100.0f * 100.0f || interpInCur(o->kind, o->sig)) {
+                continue;
+            }
+            d = mtxDistSq(o->m, r->m);
+            if (best == NULL || d < bestD) {
+                best = o;
+                bestD = d;
+            }
+        }
+        return best;
+    }
+    return same != NULL && sameD <= 4.0f * bestD ? same : best;
+}
+
+/* a jump too large to be motion between two frames: a cut, teleport or a different object in this slot. Animated
+ * bones turn a lot in a frame (tens of degrees), so only a rotation of roughly 90 degrees or more counts */
 static int interpJumps(const float a[4][4], const float b[4][4]) {
     float rot = 0, scale = 0, dt, mag;
     int i, j;
@@ -754,7 +817,7 @@ static int interpJumps(const float a[4][4], const float b[4][4]) {
     dt = sqrtf((a[3][0] - b[3][0]) * (a[3][0] - b[3][0]) + (a[3][1] - b[3][1]) * (a[3][1] - b[3][1]) +
                (a[3][2] - b[3][2]) * (a[3][2] - b[3][2]));
     mag = sqrtf(b[3][0] * b[3][0] + b[3][1] * b[3][1] + b[3][2] * b[3][2]);
-    return rot > 0.6f * scale || dt > 0.35f * mag + 100.0f;
+    return rot > 1.4f * scale || dt > 0.35f * mag + 100.0f;
 }
 
 static void interpBuildBlend(void) {
@@ -905,6 +968,11 @@ static void runDl(u32 addr, int depth) {
         cmd += 2;
         switch (op) {
         case G_NOOP:
+            if (w1 == PORT_GFX_BLANK_SIDES) {
+                flush();
+                gfxBackendBlankSides(&gGfx);
+            }
+            break;
         case G_SPNOOP:
         case G_RDPLOADSYNC:
         case G_RDPPIPESYNC:
@@ -1204,7 +1272,7 @@ void portGfxRunTask(OSTask *task) {
     if (!sInterp.drewVi) {
         return; /* offscreen work: the last VI image's matrices stay the previous frame */
     }
-    interpIndex(sInterp.prevValid);
+    interpIndex(); /* occ is needed when this frame is the previous one, too */
     if (sInterp.prevValid) {
         interpBuildBlend();
         sInterp.replayDl = (u32)task->t.data_ptr;

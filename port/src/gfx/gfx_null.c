@@ -57,6 +57,10 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)len;
 }
 
+void gfxBackendBlankSides(const GfxState *st) {
+    (void)st;
+}
+
 int gfxBackendInterpEnabled(void) {
     return 0;
 }

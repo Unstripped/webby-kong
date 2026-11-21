@@ -65,6 +65,8 @@ void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count);
 void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, float lry);
 void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float lrx, float lry,
                        float s, float t, float dsdx, float dtdy, int flip);
+/* PORT_GFX_BLANK_SIDES: black a widened colour image left and right of the game's scissor */
+void gfxBackendBlankSides(const GfxState *st);
 void gfxBackendPresent(u32 fb, int black);
 void gfxBackendCpuWrote(u32 addr, u32 len);
 void gfxBackendSyncRdram(u32 addr, u32 len);

@@ -67,6 +67,10 @@ void portIoWrite(u32 reg, u32 value);
 int portGfxWideSpanX(f32 *left, f32 *right);
 f32 portGfxWideHalfYaw(f32 halfYawDeg, f32 widen); /* half-FOV whose tangent is widen times as large */
 void portGfxWideClipX(s16 *left, s16 *right); /* screen x bounds reaching the image edge move out to the wide edge */
+/* G_NOOP tag: the renderer blacks the colour image being drawn left and right of the current scissor, as the N64
+ * shows it, though the side areas and the overscan border are open (the screen wipe's 4:3 capture would otherwise
+ * sit beside live scene and spill its tiles past the scissor) */
+#define PORT_GFX_BLANK_SIDES 0x57494445u /* "WIDE" */
 
 /* ---- draw distance (port/src/main.c; --drawdist, ?drawdist=) ---- */
 extern f32 gPortDrawDistance; /* object draw distance / enemy spawn range multiplier, capped at the far clip; 1 = N64 */

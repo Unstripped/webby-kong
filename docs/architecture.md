@@ -87,9 +87,13 @@ flowchart LR
 - 60 fps by interpolation (`gfx.c`, "frame interpolation"): after a task that draws the VI image, the renderer
   runs its display list again at the start of the next VI with every matrix halfway between this frame's and the
   previous frame's, into a twin of the VI image with its own depth buffer; `port_frame_step` presents it on the
-  VI between the two swaps, so the game frames keep their VIs and no latency is added. Matrices pair up by load
-  kind, the vertex address they first transform and occurrence; unmatched or jumping matrices (cuts, spawns, CPU
-  built sprites) keep the frame's value. The replay repeats the first pass's `G_BRANCH_Z`/`G_CULLDL` outcomes and
+  VI between the two swaps, so the game frames keep their VIs and no latency is added. A matrix pairs with the
+  previous frame's matrix of the same load kind and first-transformed vertex address in the same draw position,
+  unless another of those is under half as far (instances sharing a mesh, like trees, change draw order between
+  frames; parts of one model can share a translation). A matrix whose vertices sit in a buffer the CPU alternates
+  every frame (shadows) pairs with the nearest previous one (within 100 units) whose vertices are no longer loaded.
+  Unmatched or jumping matrices (cuts, spawns; a turn of roughly 90° or more) keep the frame's value. The replay
+  repeats the first pass's `G_BRANCH_Z`/`G_CULLDL` outcomes and
   leaves RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build. Player
   setting (`--interp`, `?interp=`, Esc menu "Frame rate", `port_set_interp`): off drops the pending replay and any
   waiting in-between image; switching back pairs matrices from the next two game frames, never a stale one.
@@ -106,7 +110,10 @@ flowchart LR
   menu's, end before the screen edge), with the N64 image centred at `GfxFb.ox`; 3D clip x is divided by
   `gGfxTargetWide`, so the original frustum covers the centre and the sides show more scene. 2D draws keep
   their 4:3 place; scissors and fill rects spanning the width (overscan margins up to width/16 included)
-  reach the edges, and the side areas are blanked once per gfx task. RDRAM uploads and readbacks use only the
+  reach the edges, and the side areas are blanked once per gfx task. The screen wipe (e.g. warp pads) draws a
+  4:3 capture of the screen over the new scene, with tiles reaching past its scissor; afterwards a
+  `PORT_GFX_BLANK_SIDES` `G_NOOP` tag (patch 0026) blacks everything left and right of the scissor, overscan
+  border and side areas, as the N64 shows it. RDRAM uploads and readbacks use only the
   centred region. Once the side areas open, the game's overscan border around its viewport shows scene too, so
   every cull runs against the displayed span (`portGfxWideSpanX`), not the viewport: RSP x outcodes (trivial
   rejects, `G_CULLDL`), the map frustum and portal rects (`mapWideFactor`/`mapWideExtraF`, patches 0011 and
