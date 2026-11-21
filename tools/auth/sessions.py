@@ -1,5 +1,4 @@
 """Session cookies: opaque token in the browser, sha256 of it in SQLite."""
-import hashlib
 import secrets
 
 from . import db
@@ -13,7 +12,7 @@ def new_token():
 
 
 def token_id(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return db.token_hash(token)
 
 
 def issue(conn, user_id, days, user_agent=None):

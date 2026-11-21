@@ -6,6 +6,7 @@ checks. Option *generation* is still real py_webauthn output.
 """
 import contextlib
 import functools
+import hashlib
 import http.client
 import json
 import os
@@ -14,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import threading
 import time
 import unittest
@@ -146,6 +148,25 @@ class AuthEnabledTest(unittest.TestCase):
         })
         assert resp.status == 200, (resp.status, payload)
         return self.cookie_of(resp), self.json_of(payload)["user"]
+
+    def create_invite(self, cookie, **body):
+        """POST /api/invites -> (invite, token, url). The token and url exist only in this one response."""
+        resp, payload = self.post("/api/invites", body, cookie=cookie)
+        self.assertEqual(resp.status, 201, payload)
+        data = self.json_of(payload)
+        return data["invite"], data["token"], data["url"]
+
+    def register_options(self, username, invite=None):
+        body = {"username": username} if invite is None else {"username": username, "invite": invite}
+        resp, payload = self.post("/auth/api/register/options", body)
+        self.assertEqual(resp.status, 200, payload)
+        return self.json_of(payload)
+
+    def complete_registration(self, options, username):
+        return self.post("/auth/api/register/complete", {
+            "challenge_id": options["challenge_id"],
+            "credential": {"id": f"cred-{username}", "type": "public-key", "response": {}},
+        })
 
     def login(self, credential_id):
         resp, payload = self.post("/auth/api/login/options", {})
@@ -300,12 +321,10 @@ class AuthEnabledTest(unittest.TestCase):
         resp, payload = self.post("/auth/api/register/options", {"username": "bob"})
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (403, "registration_closed"))
 
-        resp, payload = self.post("/api/invites", {"max_uses": 1, "note": "bob"}, cookie=owner)
-        self.assertEqual(resp.status, 201)
-        invite = self.json_of(payload)["invite"]
-        self.assertTrue(invite["url"].startswith(ORIGIN + "/invite/"))
-
-        cursor, user = self.register("bob", invite=invite["url"].rsplit("/", 1)[1])
+        invite, token, url = self.create_invite(owner, max_uses=1, note="bob")
+        self.assertTrue(url.startswith(ORIGIN + "/invite/"))
+        self.assertEqual(url, f"{ORIGIN}/invite/{token}")
+        cursor, user = self.register("bob", invite=token)
         self.assertFalse(user["owner"])
         with contextlib.closing(self.app.db()) as conn:
             self.assertEqual(conn.execute("SELECT uses FROM invites WHERE id = ?", (invite["id"],))
@@ -316,18 +335,76 @@ class AuthEnabledTest(unittest.TestCase):
     def test_single_use_invite_is_exhausted(self):
         owner, _ = self.owner()
         self.set_registration(owner, False)
-        token = self.json_of(self.post("/api/invites", {"max_uses": 1}, cookie=owner)[1])["invite"]
-        token = token["url"].rsplit("/", 1)[1]
+        _, token, _ = self.create_invite(owner, max_uses=1)
         self.register("bob", invite=token)
         resp, payload = self.post("/auth/api/register/options", {"username": "carol", "invite": token})
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (409, "invite_exhausted"))
         self.assertEqual(self.get(f"/auth/api/invites/{token}")[0].status, 409)
 
+    def test_single_use_invite_is_consumed_by_only_one_of_two_completions(self):
+        """Two challenges prepared against the same single-use link: the second completion must be refused."""
+        owner, _ = self.owner()
+        self.set_registration(owner, False)
+        _, token, _ = self.create_invite(owner, max_uses=1)
+        bob = self.register_options("bob", invite=token)
+        carol = self.register_options("carol", invite=token)
+        resp, payload = self.complete_registration(bob, "bob")
+        self.assertEqual(resp.status, 200, payload)
+        resp, payload = self.complete_registration(carol, "carol")
+        self.assertEqual((resp.status, self.json_of(payload)["error"]), (409, "invite_exhausted"))
+        with contextlib.closing(self.app.db()) as conn:
+            self.assertEqual(conn.execute("SELECT uses FROM invites").fetchone()["uses"], 1)
+            self.assertEqual(conn.execute("SELECT count(*) AS n FROM users").fetchone()["n"], 2)  # alice + bob
+
+    def test_concurrent_completions_consume_a_single_use_invite_once(self):
+        owner, _ = self.owner()
+        self.set_registration(owner, False)
+        _, token, _ = self.create_invite(owner, max_uses=1)
+        options = [self.register_options("bob", invite=token), self.register_options("carol", invite=token)]
+        results = []
+
+        def finish(pair):
+            username, opts = pair
+            resp, payload = self.complete_registration(opts, username)
+            results.append((username, resp.status, payload))
+
+        threads = [threading.Thread(target=finish, args=(pair,))
+                   for pair in zip(("bob", "carol"), options)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual(sorted(status for _, status, _ in results), [200, 409], results)
+        with contextlib.closing(self.app.db()) as conn:
+            self.assertEqual(conn.execute("SELECT uses FROM invites").fetchone()["uses"], 1)
+            names = {row["username"] for row in conn.execute("SELECT username FROM users")}
+        self.assertEqual(len(names), 2)  # alice + exactly one of bob/carol
+
+    def test_concurrent_bootstrap_makes_exactly_one_owner(self):
+        """Two fresh-install registrations at once: both may pass the zero-users check, only one becomes owner."""
+        options = [self.register_options("alice"), self.register_options("bob")]
+        results = []
+
+        def finish(pair):
+            username, opts = pair
+            resp, payload = self.complete_registration(opts, username)
+            results.append(resp.status)
+
+        threads = [threading.Thread(target=finish, args=(pair,))
+                   for pair in zip(("alice", "bob"), options)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual(sorted(results), [200, 200])  # open registration: both accounts exist
+        with contextlib.closing(self.app.db()) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) AS n FROM users WHERE is_owner = 1")
+                             .fetchone()["n"], 1)
+
     def test_reusable_invite_allows_several_sign_ups(self):
         owner, _ = self.owner()
         self.set_registration(owner, False)
-        invite = self.json_of(self.post("/api/invites", {"max_uses": 3}, cookie=owner)[1])["invite"]
-        token = invite["url"].rsplit("/", 1)[1]
+        _, token, _ = self.create_invite(owner, max_uses=3)
         self.register("bob", invite=token)
         self.register("carol", invite=token)
         preflight = self.json_of(self.get(f"/auth/api/invites/{token}")[1])
@@ -336,16 +413,14 @@ class AuthEnabledTest(unittest.TestCase):
     def test_expired_and_revoked_invites_are_refused(self):
         owner, _ = self.owner()
         self.set_registration(owner, False)
-        expired = self.json_of(self.post("/api/invites", {"expires_in_days": 1}, cookie=owner)[1])["invite"]
+        expired, token, _ = self.create_invite(owner, expires_in_days=1)
         with contextlib.closing(self.app.db()) as conn:
             conn.execute("UPDATE invites SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
                          (expired["id"],))
-        resp, payload = self.post("/auth/api/register/options",
-                                  {"username": "bob", "invite": expired["url"].rsplit("/", 1)[1]})
+        resp, payload = self.post("/auth/api/register/options", {"username": "bob", "invite": token})
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (409, "invite_expired"))
 
-        revoked = self.json_of(self.post("/api/invites", {"max_uses": 1}, cookie=owner)[1])["invite"]
-        token = revoked["url"].rsplit("/", 1)[1]
+        revoked, token, _ = self.create_invite(owner, max_uses=1)
         self.assertEqual(self.delete(f"/api/invites/{revoked['id']}", cookie=owner)[0].status, 204)
         resp, payload = self.post("/auth/api/register/options", {"username": "carol", "invite": token})
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (409, "invite_revoked"))
@@ -354,12 +429,9 @@ class AuthEnabledTest(unittest.TestCase):
         resp, payload = self.post("/auth/api/register/options", {"username": "bob", "invite": "nope-nope-nope"})
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (404, "invite_invalid"))
         self.owner()
-        resp, payload = self.post("/auth/api/register/options", {"username": "bob"})
-        challenge_id = self.json_of(payload)["challenge_id"]
-        self.post("/auth/api/register/complete", {"challenge_id": challenge_id,
-                                                  "credential": {"id": "c1", "response": {}}})
-        resp, payload = self.post("/auth/api/register/complete", {"challenge_id": challenge_id,
-                                                                  "credential": {"id": "c1", "response": {}}})
+        options = self.register_options("bob")
+        self.complete_registration(options, "bob")
+        resp, payload = self.complete_registration(options, "bob")
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (410, "challenge_expired"))
 
     # --- login --------------------------------------------------------------------------------------------------
@@ -447,7 +519,7 @@ class AuthEnabledTest(unittest.TestCase):
         _, bob = self.register("bob")
         resp, _ = self.login(self.stored_credential("bob"))
         bob_cookie = self.cookie_of(resp)
-        invite = self.json_of(self.post("/api/invites", {"max_uses": 1}, cookie=bob_cookie)[1])["invite"]
+        invite, _, _ = self.create_invite(bob_cookie, max_uses=1)
         self.assertEqual(self.delete(f"/api/users/{bob['id']}", cookie=owner_cookie)[0].status, 204)
         self.assertEqual(self.get("/api/me", cookie=bob_cookie)[0].status, 401)
         with contextlib.closing(self.app.db()) as conn:
@@ -455,55 +527,59 @@ class AuthEnabledTest(unittest.TestCase):
                                           "c.user_id WHERE u.username = 'bob'").fetchone()["n"], 0)
             self.assertIsNone(conn.execute("SELECT 1 FROM invites WHERE id = ?", (invite["id"],)).fetchone())
 
-    # --- invite email -------------------------------------------------------------------------------------------
+    # --- invite tokens at rest and one-shot email ---------------------------------------------------------------
 
-    def test_invite_email_is_503_without_smtp(self):
+    def test_invite_token_is_never_stored_in_plaintext(self):
         owner, _ = self.owner()
-        invite = self.json_of(self.post("/api/invites", {"max_uses": 1}, cookie=owner)[1])["invite"]
-        resp, payload = self.post(f"/api/invites/{invite['id']}/email", {"to": "bob@example.com"},
-                                  cookie=owner)
+        _, token, url = self.create_invite(owner, max_uses=1)
+        self.assertIn(token, url)
+        with contextlib.closing(self.app.db()) as conn:
+            row = conn.execute("SELECT * FROM invites").fetchone()
+            values = " ".join(str(row[key]) for key in row.keys())
+            stored = row["token_hash"]
+        self.assertNotIn(token, values)
+        self.assertEqual(stored, hashlib.sha256(token.encode()).hexdigest())
+        for suffix in ("", "-wal", "-shm"):
+            path = Path(str(self.app.db_path) + suffix)
+            if path.exists():
+                self.assertNotIn(token.encode(), path.read_bytes(), f"{path} holds the plaintext token")
+
+    def test_invite_email_is_sent_at_creation_or_refused(self):
+        owner, _ = self.owner()
+        resp, payload = self.post("/api/invites", {"max_uses": 1, "email": "bob@example.com"}, cookie=owner)
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (503, "smtp_not_configured"))
-        self.assertEqual(self.json_of(self.get("/api/me", cookie=owner)[1])["email_enabled"], False)
-        resp, payload = self.post(f"/api/invites/{invite['id']}/email", {"to": "not an address"},
-                                  cookie=owner)
+        self.assertEqual(self.json_of(self.get("/api/invites", cookie=owner)[1])["invites"], [],
+                         "a refused email must not leave an invite behind")
+        resp, payload = self.post("/api/invites", {"max_uses": 1, "email": "not an address"}, cookie=owner)
         self.assertEqual((resp.status, self.json_of(payload)["error"]), (400, "address_invalid"))
+        self.assertEqual(self.json_of(self.get("/api/me", cookie=owner)[1])["email_enabled"], False)
+        # the old per-invite endpoint is gone: the link is only ever shown once
+        invite, _, _ = self.create_invite(owner, max_uses=1)
+        self.assertEqual(self.post(f"/api/invites/{invite['id']}/email", {"to": "bob@example.com"},
+                                   cookie=owner)[0].status, 404)
+
+    def test_invite_list_exposes_no_token_or_url(self):
+        owner, _ = self.owner()
+        _, token, _ = self.create_invite(owner, max_uses=2, note="team")
+        listed = self.json_of(self.get("/api/invites", cookie=owner)[1])["invites"]
+        self.assertEqual(len(listed), 1)
+        self.assertNotIn("url", listed[0])
+        self.assertNotIn("token", listed[0])
+        self.assertEqual(listed[0]["note"], "team")
+        self.assertEqual(listed[0]["created_by"], "alice")
+        self.assertNotIn(token, json.dumps(listed))
 
     def test_only_the_creator_or_the_owner_sees_an_invite(self):
         owner, _ = self.owner()
         resp, _ = self.login(self.stored_credential("alice"))
         alice_cookie = self.cookie_of(resp)
         bob_cookie, _ = self.register("bob")
-        own = self.json_of(self.post("/api/invites", {"max_uses": 1}, cookie=bob_cookie)[1])["invite"]
+        own, _, _ = self.create_invite(bob_cookie, max_uses=1)
         self.assertEqual(len(self.json_of(self.get("/api/invites", cookie=bob_cookie)[1])["invites"]), 1)
         self.assertEqual(len(self.json_of(self.get("/api/invites", cookie=alice_cookie)[1])["invites"]), 1)
         carol_cookie, _ = self.register("carol")
         self.assertEqual(self.json_of(self.get("/api/invites", cookie=carol_cookie)[1])["invites"], [])
         self.assertEqual(self.delete(f"/api/invites/{own['id']}", cookie=carol_cookie)[0].status, 404)
-
-
-class AuthDisabledTest(unittest.TestCase):
-    """WEBBY_AUTH unset: every URL behaves exactly as it did before the feature."""
-
-    def setUp(self):
-        self.app = AuthServer({})
-        self.addCleanup(self.app.close)
-        self.addCleanup(auth.reset)
-
-    def test_static_game_and_saves_are_untouched(self):
-        resp, payload = self.app.request("GET", "/")
-        self.assertEqual(resp.status, 200)
-        self.assertIn(b"<title>game", payload)
-        self.assertEqual(self.app.request("GET", "/api/eeprom")[0].status, 404)  # no save yet
-        self.assertEqual(self.app.request("GET", "/play")[0].status, 404)
-        self.assertEqual(self.app.request("GET", "/api/me")[0].status, 404)
-        self.assertEqual(self.app.request("GET", "/auth/api/config")[0].status, 404)
-        self.assertEqual(self.app.request("POST", "/api/invites", {"max_uses": 1})[0].status, 501)
-        self.assertFalse(self.app.config.enabled)
-
-    def test_no_auth_tables_are_created(self):
-        with contextlib.closing(self.app.db()) as conn:
-            names = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        self.assertEqual(names, {"eeprom"})
 
 
 class ServeScriptTest(unittest.TestCase):

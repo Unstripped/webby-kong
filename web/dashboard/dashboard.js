@@ -84,6 +84,9 @@
     var expSel = h('select', { 'aria-label': 'Expires in' }, h('option', { value: '' }, 'Never expires'),
       h('option', { value: '1' }, '1 day'), h('option', { value: '7' }, '7 days'), h('option', { value: '30' }, '30 days'));
     var note = h('input', { type: 'text', maxlength: '120', placeholder: 'Note (optional)', 'aria-label': 'Note' });
+    var mail = h('input', { type: 'email', placeholder: 'Email the link (optional)', 'aria-label': 'Email recipient',
+      disabled: !me.email_enabled,
+      title: me.email_enabled ? 'Send the link once it is created' : 'Email is not configured on this server.' });
     var go = h('button', { class: 'btn', type: 'submit' }, 'Create link');
     maxIn.style.display = 'none';
     maxSel.onchange = function () { maxIn.style.display = maxSel.value === 'multi' ? '' : 'none'; };
@@ -92,52 +95,35 @@
       var max = 1;
       if (maxSel.value === 'multi') max = maxIn.value ? parseInt(maxIn.value, 10) : null;
       go.disabled = true;
-      W.api('POST', '/api/invites', { max_uses: max, expires_in_days: expSel.value ? parseInt(expSel.value, 10) : null, note: note.value.trim() || null })
+      W.api('POST', '/api/invites', { max_uses: max, expires_in_days: expSel.value ? parseInt(expSel.value, 10) : null,
+          note: note.value.trim() || null, email: mail.value.trim() || null })
         .then(function (r) {
-          var url = r.invite.url;
           clear(created);
-          created.appendChild(h('div', { class: 'link' }, h('input', { readonly: true, value: url, 'aria-label': 'Invite link', onfocus: function (e) { e.target.select(); } }),
-            h('button', { class: 'btn', type: 'button', onclick: function () { copy(url); } }, 'Copy')));
-          note.value = ''; load();
+          created.appendChild(h('div', { class: 'link' }, h('input', { readonly: true, value: r.url, 'aria-label': 'Invite link', onfocus: function (e) { e.target.select(); } }),
+            h('button', { class: 'btn', type: 'button', onclick: function () { copy(r.url); } }, 'Copy')));
+          created.appendChild(h('p', { class: 'muted' }, 'This is the only time the link is shown \u2014 copy it now.'));
+          if (r.email_sent_to) created.appendChild(h('p', { class: 'muted' }, 'Emailed to ' + r.email_sent_to + '.'));
+          note.value = ''; mail.value = ''; load();
         }).catch(fail).then(function () { go.disabled = false; });
     } }, h('div', { class: 'row' }, h('div', { class: 'grow' }, maxSel), h('div', { class: 'grow' }, maxIn)),
-      h('div', { class: 'row' }, h('div', { class: 'grow' }, expSel), h('div', { class: 'grow' }, note)), h('div', { class: 'row' }, go));
-    body.appendChild(form); body.appendChild(created); body.appendChild(h('div', { style: 'height:12px' })); body.appendChild(list);
-
-    function sendEmail(inv, input, btn) {
-      var to = input.value.trim();
-      if (!to) return;
-      btn.disabled = true;
-      W.api('POST', '/api/invites/' + inv.id + '/email', { to: to }).then(function () { toast('Invite emailed to ' + to + '.'); load(); },
-        function (e) {
-          if (e.code === 'smtp_not_configured') { me.email_enabled = false; copy(inv.url); toast('Email is not configured. Link copied instead.', true); load(); }
-          else fail(e);
-        }).then(function () { btn.disabled = false; });
-    }
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, expSel), h('div', { class: 'grow' }, note)),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, mail), go));
+    body.appendChild(form);
+    if (!me.email_enabled) body.appendChild(h('p', { class: 'muted' }, 'Email sending is not configured on this server: copy the link and send it yourself.'));
+    body.appendChild(created); body.appendChild(h('div', { style: 'height:12px' })); body.appendChild(list);
 
     function row(inv) {
       var exp = inv.expires_at && new Date(inv.expires_at) < new Date();
       var exhausted = inv.max_uses != null && inv.uses >= inv.max_uses;
       var state = inv.revoked ? ['revoked', 'bad'] : exp ? ['expired', 'bad'] : exhausted ? ['used up', 'bad'] : ['active', 'ok'];
-      var live = state[1] === 'ok';
       var acts = h('div', { class: 'acts' });
-      var mailBox = h('div', { class: 'row', style: 'display:none' });
-      if (live) {
-        acts.appendChild(h('button', { class: 'btn small', type: 'button', onclick: function () { copy(inv.url); } }, 'Copy'));
-        var mail = h('button', { class: 'btn small ghost', type: 'button', disabled: !me.email_enabled,
-          title: me.email_enabled ? 'Email this invite' : 'Email is not configured on this server. Copy the link instead.',
-          onclick: function () { mailBox.style.display = mailBox.style.display === 'none' ? '' : 'none'; } }, 'Email\u2026');
-        acts.appendChild(mail);
+      if (state[1] === 'ok') {
         acts.appendChild(h('button', { class: 'btn small danger', type: 'button', onclick: function (e) {
           e.target.disabled = true;
           W.api('DELETE', '/api/invites/' + inv.id).then(function () { toast('Invite revoked.'); load(); }, function (er) { e.target.disabled = false; fail(er); });
         } }, 'Revoke'));
-        var to = h('input', { type: 'email', placeholder: 'friend@example.com', 'aria-label': 'Email address' });
-        var send = h('button', { class: 'btn small', type: 'button', onclick: function () { sendEmail(inv, to, send); } }, 'Send');
-        mailBox.appendChild(h('div', { class: 'grow' }, to)); mailBox.appendChild(send);
       }
-      var cells = [h('td', null, inv.note || '\u2013', inv.last_email_to ? h('div', { class: 'muted' }, 'emailed ' + inv.last_email_to) : null,
-        mailBox)];
+      var cells = [h('td', null, inv.note || '\u2013', inv.last_email_to ? h('div', { class: 'muted' }, 'emailed ' + inv.last_email_to) : null)];
       if (me.user.owner) cells.push(h('td', null, inv.created_by || ''));
       cells.push(h('td', null, inv.uses + '/' + (inv.max_uses == null ? '\u221e' : inv.max_uses)));
       cells.push(h('td', null, inv.expires_at ? fmt(inv.expires_at) : 'never'));
@@ -155,7 +141,6 @@
         head.push(h('th', null, 'Uses'), h('th', null, 'Expires'), h('th', null, 'State'), h('th', null, ''));
         list.appendChild(h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, head)),
           h('tbody', null, r.invites.map(row)))));
-        if (!me.email_enabled) list.appendChild(h('p', { class: 'muted' }, 'Email sending is not configured on this server. Copy invite links and send them yourself.'));
       }).catch(fail);
     }
     load();

@@ -8,6 +8,7 @@ Timestamps are the same UTC ISO-8601 text the saves table uses (strftime('%Y-%m-
 lexicographically and compare with now_iso() as plain strings.
 """
 import contextlib
+import hashlib
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -47,7 +48,7 @@ CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS invites (
   id            INTEGER PRIMARY KEY,
-  token         TEXT    NOT NULL UNIQUE,
+  token_hash    TEXT    NOT NULL UNIQUE,
   created_by    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   note          TEXT,
   created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -225,10 +226,15 @@ INVITE_SELECT = ("SELECT i.*, u.username AS created_by_username FROM invites i "
                  "LEFT JOIN users u ON u.id = i.created_by")
 
 
-def invite_json(row, origin):
+def token_hash(token):
+    """What the database stores for a bearer token (invites and sessions): never the token itself."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def invite_json(row):
+    """The invite as the dashboard may see it after creation: no token, no link (it is shown once)."""
     return {
         "id": row["id"],
-        "url": f"{origin}/invite/{row['token']}",
         "created_by": row["created_by_username"] if "created_by_username" in row.keys() else row["created_by"],
         "created_by_id": row["created_by"],
         "note": row["note"],
@@ -254,7 +260,7 @@ def invite_state(row, now=None):
 
 
 def get_invite_by_token(conn, token):
-    return conn.execute(f"{INVITE_SELECT} WHERE i.token = ?", (token,)).fetchone()
+    return conn.execute(f"{INVITE_SELECT} WHERE i.token_hash = ?", (token_hash(token),)).fetchone()
 
 
 def get_invite(conn, invite_id):
@@ -262,9 +268,11 @@ def get_invite(conn, invite_id):
 
 
 def create_invite(conn, created_by, max_uses=None, expires_at=None, note=None):
-    cur = conn.execute("INSERT INTO invites (token, created_by, note, expires_at, max_uses) VALUES (?, ?, ?, ?, ?)",
-                       (secrets.token_urlsafe(16), created_by, note, expires_at, max_uses))
-    return get_invite(conn, cur.lastrowid)
+    """Returns (row, token): the token exists only in this return value from here on."""
+    token = secrets.token_urlsafe(16)
+    cur = conn.execute("INSERT INTO invites (token_hash, created_by, note, expires_at, max_uses) "
+                       "VALUES (?, ?, ?, ?, ?)", (token_hash(token), created_by, note, expires_at, max_uses))
+    return get_invite(conn, cur.lastrowid), token
 
 
 def list_invites(conn, created_by=None):

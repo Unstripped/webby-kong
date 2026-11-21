@@ -199,7 +199,10 @@ def _invite_preflight(handler, conn, match):
 # --- registration -----------------------------------------------------------------------------------------------
 
 def _registration_allowed(conn, invite):
-    """Bootstrap (no users yet) -> open registration -> a valid invite. Anything else is closed."""
+    """Bootstrap (no users yet) -> open registration -> a valid invite. Anything else is closed.
+
+    register/options calls this to fail early; register/complete calls it again inside BEGIN IMMEDIATE with a freshly
+    read invite, which is the check that actually decides."""
     if db.count_users(conn) == 0:
         return
     if invite is not None:
@@ -236,11 +239,7 @@ def _register_complete(handler, conn, match):
     stored = db.take_challenge(conn, challenge_id, "register")
     if stored is None:
         raise HttpError(410, "challenge_expired", "start again: the sign-in challenge expired")
-    invite = db.get_invite(conn, stored["invite_id"]) if stored["invite_id"] is not None else None
-    _registration_allowed(conn, invite)
     username = stored["username"]
-    if db.get_user_by_username(conn, username) is not None:
-        raise HttpError(409, "username_taken", "that username is taken")
     credential, _ = _credential_id(body)
     name = _passkey_name(body.get("name"))
     try:
@@ -248,18 +247,31 @@ def _register_complete(handler, conn, match):
     except wa.VerificationFailed as err:
         raise HttpError(400, "credential_invalid", str(err))
     credential_id = wa.b64url(verified.credential_id)
-    if db.get_credential(conn, credential_id) is not None:
-        raise HttpError(409, "credential_exists", "that passkey is already registered")
+
+    # Everything that can be raced is decided under the write lock, after the (slow) signature check: the invite may
+    # have been spent or revoked since register/options, the username may have been taken, and the owner is whoever
+    # wins the race to the first row. The conditional UPDATE is the hard guarantee for single-use links.
     conn.execute("BEGIN IMMEDIATE")
     try:
+        invite = db.get_invite(conn, stored["invite_id"]) if stored["invite_id"] is not None else None
+        _registration_allowed(conn, invite)
+        if db.get_user_by_username(conn, username) is not None:
+            raise HttpError(409, "username_taken", "that username is taken")
+        if db.get_credential(conn, credential_id) is not None:
+            raise HttpError(409, "credential_exists", "that passkey is already registered")
+        if invite is not None:
+            consumed = conn.execute(
+                "UPDATE invites SET uses = uses + 1 WHERE id = ? AND revoked_at IS NULL "
+                "AND (expires_at IS NULL OR expires_at > ?) AND (max_uses IS NULL OR uses < max_uses)",
+                (invite["id"], db.now_iso()))
+            if consumed.rowcount != 1:
+                raise HttpError(409, "invite_exhausted", "that invite link has just been used")
         user = db.create_user(conn, username, stored["handle"])
         db.create_credential(conn, user["id"], credential_id, bytes(verified.credential_public_key),
                              verified.sign_count, _transports(body), str(verified.aaguid),
                              verified.credential_backed_up, verified.credential_backed_up, name)
-        if invite is not None:
-            conn.execute("UPDATE invites SET uses = uses + 1 WHERE id = ?", (invite["id"],))
         conn.execute("COMMIT")
-    except Exception:
+    except BaseException:
         conn.execute("ROLLBACK")
         raise
     token = sessions.issue(conn, user["id"], _CONFIG.session_days, handler.headers.get("User-Agent"))
@@ -446,7 +458,7 @@ def _delete_user(handler, conn, match):
 def _list_invites(handler, conn, match):
     user = _require_user(handler, conn)
     rows = db.list_invites(conn, None if user["is_owner"] else user["id"])
-    _json(handler, 200, {"invites": [db.invite_json(row, _CONFIG.origin) for row in rows]})
+    _json(handler, 200, {"invites": [db.invite_json(row) for row in rows]})
 
 
 def _create_invite(handler, conn, match):
@@ -457,10 +469,31 @@ def _create_invite(handler, conn, match):
     note = body.get("note")
     if note is not None and (not isinstance(note, str) or len(note) > 200):
         raise HttpError(400, "request_invalid", "note is at most 200 characters")
+    to = body.get("email")
+    if to is not None:
+        try:
+            to = mail.check_address(to)
+        except mail.InvalidAddress:
+            raise HttpError(400, "address_invalid", "a single recipient address is required")
+        if not _CONFIG.smtp.configured:
+            raise HttpError(503, "smtp_not_configured", "this server has no SMTP account configured")
     expires_at = db.iso_from_now(days=days) if days is not None else None
-    invite = db.create_invite(conn, user["id"], max_uses=max_uses, expires_at=expires_at,
-                              note=(note or None))
-    _json(handler, 201, {"invite": db.invite_json(invite, _CONFIG.origin)})
+    invite, token = db.create_invite(conn, user["id"], max_uses=max_uses, expires_at=expires_at,
+                                     note=(note or None))
+    url = _CONFIG.invite_url(token)
+    sent_to = None
+    if to is not None:
+        try:
+            mail.send_invite(_CONFIG, to, url, invite["max_uses"], invite["expires_at"])
+        except (smtplib.SMTPException, OSError) as err:
+            # never leave behind an invite whose link nobody has seen
+            conn.execute("UPDATE invites SET revoked_at = ? WHERE id = ?", (db.now_iso(), invite["id"]))
+            raise HttpError(502, "smtp_failed", f"the mail server refused it: {err}")
+        conn.execute("UPDATE invites SET last_email_to = ? WHERE id = ?", (to, invite["id"]))
+        invite = db.get_invite(conn, invite["id"])
+        sent_to = to
+    _json(handler, 201, {"invite": db.invite_json(invite), "token": token, "url": url,
+                         "email_sent_to": sent_to})
 
 
 def _owned_invite(handler, conn, match, owner_ok=True):
@@ -478,27 +511,6 @@ def _revoke_invite(handler, conn, match):
     if invite["revoked_at"] is None:
         conn.execute("UPDATE invites SET revoked_at = ? WHERE id = ?", (db.now_iso(), invite["id"]))
     _send(handler, 204, b"", [("Cache-Control", "no-store")])
-
-
-def _email_invite(handler, conn, match):
-    _, invite = _owned_invite(handler, conn, match)
-    state = db.invite_state(invite)
-    if state != "valid":
-        raise HttpError(409, f"invite_{state}", f"that invite link is {state}")
-    body = _body(handler)
-    try:
-        to = mail.check_address(body.get("to"))
-    except mail.InvalidAddress:
-        raise HttpError(400, "address_invalid", "a single recipient address is required")
-    if not _CONFIG.smtp.configured:
-        raise HttpError(503, "smtp_not_configured", "this server has no SMTP account configured")
-    try:
-        mail.send_invite(_CONFIG, to, _CONFIG.invite_url(invite["token"]), invite["max_uses"],
-                         invite["expires_at"])
-    except (smtplib.SMTPException, OSError) as err:
-        raise HttpError(502, "smtp_failed", f"the mail server refused it: {err}")
-    conn.execute("UPDATE invites SET last_email_to = ? WHERE id = ?", (to, invite["id"]))
-    _json(handler, 200, {"sent": True})
 
 
 # --- routing ----------------------------------------------------------------------------------------------------
@@ -524,7 +536,6 @@ ROUTES = [
     ("GET", r"^/api/invites$", _list_invites),
     ("POST", r"^/api/invites$", _create_invite),
     ("DELETE", r"^/api/invites/(?P<id>\d+)$", _revoke_invite),
-    ("POST", r"^/api/invites/(?P<id>\d+)/email$", _email_invite),
 ]
 _COMPILED = [(method, re.compile(pattern), func) for method, pattern, func in ROUTES]
 
