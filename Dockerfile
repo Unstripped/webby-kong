@@ -19,6 +19,9 @@ FROM python:3.12-slim
 RUN useradd --system --uid 10001 --no-create-home kong && mkdir -p /data /rom && chown kong /data
 COPY web/ /srv/web/
 COPY --from=build /src/build/web/dk64.js /src/build/web/dk64.wasm /srv/web/
+ARG VERSION=dev
+ARG REVISION=unknown
+RUN printf '{"version":"%s","revision":"%s"}\n' "$VERSION" "$REVISION" > /srv/web/version.json
 COPY tools/serve.py /app/serve.py
 USER kong
 VOLUME /data

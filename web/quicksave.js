@@ -171,6 +171,22 @@
     }
   }
 
+  // report.js load(): reload into a resume point (or none) with settings URL params for that load only. Skips the
+  // same-build snapshot so it cannot override the imported state.
+  function bootInto(resume, params) {
+    if (resume) {
+      localStorage.setItem(RESUME_KEY, JSON.stringify({ ok: true, ...resume, time: new Date().toISOString() }));
+    } else {
+      localStorage.removeItem(RESUME_KEY);
+    }
+    sessionStorage.setItem(SKIP_SNAPSHOT, '1');
+    sessionStorage.setItem(RESUME_ONCE, '1');
+    const u = new URL(location.href);
+    u.searchParams.delete('noresume');
+    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, String(v));
+    location.replace(u.href);
+  }
+
   // main.js, right after callMain
   async function started() {
     const once = sessionStorage.getItem(RESUME_ONCE) === '1';
@@ -206,5 +222,5 @@
     };
   }
 
-  window.dk64qs = { save, load, started, status, autoResume };
+  window.dk64qs = { save, load, bootInto, started, status, autoResume };
 })();

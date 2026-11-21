@@ -68,8 +68,18 @@ async function start(romBytes) {
           (window.dk64saves ? window.dk64saves.boot(m.FS) : Promise.resolve()).finally(() => m.removeRunDependency('syncfs'));
         });
       }],
-      print: (t) => console.log(t),
-      printErr: (t) => console.warn(t),
+      // report.js keeps the last console lines for bug reports; abort() is a crash
+      print: (t) => {
+        console.log(t);
+        if (window.dk64report) window.dk64report.log(t);
+      },
+      printErr: (t) => {
+        console.warn(t);
+        if (window.dk64report) window.dk64report.log(t);
+      },
+      onAbort: (what) => {
+        if (window.dk64report) window.dk64report.crashed('Aborted(' + what + ')');
+      },
     });
     module.portBuildId = buildId;
   } catch (err) {
@@ -88,7 +98,7 @@ async function start(romBytes) {
   const ctx = module.SDL2 && module.SDL2.audioContext;
   if (ctx && ctx.state !== 'running') ctx.resume();
   canvas.focus();
-  setStatus('Running. Keys: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, IJKL = C, TFGH = D-pad, Esc = menu.');
+  setStatus('Running. Keys: arrows = stick, X = A, C = B, Z = Z, A/S = L/R, Enter = Start, IJKL = C, TFGH = D-pad, Esc = menu (report bugs there).');
 }
 
 document.getElementById('rom').addEventListener('change', async (e) => {

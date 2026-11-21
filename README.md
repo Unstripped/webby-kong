@@ -26,6 +26,8 @@ start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kon
 - EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite).
 - Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
   anti-aliasing, touch controls), remembered in `localStorage`.
+- Bug reports and ideas from the Esc menu: a prefilled GitHub issue with a screenshot (click the broken spot to
+  attach the renderer's view of it), your save and exact location. Crashes open the same report.
 - F5 / F9 quicksave and quickload.
 - A headless node build with scripted input for regression runs.
 
