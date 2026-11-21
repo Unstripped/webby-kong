@@ -244,7 +244,7 @@ index c7f3b35..27e5df4 100644
      gContPressedButtons = *gPlayerSlots[gCurrentPlayerIndex].heldButtonsPtr;
      gCurrentCharacterIndex = gKongCharacterTable[character].characterIndex;
 diff --git a/src/global/80150.c b/src/global/80150.c
-index f742429..303c0d4 100644
+index f742429..8cb0108 100644
 --- a/src/global/80150.c
 +++ b/src/global/80150.c
 @@ -415,6 +415,7 @@ void tagBarrelCheckProximity1A(void) {
@@ -293,7 +293,7 @@ index f742429..303c0d4 100644
 +
 +    held = 0;
 +    if (!gPortCoop) {
-+        if (gPlayerCharacterId[0] < 5) {
++        if (except != 0 && gPlayerCharacterId[0] < 5) { // the barrel's own player keeps its kong selectable
 +            held |= 1 << gPlayerCharacterId[0];
 +        }
 +        return held;
