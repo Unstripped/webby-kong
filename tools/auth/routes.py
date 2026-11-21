@@ -149,7 +149,9 @@ def _credential_id(payload):
 
 
 def _transports(payload):
-    value = payload.get("transports")
+    credential = payload.get("credential")
+    response = credential.get("response") if isinstance(credential, dict) else None
+    value = response.get("transports") if isinstance(response, dict) else None
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return json.dumps(value)
     return None
