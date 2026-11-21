@@ -1,5 +1,9 @@
 // Esc menu: freezes the game (port_set_paused) and shows the current level's collectables (port_level_progress).
 // Opened by Esc, gamepad Back/Select (Standard mapping button 8) or the touch overlay's ☰ button.
+// Report a bug / Suggest an idea switch the panel to a report view that opens a prefilled GitHub issue form
+// (web/report.js): a bug report shows a screenshot of the frozen frame, where a click marks the broken spot and
+// probes the renderer there. A crash (wasm trap or abort, detected by report.js) opens the same view as "UH OH!",
+// which cannot be closed.
 (function () {
   'use strict';
 
@@ -136,9 +140,37 @@
   box-shadow: 0 2px 0 #3a1d00; }
 #dk64menu .seg button:active { transform: none; }
 #dk64menu .seg button:disabled { opacity: .35; cursor: default; }
+#dk64menu .btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+#dk64menu button.alt { padding: 10px 14px; font-size: 13px; background: linear-gradient(#f1c27d, #d39a4f); }
+#dk64menu button.alt:hover { background: linear-gradient(#f8d59c, #e0ad66); }
+#dk64menu button:disabled { opacity: .6; cursor: default; }
+#dk64menu button:disabled:active { transform: none; box-shadow: 0 4px 0 #3a1d00; }
+#dk64menu .rintro { margin: 0 0 10px; font: 600 13px/1.45 system-ui, sans-serif; color: #fff3d6; }
+#dk64menu .rtext { display: block; width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px;
+  font: 500 14px/1.4 system-ui, sans-serif; color: #fff3d6; background: rgba(20,10,2,.72); border: 3px solid #c9a25a;
+  border-radius: 10px; outline: none; user-select: text; -webkit-user-select: text; }
+#dk64menu .rtext:focus { border-color: #ffd21f; }
+#dk64menu .rtext::placeholder { color: rgba(255,243,214,.5); }
+#dk64menu .rshot { margin-top: 12px; text-align: center; }
+#dk64menu .rshotwrap { position: relative; display: inline-block; line-height: 0; }
+#dk64menu .rimg { max-width: 100%; max-height: 220px; cursor: crosshair; border: 3px solid #3a1d00; border-radius: 6px;
+  box-shadow: 0 3px 0 #2a1405; }
+#dk64menu .rpin { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; box-sizing: border-box;
+  border: 3px solid #ff2d2d; border-radius: 50%; box-shadow: 0 0 0 2px #fff; pointer-events: none; display: none; }
+#dk64menu .rhint { margin: 6px 0 2px; font: 900 13px/1.3 ${CHUNKY}; color: #ffd21f; text-shadow: 0 1px 0 #3a1d00; }
+#dk64menu .rstatus { display: block; font: 600 11px/1.4 system-ui, sans-serif; color: rgba(255,243,214,.8); }
+#dk64menu .rshot button { margin-top: 6px; }
+#dk64menu .rcrash { margin: 10px 0 0; padding: 8px 10px; max-height: 90px; overflow: auto; white-space: pre-wrap;
+  word-break: break-word; font: 500 11px/1.4 ui-monospace, monospace; color: #ffb4a8; background: rgba(20,10,2,.72);
+  border-radius: 8px; user-select: text; -webkit-user-select: text; }
+#dk64menu .rlist { margin: 12px 0 0; padding-left: 20px; font: 600 12px/1.5 system-ui, sans-serif; color: rgba(255,243,214,.85); }
+#dk64menu .rnote { margin: 10px 0 0; font: 600 11px/1.4 system-ui, sans-serif; color: rgba(255,243,214,.7); }
+#dk64menu .rdone { margin: 10px 0 0; text-align: center; font: 600 12px/1.4 system-ui, sans-serif; color: #b6ff6a; }
+#dk64menu .rdone a { color: #ffd21f; margin-left: 6px; }
 @media (max-width: 520px) {
   #dk64menu .title { font-size: 24px; }
   #dk64menu .settings { grid-template-columns: 1fr; }
+  #dk64menu .actions { flex-wrap: wrap; gap: 8px; }
 }
 `;
   document.head.appendChild(style);
@@ -189,19 +221,57 @@
   const settingsEl = el('div', 'settings');
   const foot = el('div', 'foot', 'Changes apply immediately and are remembered on this device');
   const actions = el('div', 'actions');
-  actions.append(el('span', 'hint', 'Esc · Back to resume'), button('Resume', null, () => close()));
-  panel.append(
-    ...['tl', 'tr', 'bl', 'br'].map((c) => el('span', 'bolt ' + c)),
-    el('div', 'title', 'PAUSED'),
-    label,
-    cards,
-    wide,
-    msg,
-    setLabel,
-    settingsEl,
-    foot,
-    actions,
+  const btns = el('div', 'btns');
+  btns.append(
+    button('Suggest an idea', 'alt', () => showReport('idea')),
+    button('Report a bug', 'alt', () => showReport('bug')),
+    button('Resume', null, () => close()),
   );
+  actions.append(el('span', 'hint', 'Esc · Back to resume'), btns);
+  const titleEl = el('div', 'title', 'PAUSED');
+  const mainView = el('div');
+  mainView.append(label, cards, wide, msg, setLabel, settingsEl, foot, actions);
+
+  // report view (bug, idea, crash): see showReport()
+  const reportView = el('div');
+  reportView.style.display = 'none';
+  const rintro = el('p', 'rintro');
+  const rtext = el('textarea', 'rtext');
+  rtext.maxLength = 1000;
+  rtext.rows = 4;
+  const rshot = el('div', 'rshot');
+  const rshotwrap = el('div', 'rshotwrap');
+  const rimg = el('img', 'rimg');
+  rimg.alt = 'Screenshot of the game';
+  rimg.draggable = false;
+  const rpin = el('span', 'rpin');
+  rshotwrap.append(rimg, rpin);
+  const rhint = el('p', 'rhint');
+  const rstatus = el('span', 'rstatus');
+  const rsave = button('Save screenshot', 'alt', () => saveShot());
+  rshot.append(rshotwrap, rhint, rstatus, rsave);
+  const rcrash = el('pre', 'rcrash');
+  const rlist = el('ul', 'rlist');
+  const rnote = el(
+    'p',
+    'rnote',
+    'Opens GitHub in a new tab. Sign in (free account), check it, and press Submit. Issues are public.',
+  );
+  const ractions = el('div', 'actions');
+  const rleft = el('span');
+  const rback = button('Back', 'alt', () => showMain());
+  const rreload = button('Reload game', 'alt', () => location.reload());
+  rleft.append(rback, rreload);
+  const go = button('Open GitHub', null, () => openGithub());
+  ractions.append(rleft, go);
+  const rdone = el('p', 'rdone', 'GitHub opened in a new tab.');
+  const rdoneLink = el('a', null, 'Open it again');
+  rdoneLink.target = '_blank';
+  rdoneLink.rel = 'noopener';
+  rdone.append(rdoneLink);
+  reportView.append(rintro, rtext, rshot, rcrash, rlist, rnote, ractions, rdone);
+
+  panel.append(...['tl', 'tr', 'bl', 'br'].map((c) => el('span', 'bolt ' + c)), titleEl, mainView, reportView);
   backdrop.append(panel);
   // close only when the press also started on the backdrop: the click that follows the ☰ tap that opened the
   // menu, or a slider drag released outside the panel, lands on the backdrop too
@@ -302,6 +372,9 @@
 
   let isStarted = false;
   let isOpen = false;
+  let lastProgress = null; // port_level_progress at the last open()
+  let crashMode = false;
+  let crashMsg = null;
 
   function showMessage(reason) {
     label.textContent = 'Progress';
@@ -354,14 +427,253 @@
     msg.style.display = 'none';
   }
 
+  // ---- report view
+  const KIND_TEXT = {
+    bug: {
+      title: 'REPORT A BUG',
+      intro:
+        'Something look wrong, act weird or get stuck? Tell us what happened. The game adds a screenshot of this ' +
+        'moment, your save and your location.',
+      placeholder: 'What happened? What did you expect?',
+    },
+    idea: { title: 'SUGGEST AN IDEA', intro: 'What would make the game better?', placeholder: 'Your idea…' },
+    crash: {
+      title: 'UH OH!',
+      intro: 'The game crashed. Sending a report gets it fixed faster.',
+      placeholder: 'What were you doing when it crashed?',
+    },
+  };
+  const LIST = [
+    'Your save file and exactly where you are, so we can load your game right there',
+    'Game version, settings, browser and graphics card',
+    'Recent game events and errors',
+  ];
+  const coarse = () => matchMedia('(pointer: coarse)').matches;
+
+  let reportKind = null;
+  let report = null; // resolved dk64report report, or null
+  let reportPromise = null;
+  let shotBlob = null; // unmarked screenshot PNG
+  let curShot = null; // the PNG Save screenshot downloads
+  let gen = 0; // bumped per view change: late results of an earlier view are dropped
+  let pending = 0; // report preparations in flight
+  let markSeq = 0;
+  let imgUrl = null;
+
+  function setGo(ready) {
+    go.disabled = !ready;
+    go.textContent = ready ? 'Open GitHub' : 'Preparing…';
+  }
+  function begin() {
+    pending++;
+    setGo(false);
+  }
+  function end(g) {
+    if (g !== gen) return;
+    pending = Math.max(0, pending - 1);
+    if (!pending) setGo(true);
+  }
+
+  function setImg(blob) {
+    if (imgUrl) URL.revokeObjectURL(imgUrl);
+    imgUrl = URL.createObjectURL(blob);
+    rimg.src = imgUrl;
+  }
+
+  function setList(marked) {
+    const items = marked ? [...LIST, 'What the renderer drew at the spot you marked'] : LIST;
+    rlist.replaceChildren(...items.map((t) => el('li', null, t)));
+  }
+
+  // the game draws one or two frames (keys stay swallowed by the open menu): capture and probe need presented frames
+  function runFrames(promiseFn) {
+    window.Module.ccall('port_set_paused', null, ['number'], [0]);
+    return promiseFn().finally(() => {
+      if (isOpen && !crashMode) window.Module.ccall('port_set_paused', null, ['number'], [1]);
+    });
+  }
+
+  // must run inside the click: clipboard writes need the user gesture
+  function copyShot(pngPromise) {
+    const g = gen;
+    const fallback = () =>
+      pngPromise.then(
+        () => {
+          if (g !== gen) return;
+          rstatus.textContent = 'Screenshot ready: save it and drag it into the issue';
+          rsave.style.display = '';
+        },
+        () => {},
+      );
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      fallback();
+      return;
+    }
+    let write;
+    try {
+      write = navigator.clipboard.write([new ClipboardItem({ 'image/png': pngPromise })]);
+    } catch (err) {
+      fallback();
+      return;
+    }
+    write.then(() => {
+      if (g !== gen) return;
+      rstatus.textContent = 'Screenshot copied: paste it into the issue (Ctrl+V / ⌘V)';
+    }, fallback);
+  }
+
+  function saveShot() {
+    if (!curShot) return;
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(curShot);
+    a.download = `dk64-screenshot-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}` +
+      `${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  function showReport(kind) {
+    const g = ++gen;
+    pending = 0;
+    reportKind = kind;
+    const t = KIND_TEXT[kind];
+    titleEl.textContent = t.title;
+    rintro.textContent = t.intro;
+    rtext.placeholder = t.placeholder;
+    rshot.style.display = kind === 'bug' ? '' : 'none';
+    rcrash.style.display = kind === 'crash' ? '' : 'none';
+    rlist.style.display = kind === 'idea' ? 'none' : '';
+    rback.style.display = kind === 'crash' ? 'none' : '';
+    rreload.style.display = kind === 'crash' ? '' : 'none';
+    rcrash.textContent = kind === 'crash' ? String(crashMsg).slice(0, 300) : '';
+    setList(false);
+    mainView.style.display = 'none';
+    reportView.style.display = '';
+    rdone.style.display = 'none';
+    rpin.style.display = 'none';
+    if (!coarse()) rtext.focus();
+    report = null;
+    reportPromise = null;
+    shotBlob = curShot = null;
+    if (kind === 'idea') {
+      setGo(true);
+      return;
+    }
+    begin();
+    const p = lastProgress && lastProgress.ok ? lastProgress : null;
+    reportPromise = window.dk64report
+      .collect({
+        crash: kind === 'crash' ? crashMsg : null,
+        level: p ? LEVELS[p.world] || null : null,
+        kong: p && KONGS[p.kong] ? KONGS[p.kong].name : null,
+        progress: lastProgress,
+      })
+      .catch(() => null);
+    reportPromise.then((r) => {
+      if (g !== gen) return;
+      report = r;
+      end(g);
+    });
+    if (kind !== 'bug') return;
+    rimg.style.display = '';
+    rimg.removeAttribute('src');
+    rhint.style.display = '';
+    rhint.textContent = `Something look wrong? ${coarse() ? 'Tap' : 'Click'} the spot on the screenshot.`;
+    rstatus.textContent = '';
+    rsave.style.display = 'none';
+    const png = runFrames(() => window.dk64dbg.capture()).then(window.dk64report.toPng);
+    copyShot(png);
+    png.then(
+      (b) => {
+        if (g !== gen) return;
+        shotBlob = curShot = b;
+        setImg(b);
+      },
+      () => {
+        if (g !== gen) return;
+        rstatus.textContent = "No screenshot (the game didn't draw a frame)";
+        rimg.style.display = 'none';
+        rhint.style.display = 'none';
+        rsave.style.display = 'none';
+      },
+    );
+  }
+
+  rimg.addEventListener('click', (e) => {
+    if (reportKind !== 'bug' || !shotBlob || !rimg.clientWidth) return;
+    const g = gen;
+    const seq = ++markSeq;
+    const fx = Math.min(1, Math.max(0, e.offsetX / rimg.clientWidth));
+    const fy = Math.min(1, Math.max(0, e.offsetY / rimg.clientHeight));
+    rpin.style.left = fx * 100 + '%';
+    rpin.style.top = fy * 100 + '%';
+    rpin.style.display = 'block';
+    setList(true);
+    // always marked from the clean screenshot, so a second click moves the mark
+    const marked = window.dk64report.markPng(shotBlob, fx, fy);
+    copyShot(marked);
+    marked.then(
+      (b) => {
+        if (g !== gen || seq !== markSeq) return;
+        curShot = b;
+        setImg(b);
+      },
+      () => {},
+    );
+    begin();
+    const probe = runFrames(() => window.dk64dbg.probe(fx, fy)).catch(() => null);
+    Promise.all([reportPromise, probe])
+      .then(([r, pr]) => r && window.dk64report.withMark(r, { fx, fy, probe: pr }))
+      .then(
+        (r) => {
+          if (r && g === gen && seq === markSeq) report = r;
+        },
+        () => {},
+      )
+      .finally(() => end(g));
+  });
+
+  function openGithub() {
+    const url = window.dk64report.issueUrl(reportKind, rtext.value.trim(), report);
+    const w = window.open(url, '_blank');
+    if (w) w.opener = null;
+    rdoneLink.href = url;
+    rdone.style.display = '';
+    rtext.value = '';
+  }
+
+  function showMain() {
+    gen++;
+    pending = 0;
+    reportView.style.display = 'none';
+    mainView.style.display = '';
+    titleEl.textContent = 'PAUSED';
+    if (document.activeElement === rtext) rtext.blur();
+  }
+
+  // report.js: the game trapped or aborted. Not closable; needs no started game or pause.
+  function openCrash(msg) {
+    crashMode = true;
+    crashMsg = msg;
+    lastProgress = null;
+    if (window.dk64touch) window.dk64touch.releaseAll();
+    backdrop.classList.add('on');
+    isOpen = true;
+    showReport('crash');
+  }
+
   function open() {
-    if (!isStarted || isOpen) return;
+    if (!isStarted || isOpen || crashMode) return;
     const m = window.Module;
     m.ccall('port_set_paused', null, ['number'], [1]);
     if (window.dk64touch) window.dk64touch.releaseAll();
+    lastProgress = null;
     try {
       // one snapshot per open: the game is frozen until close()
-      render(JSON.parse(m.ccall('port_level_progress', 'string')));
+      lastProgress = JSON.parse(m.ccall('port_level_progress', 'string'));
+      render(lastProgress);
     } catch (err) {
       showMessage(err.message);
     }
@@ -371,7 +683,8 @@
   }
 
   function close() {
-    if (!isOpen) return;
+    if (!isOpen || crashMode) return;
+    showMain();
     backdrop.classList.remove('on');
     window.Module.ccall('port_set_paused', null, ['number'], [0]);
     isOpen = false;
@@ -388,14 +701,19 @@
   window.addEventListener(
     'keydown',
     (e) => {
-      if (!isStarted) return;
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!e.repeat) toggle();
-        return;
-      }
-      if (isOpen) e.stopPropagation(); // no preventDefault: browser shortcuts still work
+      if (isOpen) e.stopPropagation(); // no preventDefault: browser shortcuts and typing in the report still work
+      if (e.key !== 'Escape' || !isStarted || crashMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) toggle();
+    },
+    true,
+  );
+  // SDL's window keypress listener calls preventDefault, which would keep characters out of the report textarea
+  window.addEventListener(
+    'keypress',
+    (e) => {
+      if (isOpen) e.stopPropagation();
     },
     true,
   );
@@ -429,5 +747,6 @@
     open,
     close,
     isOpen: () => isOpen,
+    openCrash,
   };
 })();

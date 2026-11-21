@@ -155,7 +155,7 @@ target_link_options(dk64 PRIVATE ${LINK_COMMON}
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 # web files are their own outputs, so JS-only edits reach build/web without relinking dk64
 set(WEB_OUT)
-foreach(f index.html main.js settings.js saves.js debug.js quicksave.js nipplejs.js touch.js menu.js
+foreach(f index.html main.js settings.js saves.js debug.js quicksave.js nipplejs.js touch.js menu.js report.js
     menu/wood.jpg menu/gb.png menu/banana-dk.png menu/banana-diddy.png menu/banana-lanky.png menu/banana-tiny.png
     menu/banana-chunky.png menu/medal.png menu/blueprint.png menu/fairy.png menu/crown.png menu/key.png)
   get_filename_component(d ${CMAKE_BINARY_DIR}/${f} DIRECTORY)

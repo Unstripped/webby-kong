@@ -305,6 +305,7 @@
     button('⤒ Save (F5)', 'primary', () => quicksave()),
     button('⤓ Load (F9)', null, () => quickload()),
     qsAuto,
+    button('Load report…', null, () => loadReport()),
   );
   qsSec.append(qsLbl, qsActions);
   if (!window.dk64qs) {
@@ -351,6 +352,13 @@
       return;
     }
     window.dk64qs.load().catch((err) => toast('Quickload failed: ' + err.message)).finally(refreshIfVisible);
+  }
+
+  // a bug report from GitHub (web/report.js): the reporter's save, location and settings
+  function loadReport() {
+    const t = prompt('Paste a bug report: the whole issue, or its DK64R1… line');
+    if (!t || !window.dk64report) return;
+    window.dk64report.load(t).catch((err) => toast('Load report failed: ' + err.message));
   }
 
   let refreshTimer = 0;

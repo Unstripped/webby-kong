@@ -1,0 +1,15 @@
+name: Suggest an idea
+description: A feature or change you'd like to see.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Game version
+      description: Filled in by the game.
