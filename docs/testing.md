@@ -28,7 +28,7 @@ node build/web/dk64_headless.js --rom decomp/donkey-kong.z64 --frames 2400 --inp
 ```
 
 Every 60 frames (VI ticks) it prints `frame <N>` and the runtime counters as JSON (VI ticks, frames, gfx and audio
-tasks, map, mode, overlay, audio peak, last error, actor count, player position). Flags:
+tasks, map, mode, overlay, audio peak, last error, actor count, player count, player 1's position). Flags:
 
 | Flag | Effect |
 | --- | --- |
@@ -44,9 +44,14 @@ tasks, map, mode, overlay, audio peak, last error, actor count, player position)
 | `--audio-rate 22050\|44100` | Synthesizer rate (default 22050 = N64) |
 | `--hrtf 0\|1` | 3D sound for positional effects (default 0; on changes only audio, never game state) |
 | `--progress` | At the end, print the current level's collectable progress |
+| `--net-sim N` | Run in co-op lockstep with N players (1..5): every controller read takes all pads from the netplay ring, fed from the input file two reads ahead; slot s plays kong s |
+| `--net-join F` | With `--net-sim`: slots 1..N-1 join at frame F (default 0), which reloads the map with them |
+| `--hash-every K` | With `--net-sim`: print `hash <read> <state hash>` every K controller reads (default 30) |
 
-Input files: lines starting with `#` are comments; every other line is `frame <N> press|release <button>`, with
-buttons `a b z start l r dup ddown dleft dright cup cdown cleft cright`; at most 256 events.
+Input files: lines starting with `#` are comments; every other line is `frame <N> press|release <button> [pad <P>]`
+or `frame <N> stick <x> <y> [pad <P>]` (x and y clamped to ±80), with buttons
+`a b z start l r dup ddown dleft dright cup cdown cleft cright` and pads 0..4 (default 0; pads 1..4 only matter with
+`--net-sim`); at most 256 events.
 
 ## Regression scenarios
 
@@ -56,10 +61,17 @@ buttons `a b z start l r dup ddown dleft dright cup cdown cleft cright`; at most
 | New game intro | `--frames 21000 --input tests/new_game_intro.txt` | Ends in the Treehouse: `"map":171,"mode":0` |
 | Snapshot determinism | the intro run plus `--qs-save 11000 --qs-load 12500 --trace 3` | Trace events after the load match the plain run with `--trace 3` |
 | Kong swap barrel | `--frames 1500 --input tests/kong_swap_barrel.txt --resume 0,0,7,0,1,1642,330,1519,0` | No abort; ends on `"map":7` |
+| Co-op | `--frames 1800 --net-sim 5 --input tests/coop_japes.txt --resume 0,0,7,0,1,1642,330,1519,0 --trace 1` | No abort; a `coop roster map=0x7 players=5` trace; ends on `"map":7` with `"players":5`; two runs print identical `hash` lines |
+| Co-op join | the co-op run plus `--net-join 900` | A map 7 reload (`coop roster ... players=5`) after frame 900; ends with `"players":5` |
+| Co-op snapshot | the co-op run plus `--hash-every 5 --qs-save 1000 --qs-load 1300` | Every `hash` line after the load equals the plain run's line for the same read |
 
 The intro's map changes run on wall-clock cues, and patch 0012 keeps checking them after a camera path ends early
 (the port runs a steady 30 fps, so frame-counted paths finish sooner than on hardware). The kong swap barrel run
 selects a kong in the Japes kong swap barrel twice; each swap reloads the player model.
+
+The co-op runs start lockstep at boot; the first controller reads happen in Japes, so the map reloads once with the
+five kongs (DK, Diddy, Lanky, Tiny, Chunky) at DK's position, then pads 1–4 walk them apart. A difference in `hash`
+lines between runs means a lockstep desync (rerun with `--hash-every 1` to find the first diverging read).
 
 To reach gameplay without the intro use `--resume`, e.g. `--resume 0,0,0xb0,1,1,941,60,736,3752` (Training Grounds).
 

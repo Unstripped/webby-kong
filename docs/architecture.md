@@ -48,6 +48,7 @@ flowchart LR
 - `endian/` — per-asset-table byte-order swappers (the game is big-endian, wasm little-endian).
 - `overlay.c` — all overlays are linked in; "loading" one restores its pristine data and zeroes its bss.
 - `qs.c` — quicksave snapshots.
+- `net.c` — online co-op lockstep (with `web/net.js` and the `/api/net` relay in `tools/serve.py`).
 
 ## Notes on the port
 
@@ -98,3 +99,29 @@ flowchart LR
   and brackets its ENVMIXER with `PORT_AOP_SPATIAL_BEGIN/END` (`1435C0.c`); the HLE takes the voice's dry
   contribution back out and renders it with a spherical-head interaural delay and minimum-phase KEMAR HRIRs
   (`hrtf.c`). With 3D sound off the command lists are byte-identical to the N64's.
+
+## Online co-op
+
+Every browser runs the whole simulation; only controller input crosses the network.
+
+- Lockstep: the sim is a pure function of the VI-tick sequence and the pads at each controller read. In a session
+  `osContGetReadData` (`ultra/si.c`) takes every player's pad for read `gPortNetRead` from a ring of bundles the
+  host orders (`net.c`); `port_frame_step` runs a VI tick only once the ring holds the next two reads. Each client
+  sends its own pad for read + delay. Joins and resyncs ship the quicksave snapshot; the session state in `net.c` is
+  a quicksave keep range, the roster (`gPortCoop*`) is sim state.
+- Host inputs that would leak into the sim are pinned while a session runs: the wide span is 16:9 for every window
+  (`gfx_fb.c`, `gfx_gl.c`), depth reads see the far plane instead of the GPU's depth buffer, `osAiGetLength` reads a
+  queue drained by VI ticks (`ultra/ai.c`), the draw distance is the host's, and Esc mutes the local pad instead of
+  pausing.
+- The game runs its own N-player mode (Kong Battle's actors and viewports). Patch 0026 makes the per-player tables
+  hold five players (asm `.bss` tables move into C: `gPlayerPadState`, the grid bounds); 0027 turns battle-only
+  rules (`gPlayerCount >= 2`) into `PORT_BATTLE()`, which is false in co-op; 0028 sets the roster at each map load
+  (`coopPrepareMapLoad`: all slots, or the transition's player alone on minigame/boss/bonus maps) and reloads the
+  map where player 1 stands when someone joins or leaves; 0030 shares inventory block 0 (`PORT_INV`), gives tag and
+  launch barrels and the pause menu to the player using them, and spawns enemies around every player.
+- Views: every client builds every player's view (render passes write sim state). Patch 0029 marks each view in
+  the display list with a `G_NOOP` tagged `PORT_G_VIEW_TAG`; `gfx.c` drops the primitives of views other than
+  `port_net_local_view()`. All co-op views use the full-screen one-player viewport; during a cutscene everyone
+  sees view 0.
+- Lockstep checks: every 30 reads each client hashes `coopStateHash()` (RNG seed, frame counter, map, player
+  positions, kongs, health); the host compares the joiners' hashes and resyncs a diverging joiner from a snapshot.

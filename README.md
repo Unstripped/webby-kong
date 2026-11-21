@@ -27,6 +27,7 @@ start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kon
 - Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
   anti-aliasing, touch controls), remembered in `localStorage`.
 - F5 / F9 quicksave and quickload.
+- Online co-op for 1–5 players, each in their own browser and playing a different kong (below).
 - A headless node build with scripted input for regression runs.
 
 ## Quick start
@@ -100,6 +101,22 @@ setting for that page load):
 | `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |
 | `audiorate=22050\|44100` | Sound mix sample rate; 22050 = N64, default 44100; applies at load |
 | `noresume` | Do not boot into the quicksave resume point after a rebuild |
+| `net=host` / `net=join` | Start hosting a co-op session / join the session of this server's host |
+| `netdelay=2..10` | Co-op input delay in controller reads (host only), default 3 (about 100 ms) |
+
+### Online co-op
+
+Everyone opens the same `tools/serve.py` (or Docker) server. The host plays as usual and picks **Host co-op** in the
+Esc menu (or loads `?net=host`); friends open `http://<host>:8080/?net=join`. Each joiner gets the host's game state
+and a free kong unlocked in the host's save; the map reloads with every kong at player 1's position, and each
+browser shows its own player's view. Players can join and leave at any time.
+
+- Inventory and health are shared (the host's save file); a death or fall reloads the map for everyone.
+- Minigames, bonus barrels, bosses, minecart and race maps are played by the kong that entered them; the others
+  watch.
+- The joiner's own save is never written. Esc does not pause a session; it only stops your input.
+- All browsers simulate the same game in input lockstep: a slow connection makes everyone wait. The status line at
+  the top right shows the players and the input delay.
 
 ## Repository layout
 
