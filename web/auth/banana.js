@@ -1,14 +1,32 @@
-/* Shining golden banana rendered as chunky pixels with a flowing gold texture
-   and edge-emitted sparks. Exposes window.Banana = { mount(el) -> { stop() } }.
-   No dependencies. */
+/* Golden banana drawn as flat, dithered noise pixels: only the PNG's silhouette is used. A light from the
+   upper left gives the banana a bright rim along its top edge that falls off into dark grain, and white
+   specks are rise off its upper edges like a flame, swaying and fading. The grain twinkles a little.
+   Exposes window.Banana = { mount(el) -> { stop() } }. No dependencies. */
 (function () {
   'use strict';
 
-  var TAU = Math.PI * 2;
   var SCRIPT_SRC = (document.currentScript && document.currentScript.src) || '';
   var ASSET = SCRIPT_SRC.replace(/[^\/]*$/, '') + 'banana.png';
-  var GRID_TARGET = 118; /* banana cells across, at most */
-  var MAX_SPARKS = 150;
+  var GRID_TARGET = 500;          /* cells across the shorter side of the box */
+  var TILT = -30 * Math.PI / 180;    /* counter-clockwise tilt of the (mirrored) banana */
+  var LIGHT_X = -0.45, LIGHT_Y = -0.9; /* direction towards the light (upper left) */
+  var TICK_MS = 1000 / 14;        /* twinkle rate */
+  var TWINKLE = 0.04;             /* fraction of cells re-rolled per tick */
+  var MAX_PARTICLES = 16000;      /* flame specks in flight */
+  var SWIRL_RADIUS = 0.08;        /* cursor reach, as a fraction of the box height */
+  var SWIRL_DRAG = 2;             /* how hard specks are pulled along the cursor's path */
+  var SWIRL_CURL = 3;             /* how hard they whirl around it */
+  var SWIRL_DAMPING = 1.2;        /* per second; lower = stirred specks keep drifting longer */
+  var STIR_GAIN = 3;              /* how hard the cursor stirs the banana's colours */
+  var STIR_DECAY = 0.9;           /* per second; how fast the stirring motion dies down (lower = longer swirl) */
+  var STIR_RELAX = 0.2;           /* per second; how fast stirred colours drift back (lower = marbling lingers) */
+  var STIR_RETURN = 6;            /* px/s; the drift back never slows below this, so the last of it settles */
+  var STIR_RADIUS = 0.14;         /* reach of the stirring inside the banana, as a fraction of the box height */
+  var STIR_CELL = 2;              /* the liquid moves in blocks of this many pixels per side (cheaper, still crisp) */
+
+  /* palette, brightest first: rim, lit, mid, shade, deep */
+  var RIM = [255, 244, 184], HI = [255, 205, 58], MID = [201, 138, 18], LO = [107, 63, 6], DEEP = [36, 19, 2];
+  var FLAME = [0.42, 0.66, 1];    /* flame speck tint, scaled by each speck's brightness (bright = sky blue) */
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
@@ -29,16 +47,12 @@
 
     var grid = document.createElement('canvas');
     var gctx = grid.getContext('2d');
-    var tex = null;         /* {w,h,data} texture at grid resolution */
     var img = null;
-    var cols = 0, rows = 0, cell = 3;
-    var out = null;         /* ImageData for the low-res frame */
-    var px = null;          /* masked pixel table */
-    var meanWl = 200;       /* average luminance of the masked body */
-    var edgeCells = null;   /* candidate spark origins */
-    var sparks = [];
-    var raf = 0, t0 = 0, stopped = false;
-    var running = false;
+    var cols = 0, rows = 0;
+    var out = null;
+    var body = null;   /* { idx, bright, rim, noise } for silhouette cells */
+    var rad = null;    /* flame particles and the edge cells that emit them */
+    var raf = 0, last = 0, twinkleAt = 0, stopped = false, running = false;
 
     /* ---------------------------------------------------------------- layout */
     function buildLayout() {
@@ -47,315 +61,403 @@
       var ch = el.clientHeight || el.offsetHeight || cw;
       var devW = Math.round(cw * dpr), devH = Math.round(ch * dpr);
 
-      cell = Math.max(2, Math.round(Math.min(devW, devH) / GRID_TARGET));
+      var cell = Math.max(2, Math.round(Math.min(devW, devH) / GRID_TARGET));
       cols = Math.max(8, Math.round(devW / cell));
       rows = Math.max(8, Math.round(devH / cell));
-
       canvas.width = cols * cell;
       canvas.height = rows * cell;
       grid.width = cols;
       grid.height = rows;
 
+      /* fit the tilted banana in the box, leaving a margin so the flame has room around it */
       var asp = (img.naturalWidth || 1) / (img.naturalHeight || 1);
-      var sizeX = Math.min(cols, rows * asp);
-      var sizeY = sizeX / asp;
-      var tw = Math.max(16, Math.min(Math.round(sizeX), 200));
-      var th = Math.max(16, Math.round(tw / asp));
-
-      tex = makeTexture(tw, th);
-      buildPixelTable(sizeX, sizeY, (cols - sizeX) * 0.5, (rows - sizeY) * 0.5);
+      var cs = Math.abs(Math.cos(TILT)), sn = Math.abs(Math.sin(TILT));
+      var sizeY = Math.min(cols * 0.82 / (asp * cs + sn), rows * 0.82 / (asp * sn + cs));
+      var mask = buildMask(sizeY * asp, sizeY);
+      buildCells(mask, sizeY);
       out = gctx.createImageData(cols, rows);
-      sparks.length = 0;
-      t0 = 0;
     }
 
-    /* Downsample the banana to a small texture, keep colour + alpha. */
-    function makeTexture(tw, th) {
+    /* Silhouette of the PNG, mirrored left-right and tilted TILT about the box centre. */
+    function buildMask(w, h) {
       var c = document.createElement('canvas');
-      c.width = tw; c.height = th;
+      c.width = cols; c.height = rows;
       var g = c.getContext('2d');
-      g.imageSmoothingEnabled = true;
-      g.clearRect(0, 0, tw, th);
-      g.drawImage(img, 0, 0, tw, th);
-      var d = g.getImageData(0, 0, tw, th);
-      return { w: tw, h: th, data: d.data };
-    }
-
-    /* Collect masked pixels, rim strength and spark origins. */
-    function buildPixelTable(sizeX, sizeY, ox, oy) {
-      var tw = tex.w, th = tex.h;
+      g.translate(cols / 2, rows * 0.56);   /* a little below centre so the stem and its flame clear the top */
+      g.rotate(TILT);
+      g.scale(-1, 1);
+      g.drawImage(img, -w / 2, -h / 2, w, h);
+      var a = g.getImageData(0, 0, cols, rows).data;
       var mask = new Uint8Array(cols * rows);
-      var uArr = [], vArr = [], gxArr = [], gyArr = [];
-      var i, gx, gy, u, v, tx, ty, a;
-
-      for (gy = 0; gy < rows; gy++) {
-        for (gx = 0; gx < cols; gx++) {
-          u = (gx + 0.5 - ox) / sizeX;
-          v = (gy + 0.5 - oy) / sizeY;
-          if (u < 0 || u > 1 || v < 0 || v > 1) continue;
-          tx = clamp(Math.floor(u * tw), 0, tw - 1);
-          ty = clamp(Math.floor(v * th), 0, th - 1);
-          a = tex.data[(ty * tw + tx) * 4 + 3];
-          if (a > 120) mask[gy * cols + gx] = 1;
-        }
-      }
-
-      /* drop stray single cells so the silhouette edge reads clean */
-      for (gy = 1; gy < rows - 1; gy++) {
-        for (gx = 1; gx < cols - 1; gx++) {
-          i = gy * cols + gx;
+      for (var i = 0; i < mask.length; i++) mask[i] = a[i * 4 + 3] > 120 ? 1 : 0;
+      /* drop stray single cells so the edge reads clean */
+      for (var y = 1; y < rows - 1; y++) {
+        for (var x = 1; x < cols - 1; x++) {
+          i = y * cols + x;
           if (mask[i] && !(mask[i - 1] + mask[i + 1] + mask[i - cols] + mask[i + cols])) mask[i] = 0;
         }
       }
-      for (gy = 0; gy < rows; gy++) {
-        for (gx = 0; gx < cols; gx++) {
-          if (!mask[gy * cols + gx]) continue;
-          uArr.push((gx + 0.5 - ox) / sizeX);
-          vArr.push((gy + 0.5 - oy) / sizeY);
-          gxArr.push(gx); gyArr.push(gy);
+      return mask;
+    }
+
+    /* Steps from (x, y) along (dx, dy) until the mask value differs from `inside`; capped at max. */
+    function march(mask, x, y, dx, dy, inside, max) {
+      var px = x + 0.5, py = y + 0.5;
+      for (var s = 1; s <= max; s++) {
+        var ix = Math.floor(px + dx * s), iy = Math.floor(py + dy * s);
+        if (ix < 0 || iy < 0 || ix >= cols || iy >= rows) return inside ? s : max;
+        if (mask[iy * cols + ix] !== inside) return s;
+      }
+      return max;
+    }
+
+    /* Distance (in cells) from every cell to the nearest banana cell: two-pass 3-4 chamfer, 0 inside. */
+    function distanceOut(mask) {
+      var dist = new Float32Array(cols * rows), BIG = 1e9, x, y, i;
+      for (i = 0; i < dist.length; i++) dist[i] = mask[i] ? 0 : BIG;
+      for (y = 0; y < rows; y++) {
+        for (x = 0; x < cols; x++) {
+          i = y * cols + x;
+          if (!dist[i]) continue;
+          if (x > 0) dist[i] = Math.min(dist[i], dist[i - 1] + 3);
+          if (y > 0) {
+            dist[i] = Math.min(dist[i], dist[i - cols] + 3);
+            if (x > 0) dist[i] = Math.min(dist[i], dist[i - cols - 1] + 4);
+            if (x < cols - 1) dist[i] = Math.min(dist[i], dist[i - cols + 1] + 4);
+          }
         }
       }
-
-      /* cheap 2-pass chamfer distance so rim pixels can shimmer */
-      var dist = new Float32Array(cols * rows);
-      var BIG = 1e6;
-      for (i = 0; i < dist.length; i++) dist[i] = mask[i] ? BIG : 0;
-      for (gy = 0; gy < rows; gy++) {
-        for (gx = 0; gx < cols; gx++) {
-          i = gy * cols + gx;
-          if (dist[i] === 0) continue;
-          if (gx > 0) dist[i] = Math.min(dist[i], dist[i - 1] + 1);
-          if (gy > 0) dist[i] = Math.min(dist[i], dist[i - cols] + 1);
+      for (y = rows - 1; y >= 0; y--) {
+        for (x = cols - 1; x >= 0; x--) {
+          i = y * cols + x;
+          if (!dist[i]) continue;
+          if (x < cols - 1) dist[i] = Math.min(dist[i], dist[i + 1] + 3);
+          if (y < rows - 1) {
+            dist[i] = Math.min(dist[i], dist[i + cols] + 3);
+            if (x < cols - 1) dist[i] = Math.min(dist[i], dist[i + cols + 1] + 4);
+            if (x > 0) dist[i] = Math.min(dist[i], dist[i + cols - 1] + 4);
+          }
         }
       }
-      for (gy = rows - 1; gy >= 0; gy--) {
-        for (gx = cols - 1; gx >= 0; gx--) {
-          i = gy * cols + gx;
-          if (dist[i] === 0) continue;
-          if (gx < cols - 1) dist[i] = Math.min(dist[i], dist[i + 1] + 1);
-          if (gy < rows - 1) dist[i] = Math.min(dist[i], dist[i + cols] + 1);
-        }
-      }
-      var rim = new Float32Array(uArr.length);
-      for (i = 0; i < rim.length; i++) {
-        rim[i] = clamp(1 - dist[gyArr[i] * cols + gxArr[i]] / 3.2, 0, 1);
-      }
+      for (i = 0; i < dist.length; i++) dist[i] /= 3;
+      return dist;
+    }
 
-      px = {
-        mask: mask,
-        n: uArr.length,
-        u: Float32Array.from(uArr),
-        v: Float32Array.from(vArr),
-        gx: Int32Array.from(gxArr),
-        gy: Int32Array.from(gyArr),
-        rim: rim
-      };
+    function buildCells(mask, sizeY) {
+      var len = Math.hypot(LIGHT_X, LIGHT_Y), lx = LIGHT_X / len, ly = LIGHT_Y / len;
+      var falloff = Math.max(4, sizeY * 0.3);
+      var rimW = Math.max(1.5, sizeY * 0.035);
+      var haloW = Math.max(6, sizeY * 0.22);   /* how high the flame reaches */
+      var bIdx = [], bBright = [], bRim = [], eX = [], eY = [], eNx = [], eNy = [];
+      var maxIn = Math.ceil(sizeY * 1.5);
+      var away = distanceOut(mask);
 
-      var acc = 0, ref = [0, 0, 0, 0];
-      for (i = 0; i < px.n; i++) {
-        sampleRGB(px.u[i], px.v[i], ref);
-        acc += ref[0] + ref[1] + ref[2];
-      }
-      meanWl = px.n ? Math.max(40, acc / px.n) : 200;
-
-      /* spark origins: masked pixels touching the silhouette edge, with normals */
-      var list = [];
-      for (i = 0; i < px.n; i++) {
-        gx = px.gx[i]; gy = px.gy[i];
-        var nx = 0, ny = 0;
-        if (!mask[gy * cols + gx - 1] || !mask[gy * cols + gx + 1] ||
-            !mask[(gy - 1) * cols + gx] || !mask[(gy + 1) * cols + gx]) {
-          for (var dy = -1; dy <= 1; dy++) {
-            for (var dx = -1; dx <= 1; dx++) {
-              var xx = gx + dx, yy = gy + dy;
-              if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) { nx -= dx * 0.5; ny -= dy * 0.5; continue; }
-              if (!mask[yy * cols + xx]) { nx += dx; ny += dy; }
+      for (var y = 0; y < rows; y++) {
+        for (var x = 0; x < cols; x++) {
+          var i = y * cols + x;
+          if (mask[i]) {
+            /* depth below the lit edge, measured towards the light */
+            var d = march(mask, x, y, lx, ly, 1, maxIn) - 0.5;
+            bIdx.push(i);
+            bBright.push(0.06 + 0.94 * Math.exp(-d / falloff));
+            bRim.push(clamp(1 - d / rimW, 0, 1));
+          } else {
+            /* cells touching the banana's upward- or sideways-facing edge emit the flame; downward-facing ones
+               are skipped, since specks rising from the underside would just pass behind the banana */
+            if (away[i] <= 1.5 && x > 1 && y > 1 && x < cols - 2 && y < rows - 2) {
+              var nx = away[i + 2] - away[i - 2], ny = away[i + 2 * cols] - away[i - 2 * cols];
+              var nl = Math.hypot(nx, ny);
+              if (nl > 0 && ny / nl < 0.3) eX.push(x + 0.5), eY.push(y + 0.5), eNx.push(nx / nl), eNy.push(ny / nl);
             }
           }
-          var len = Math.hypot(nx, ny);
-          if (len < 0.001) { nx = 0; ny = -1; len = 1; }
-          list.push(gx, gy, nx / len, ny / len);
         }
       }
-      edgeCells = Int32Array.from(list);
+      body = { idx: Int32Array.from(bIdx), bright: Float32Array.from(bBright), rim: Float32Array.from(bRim),
+        noise: new Float32Array(bIdx.length) };
+      reroll(body.noise, 1);
+      initSurface(mask);
+      buildEmitter(mask, eX, eY, eNx, eNy, haloW);
     }
 
-    /* ------------------------------------------------------------ sampling */
-    function sampleRGB(u, v, res) {
-      var tw = tex.w, th = tex.h, d = tex.data;
-      var x = clamp(u * tw - 0.5, 0, tw - 1.001), y = clamp(v * th - 0.5, 0, th - 1.001);
-      var x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0;
-      var x1 = x0 + 1, y1 = y0 + 1;
-      if (x1 > tw - 1) x1 = tw - 1;
-      if (y1 > th - 1) y1 = th - 1;
-      var i00 = (y0 * tw + x0) * 4, i10 = (y0 * tw + x1) * 4;
-      var i01 = (y1 * tw + x0) * 4, i11 = (y1 * tw + x1) * 4;
-      var w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-      res[0] = d[i00] * w00 + d[i10] * w10 + d[i01] * w01 + d[i11] * w11;
-      res[1] = d[i00 + 1] * w00 + d[i10 + 1] * w10 + d[i01 + 1] * w01 + d[i11 + 1] * w11;
-      res[2] = d[i00 + 2] * w00 + d[i10 + 2] * w10 + d[i01 + 2] * w01 + d[i11 + 2] * w11;
-      res[3] = d[i00 + 3] * w00 + d[i10 + 3] * w10 + d[i01 + 3] * w01 + d[i11 + 3] * w11;
+    /* ---------------------------------------------------------------- colour stirring */
+    /* The cursor stirs a velocity field inside the silhouette. Every banana block remembers where its colour came
+       from (a source map, starting as the identity); each frame that map, and the motion itself, are carried along
+       the flow, and every pixel shows the original shade found at its source. Dark shade from the underside
+       therefore marbles into the gold like two liquids being mixed, in crisp streaks: shades are only ever looked
+       up, never blended or re-rounded frame after frame. The map then relaxes back to the identity, so the banana
+       slowly settles. The liquid runs on a coarser grid (STIR_CELL pixels per block side) to keep a full-banana
+       stir cheap; only a box around the stirred area is simulated, and it switches off once everything settles.
+       Velocities and map coordinates are in pixel units throughout. */
+    function initSurface(mask) {
+      var s = body, F = STIR_CELL, cc = Math.ceil(cols / F), cr = Math.ceil(rows / F), n = cc * cr, b, c;
+      s.mask = mask; s.cc = cc; s.cr = cr;
+      s.tone0 = new Float32Array(cols * rows); s.rim0 = new Float32Array(cols * rows);
+      for (b = 0; b < s.idx.length; b++) { s.tone0[s.idx[b]] = s.bright[b]; s.rim0[s.idx[b]] = s.rim[b]; }
+      s.tone = Float32Array.from(s.tone0); s.rimF = Float32Array.from(s.rim0);
+      s.cmask = new Uint8Array(n);                     /* block touches the banana */
+      for (b = 0; b < s.idx.length; b++) {
+        var i = s.idx[b];
+        s.cmask[(((i / cols) | 0) / F | 0) * cc + ((i % cols) / F | 0)] = 1;
+      }
+      s.mapX = new Float32Array(n); s.mapY = new Float32Array(n);
+      for (c = 0; c < n; c++) { s.mapX[c] = (c % cc) * F; s.mapY[c] = ((c / cc) | 0) * F; }
+      s.map2X = Float32Array.from(s.mapX); s.map2Y = Float32Array.from(s.mapY);
+      s.u = new Float32Array(n); s.v = new Float32Array(n); s.u2 = new Float32Array(n); s.v2 = new Float32Array(n);
+      s.live = false; s.bx0 = s.by0 = s.bx1 = s.by1 = 0;
     }
 
-    /* ------------------------------------------------------------- sprites */
-    function spawn(now) {
-      if (!edgeCells || !edgeCells.length) return;
-      var k = (Math.random() * (edgeCells.length / 4)) | 0;
-      k *= 4;
-      var gx = edgeCells[k], gy = edgeCells[k + 1];
-      var nx = edgeCells[k + 2], ny = edgeCells[k + 3];
-      var jitter = 0.55;
-      var speed = 7 + Math.random() * 13;
-      var pale = Math.random() < 0.38;
-      sparks.push({
-        x: gx + 0.5 + nx * 0.6, y: gy + 0.5 + ny * 0.6,
-        vx: (nx + (Math.random() - 0.5) * jitter) * speed,
-        vy: (ny + (Math.random() - 0.5) * jitter) * speed - 2,
-        life: 0, max: 0.7 + Math.random() * 1.2,
-        big: Math.random() < 0.32,
-        c: pale ? [255, 232, 170] : [255, 252, 236]
-      });
+    function stepSurface(dt) {
+      var s = body, m = mouse, F = STIR_CELL, cc = s.cc, cr = s.cr, cm = s.cmask;
+      var U = s.u, V = s.v, U2 = s.u2, V2 = s.v2, mX = s.mapX, mY = s.mapY, m2X = s.map2X, m2Y = s.map2Y;
+      var speed = Math.hypot(m.vx, m.vy), x, y, c;
+      if (m.active && speed > 1) {
+        var R = Math.max(6, rows * STIR_RADIUS);
+        var x0 = Math.max(0, Math.floor((m.x - R) / F)), x1 = Math.min(cc - 1, Math.ceil((m.x + R) / F));
+        var y0 = Math.max(0, Math.floor((m.y - R) / F)), y1 = Math.min(cr - 1, Math.ceil((m.y + R) / F));
+        var touched = false;
+        for (y = y0; y <= y1; y++) {
+          for (x = x0; x <= x1; x++) {
+            c = y * cc + x;
+            if (!cm[c]) continue;
+            var dx = (x + 0.5) * F - m.x, dy = (y + 0.5) * F - m.y, dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist >= R || dist < 0.01) continue;
+            /* drag along the cursor's path plus a curl on each side of it: the wake of a stirring stick */
+            var w = (1 - dist / R) * (1 - dist / R) * dt * STIR_GAIN;
+            var side = m.vx * dy - m.vy * dx > 0 ? 1 : -1;
+            U[c] += w * (m.vx * SWIRL_DRAG - dy / dist * speed * SWIRL_CURL * side);
+            V[c] += w * (m.vy * SWIRL_DRAG + dx / dist * speed * SWIRL_CURL * side);
+            touched = true;
+          }
+        }
+        if (touched) {
+          /* pad the simulated box: the stirred motion travels on after the cursor has gone */
+          var pad = Math.ceil(R / F);
+          x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+          x1 = Math.min(cc - 1, x1 + pad); y1 = Math.min(cr - 1, y1 + pad);
+          if (!s.live) { s.bx0 = x0; s.by0 = y0; s.bx1 = x1; s.by1 = y1; s.live = true; }
+          else {
+            s.bx0 = Math.min(s.bx0, x0); s.by0 = Math.min(s.by0, y0);
+            s.bx1 = Math.max(s.bx1, x1); s.by1 = Math.max(s.by1, y1);
+          }
+        }
+      }
+      if (!s.live) return;
+
+      var decay = Math.exp(-dt * STIR_DECAY), relax = 1 - Math.exp(-dt * STIR_RELAX), maxV = 0, maxD = 0;
+      var k = dt / F;   /* pixels/s -> blocks per step */
+      for (y = s.by0; y <= s.by1; y++) {
+        for (x = s.bx0; x <= s.bx1; x++) {
+          c = y * cc + x;
+          if (!cm[c]) continue;
+          var u = U[c], v = V[c];
+          var sp = Math.abs(u) + Math.abs(v);
+          if (sp > maxV) maxV = sp;
+          /* the liquid now here was at (x - u dt, y - v dt): inherit that spot's source and motion, interpolated */
+          var fx = clamp(x - u * k, 0, cc - 1.001), fy = clamp(y - v * k, 0, cr - 1.001);
+          var ix = fx | 0, iy = fy | 0, ax = fx - ix, ay = fy - iy, bx = 1 - ax, by = 1 - ay;
+          var c00 = iy * cc + ix, c10 = c00 + 1, c01 = c00 + cc, c11 = c01 + 1;
+          m2X[c] = (mX[c00] * bx + mX[c10] * ax) * by + (mX[c01] * bx + mX[c11] * ax) * ay;
+          m2Y[c] = (mY[c00] * bx + mY[c10] * ax) * by + (mY[c01] * bx + mY[c11] * ax) * ay;
+          U2[c] = (U[c00] * bx + U[c10] * ax) * by + (U[c01] * bx + U[c11] * ax) * ay;
+          V2[c] = (V[c00] * bx + V[c10] * ax) * by + (V[c01] * bx + V[c11] * ax) * ay;
+        }
+      }
+      var mask = s.mask, tone = s.tone, rimF = s.rimF, tone0 = s.tone0, rim0 = s.rim0;
+      for (y = s.by0; y <= s.by1; y++) {
+        for (x = s.bx0; x <= s.bx1; x++) {
+          c = y * cc + x;
+          if (!cm[c]) continue;
+          U[c] = U2[c] * decay; V[c] = V2[c] * decay;
+          var hx = x * F, hy = y * F;                  /* this block's home, in pixels */
+          /* drift back home: a fraction of the distance, but never slower than STIR_RETURN, so it finishes */
+          var ofx = m2X[c] - hx, ofy = m2Y[c] - hy, off = Math.sqrt(ofx * ofx + ofy * ofy);
+          var back = Math.max(off * relax, STIR_RETURN * dt), keep = off > back ? 1 - back / off : 0;
+          var sx = hx + ofx * keep, sy = hy + ofy * keep;
+          mX[c] = sx; mY[c] = sy;
+          var dev = off * keep;
+          if (dev > maxD) maxD = dev;
+          /* each pixel of the block shows the original shade at its source; a source outside the banana keeps
+             the pixel's own shade */
+          for (var oy = 0; oy < F; oy++) {
+            var py = hy + oy;
+            if (py >= rows) break;
+            var ry = Math.round(sy + oy);
+            for (var ox = 0; ox < F; ox++) {
+              var px = hx + ox;
+              if (px >= cols) break;
+              var p = py * cols + px;
+              if (!mask[p]) continue;
+              var rx = Math.round(sx + ox), src = p;
+              if (rx >= 0 && ry >= 0 && rx < cols && ry < rows && mask[ry * cols + rx]) src = ry * cols + rx;
+              tone[p] = tone0[src]; rimF[p] = rim0[src];
+            }
+          }
+        }
+      }
+      if (maxV < 0.05 && maxD < 0.3) {
+        for (y = s.by0; y <= s.by1; y++) {
+          for (x = s.bx0; x <= s.bx1; x++) {
+            c = y * cc + x;
+            mX[c] = m2X[c] = x * F; mY[c] = m2Y[c] = y * F; U[c] = V[c] = 0;
+          }
+        }
+        var px0 = s.bx0 * F, px1 = Math.min(cols, (s.bx1 + 1) * F), py0 = s.by0 * F, py1 = Math.min(rows, (s.by1 + 1) * F);
+        for (y = py0; y < py1; y++) for (x = px0; x < px1; x++) { c = y * cols + x; tone[c] = tone0[c]; rimF[c] = rim0[c]; }
+        s.live = false;
+      }
     }
 
+    /* ---------------------------------------------------------------- flame */
+    function buildEmitter(mask, eX, eY, eNx, eNy, haloW) {
+      var n = clamp(eX.length * 3, 600, MAX_PARTICLES);
+      rad = {
+        mask: mask, haloW: haloW, n: n,
+        ex: Float32Array.from(eX), ey: Float32Array.from(eY), enx: Float32Array.from(eNx), eny: Float32Array.from(eNy),
+        x: new Float32Array(n), y: new Float32Array(n),             /* current position, derived from age */
+        ox: new Float32Array(n), oy: new Float32Array(n),           /* launch point */
+        vx: new Float32Array(n), v0: new Float32Array(n), acc: new Float32Array(n),
+        amp: new Float32Array(n), freq: new Float32Array(n), phase: new Float32Array(n),
+        age: new Float32Array(n), life: new Float32Array(n), bright: new Float32Array(n),
+        offX: new Float32Array(n), offY: new Float32Array(n),       /* displacement stirred in by the mouse */
+        sx: new Float32Array(n), sy: new Float32Array(n)            /* ...and its velocity */
+      };
+      /* start mid-flight so the page opens on a full flame rather than an empty sky */
+      for (var k = 0; k < n; k++) emit(k, Math.random());
+    }
 
-    /* --------------------------------------------------------------- frame */
-    var tmp = [0, 0, 0, 0], tmp2 = [0, 0, 0, 0];
+    /* (Re)launch particle k from a random edge cell, `progress` (0..1) of the way through its life. */
+    function emit(k, progress) {
+      var r = rad, m = r.ex.length;
+      if (!m) { r.life[k] = 1; r.age[k] = 1; return; }
+      var e = (Math.random() * m) | 0;
+      var life = 5 + Math.random() * 6;
+      var rise = r.haloW * (1.2 + Math.random() * 2.8);   /* how high this one climbs before it fades out */
+      r.ox[k] = r.ex[e]; r.oy[k] = r.ey[e];
+      r.v0[k] = 0.6 * rise / life;                         /* starts slow and speeds up as it rises, like heat */
+      r.acc[k] = 0.8 * rise / (life * life);
+      r.vx[k] = r.enx[e] * 0.15 * rise / life;             /* a slight push off the edge it left from */
+      r.amp[k] = r.haloW * (0.05 + Math.random() * 0.15);  /* side-to-side sway */
+      r.freq[k] = 0.6 + Math.random();
+      r.phase[k] = Math.random() * Math.PI * 2;
+      r.life[k] = life;
+      r.age[k] = life * progress;
+      r.bright[k] = 170 + Math.random() * 85;
+      r.offX[k] = r.offY[k] = r.sx[k] = r.sy[k] = 0;
+      place(k);
+    }
+
+    function place(k) {
+      var r = rad, t = r.age[k];
+      r.x[k] = r.ox[k] + r.vx[k] * t + r.amp[k] * (Math.sin(r.freq[k] * t + r.phase[k]) - Math.sin(r.phase[k])) + r.offX[k];
+      r.y[k] = r.oy[k] - (r.v0[k] * t + 0.5 * r.acc[k] * t * t) + r.offY[k];
+    }
+
+    function stepParticles(dt) {
+      var r = rad, m = mouse;
+      var speed = Math.hypot(m.vx, m.vy);
+      var stir = m.active && speed > 1;
+      var R = Math.max(6, rows * SWIRL_RADIUS), damp = Math.exp(-dt * SWIRL_DAMPING);
+      for (var k = 0; k < r.n; k++) {
+        r.age[k] += dt;
+        if (stir) {
+          /* specks near the cursor are dragged along its path and curled into a whirl on each side of it */
+          var dx = r.x[k] - m.x, dy = r.y[k] - m.y, dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < R && dist > 0.01) {
+            var w = (1 - dist / R) * (1 - dist / R) * dt;
+            var side = m.vx * dy - m.vy * dx > 0 ? 1 : -1;
+            r.sx[k] += w * (m.vx * SWIRL_DRAG - dy / dist * speed * SWIRL_CURL * side);
+            r.sy[k] += w * (m.vy * SWIRL_DRAG + dx / dist * speed * SWIRL_CURL * side);
+          }
+        }
+        if (r.sx[k] || r.sy[k]) {
+          r.offX[k] += r.sx[k] * dt;
+          r.offY[k] += r.sy[k] * dt;
+          r.sx[k] *= damp; r.sy[k] *= damp;
+          if (Math.abs(r.sx[k]) + Math.abs(r.sy[k]) < 0.01) r.sx[k] = r.sy[k] = 0;
+        }
+        place(k);
+        if (r.age[k] >= r.life[k] || r.x[k] < 0 || r.y[k] < 0 || r.x[k] >= cols || r.y[k] >= rows) emit(k, 0);
+      }
+    }
+
+    /* ---------------------------------------------------------------- mouse */
+    var mouse = { x: 0, y: 0, vx: 0, vy: 0, t: 0, active: false };
+
+    function onPointerMove(e) {
+      var b = canvas.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      var gx = (e.clientX - b.left) / b.width * cols, gy = (e.clientY - b.top) / b.height * rows;
+      var dtm = (e.timeStamp - mouse.t) / 1000;
+      if (mouse.active && dtm > 0 && dtm < 0.2) {
+        mouse.vx = mouse.vx * 0.5 + (gx - mouse.x) / dtm * 0.5;
+        mouse.vy = mouse.vy * 0.5 + (gy - mouse.y) / dtm * 0.5;
+      }
+      mouse.x = gx; mouse.y = gy; mouse.t = e.timeStamp; mouse.active = true;
+    }
+
+    function onPointerLeave() { mouse.active = false; mouse.vx = mouse.vy = 0; }
+
+    function reroll(noise, fraction) {
+      if (fraction >= 1) { for (var i = 0; i < noise.length; i++) noise[i] = Math.random(); return; }
+      var n = Math.round(noise.length * fraction);
+      for (var k = 0; k < n; k++) noise[(Math.random() * noise.length) | 0] = Math.random();
+    }
+
+    /* ---------------------------------------------------------------- frame */
+    function put(d, j, c, a) { d[j] = c[0]; d[j + 1] = c[1]; d[j + 2] = c[2]; d[j + 3] = a; }
+
+    /* Palette colour for banana pixel i from its (possibly stirred) tone and rim, dithered by its noise roll. */
+    function surfaceColour(i) {
+      var c = body.idx[i], r = body.noise[i];
+      if (r < body.rimF[c] * 0.85) return RIM;
+      var v = body.tone[c] + (r - 0.5) * 0.6;
+      return v > 0.78 ? HI : v > 0.5 ? MID : v > 0.24 ? LO : DEEP;
+    }
+
+    function draw() {
+      var d = out.data;
+      d.fill(0);
+      var i, j, r, v;
+
+      for (i = 0; i < body.idx.length; i++) put(d, body.idx[i] * 4, surfaceColour(i), 255);
+
+      /* flame: specks fade as they rise */
+      var p = rad;
+      for (i = 0; i < p.n; i++) {
+        var c = (p.y[i] | 0) * cols + (p.x[i] | 0);
+        if (p.mask[c]) continue;
+        v = (p.bright[i] * Math.pow(1 - p.age[i] / p.life[i], 0.8)) | 0;
+        if (v < 40) continue;
+        j = c * 4;
+        if (d[j + 3] && d[j + 2] >= v) continue;
+        d[j] = (v * FLAME[0]) | 0; d[j + 1] = (v * FLAME[1]) | 0; d[j + 2] = (v * FLAME[2]) | 0; d[j + 3] = 255;
+      }
+
+      gctx.putImageData(out, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(grid, 0, 0, canvas.width, canvas.height);
+    }
 
     function frame(now) {
       if (stopped) return;
-      if (!t0) t0 = now;
-      var t = (now - t0) / 1000;
-
-      var d = out.data;
-      d.fill(0);
-
-      /* rotating swirl about the banana centre */
-      var ang = t * 0.42;
-      var ca = Math.cos(ang), sa = Math.sin(ang);
-      var pulse = 1 + 0.11 * Math.sin(t * 1.35);
-      var wob = 1 + 0.09 * Math.sin(t * 0.62);
-
-      var n = px.n, data = d;
-      for (var i = 0; i < n; i++) {
-        var u = px.u[i], v = px.v[i];
-        /* domain warp: sine flow + slow swirl, no silhouette change */
-        var rx = u - 0.5, ry = v - 0.5;
-        var rr = rx * rx + ry * ry;
-        var k2 = 0.85 * (1 - Math.min(1, rr * 3.1));
-        var wx = rx * ca - ry * sa;
-        var wy = rx * sa + ry * ca;
-        var su = 0.5 + wx * wob + 0.085 * k2 * Math.sin(TAU * (v * 1.9 + t * 0.21));
-        var sv = 0.5 + wy * wob + 0.075 * k2 * Math.sin(TAU * (u * 1.7 - t * 0.17));
-        su += 0.034 * Math.sin(TAU * (v * 2.7 - t * 0.31) + 1.3);
-        sv += 0.034 * Math.sin(TAU * (u * 3.1 + t * 0.26) + 2.7);
-
-        sampleRGB(u, v, tmp);        /* base form, keeps the silhouette shading */
-        sampleRGB(su, sv, tmp2);     /* flowing gold texture */
-        /* drive brightness from how bright the flowing sample is, so the form
-           never breaks into holes when the warp lands on the shaded belly */
-        var wl = tmp2[0] + tmp2[1] + tmp2[2];
-        var m = clamp(0.86 + 0.42 * (wl / meanWl - 1), 0.76, 1.42);
-        var r = tmp[0] * m, g = tmp[1] * m, b = tmp[2] * m;
-
-        /* travelling specular band + sparkle where highlights pass */
-        var band = Math.sin(TAU * (su * 1.35 + sv * 2.2 - t * 0.34));
-        var boost = 1;
-        if (band > 0.15) {
-          var s2 = (band - 0.15) * 1.2;
-          boost += s2 * s2 * 0.85;
-        }
-        var tw1 = Math.sin(u * 71.3 + t * 3.1) * Math.sin(v * 58.7 - t * 2.4);
-        if (tw1 > 0.80) boost += (tw1 - 0.80) * 2.0;
-
-        /* rim shimmer */
-        var rm = px.rim[i];
-        if (rm > 0) boost += rm * rm * (0.28 + 0.30 * Math.sin(t * 1.7 + u * 9.0));
-
-        var mul = pulse * boost;
-        r = r * mul; g = g * mul; b = b * mul;
-        /* keep every hot pixel inside the gold hue cone, with headroom for bloom */
-        if (r > 238) r = 238;
-        if (g > r * 0.90) g = r * 0.90;
-        if (b > r * 0.70) b = r * 0.70;
-        var j = (px.gy[i] * cols + px.gx[i]) * 4;
-        data[j] = r;
-        data[j + 1] = g;
-        data[j + 2] = b;
-        data[j + 3] = 255;
-      }
-
-      /* sparks */
-      for (var s = 0; s < 2; s++) if (sparks.length < MAX_SPARKS) spawn(now);
-      var dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
+      var dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
-      for (var p = sparks.length - 1; p >= 0; p--) {
-        var sp = sparks[p];
-        sp.life += dt;
-        if (sp.life >= sp.max) { sparks.splice(p, 1); continue; }
-        var pxv = sp.x, pyv = sp.y;
-        sp.x += sp.vx * dt; sp.y += sp.vy * dt;
-        sp.vy += 5 * dt; sp.vx *= 0.986; sp.vy *= 0.986;
-        var f = 1 - sp.life / sp.max;
-        var a = f * f * f;
-        if (a < 0.05) continue;
-        var rr2 = sp.c[0] * a, gg = sp.c[1] * a, bb = sp.c[2] * a;
-        var ix = sp.x | 0, iy = sp.y | 0;
-        var idx = -1;
-        if (ix >= 0 && iy >= 0 && ix < cols && iy < rows && !px.mask[iy * cols + ix]) {
-          idx = (iy * cols + ix) * 4;
-          var h0 = d[idx] + rr2, h1 = d[idx + 1] + gg, h2 = d[idx + 2] + bb;
-          d[idx] = h0 > 255 ? 255 : h0;
-          d[idx + 1] = h1 > 255 ? 255 : h1;
-          d[idx + 2] = h2 > 255 ? 255 : h2;
-          d[idx + 3] = 255;
-        }
-        if (sp.big && idx >= 0) {
-          var tx2 = (ix + 1 < cols) ? idx + 4 : -1;
-          if (tx2 >= 0) {
-            var k0 = d[tx2] + rr2 * 0.5, k1 = d[tx2 + 1] + gg * 0.5, k2b = d[tx2 + 2] + bb * 0.5;
-            d[tx2] = k0 > 255 ? 255 : k0;
-            d[tx2 + 1] = k1 > 255 ? 255 : k1;
-            d[tx2 + 2] = k2b > 255 ? 255 : k2b;
-            d[tx2 + 3] = 255;
-          }
-        }
-        /* short trail one cell back along the flight path */
-        var qx = (pxv - sp.vx * 0.035) | 0, qy = (pyv - sp.vy * 0.035) | 0;
-        if (qx >= 0 && qy >= 0 && qx < cols && qy < rows && !px.mask[qy * cols + qx]) {
-          var qi = (qy * cols + qx) * 4;
-          var m0 = d[qi] + rr2 * 0.42, m1 = d[qi + 1] + gg * 0.42, m2 = d[qi + 2] + bb * 0.42;
-          d[qi] = m0 > 255 ? 255 : m0;
-          d[qi + 1] = m1 > 255 ? 255 : m1;
-          d[qi + 2] = m2 > 255 ? 255 : m2;
-          d[qi + 3] = 255;
-        }
+      twinkleAt += dt * 1000;
+      if (twinkleAt >= TICK_MS) {
+        twinkleAt = 0;
+        reroll(body.noise, TWINKLE);
       }
-
-      /* blit: crisp pixels, then a soft additive bloom that breathes */
-      gctx.putImageData(out, 0, 0);
-      var w2 = canvas.width, h2 = canvas.height;
-      ctx.clearRect(0, 0, w2, h2);
-      ctx.imageSmoothingEnabled = false;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-      ctx.drawImage(grid, 0, 0, w2, h2);
-      var glowA = 0.30 + 0.14 * Math.sin(t * 1.35);
-      if (glowA > 0) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.globalCompositeOperation = 'screen';
-        ctx.globalAlpha = glowA;
-        var gs = 1.05;
-        ctx.drawImage(grid, (w2 - w2 * gs) / 2, (h2 - h2 * gs) / 2, w2 * gs, h2 * gs);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = 'source-over';
-      }
-
+      /* the cursor's speed fades out once it stops moving, so a resting mouse stirs nothing */
+      var fade = Math.exp(-dt * 8);
+      mouse.vx *= fade; mouse.vy *= fade;
+      stepParticles(dt);
+      stepSurface(dt);
+      draw();
       raf = requestAnimationFrame(frame);
     }
 
-    var last = 0;
-
-    /* ------------------------------------------------------------ lifecycle */
+    /* ---------------------------------------------------------------- lifecycle */
     function start() {
       if (running || stopped || reduced) return;
       running = true;
@@ -374,25 +476,13 @@
       else start();
     }
 
-    function stop() {
-      stopped = true;
-      halt();
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('resize', onResize);
-      if (ro) ro.disconnect();
-      if (mq && mq.removeEventListener) mq.removeEventListener('change', onMotionPref);
-      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-      img = null; tex = null; px = null; out = null; sparks.length = 0;
-    }
-
     var resizeTimer = 0;
     function onResize() {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(function () {
-        resizeTimer = 0;
         if (stopped || !img) return;
         buildLayout();
-        if (reduced) drawStill();
+        draw();
       }, 120);
     }
 
@@ -400,30 +490,34 @@
 
     function onMotionPref() {
       reduced = !!(mq && mq.matches);
-      if (reduced) { halt(); sparks.length = 0; drawStill(); }
+      if (reduced) halt();
       else start();
     }
 
-    /* static, still-pixelated frame for reduced motion */
-    function drawStill() {
-      var d = out.data;
-      d.fill(0);
-      for (var i = 0; i < px.n; i++) {
-        sampleRGB(px.u[i], px.v[i], tmp);
-        var j = (px.gy[i] * cols + px.gx[i]) * 4;
-        d[j] = tmp[0]; d[j + 1] = tmp[1]; d[j + 2] = tmp[2]; d[j + 3] = 255;
-      }
-      gctx.putImageData(out, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(grid, 0, 0, canvas.width, canvas.height);
+    function stop() {
+      stopped = true;
+      halt();
+      clearTimeout(resizeTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('pointermove', onPointerMove);
+      document.documentElement.removeEventListener('pointerleave', onPointerLeave);
+      if (ro) ro.disconnect();
+      if (mq && mq.removeEventListener) mq.removeEventListener('change', onMotionPref);
+      else if (mq && mq.removeListener) mq.removeListener(onMotionPref);
+      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      img = null; body = null; rad = null; out = null;
     }
 
     function boot() {
       if (stopped) return;
       buildLayout();
+      draw();
       document.addEventListener('visibilitychange', onVisibility);
       window.addEventListener('resize', onResize);
+      /* the canvas ignores the pointer (the form sits on top), so watch the whole window instead */
+      window.addEventListener('pointermove', onPointerMove, { passive: true });
+      document.documentElement.addEventListener('pointerleave', onPointerLeave);
       if (window.ResizeObserver && el) {
         ro = new ResizeObserver(onResize);
         ro.observe(el);
@@ -432,8 +526,7 @@
         if (mq.addEventListener) mq.addEventListener('change', onMotionPref);
         else if (mq.addListener) mq.addListener(onMotionPref);
       }
-      if (reduced) drawStill();
-      else start();
+      start();
     }
 
     img = new Image();
