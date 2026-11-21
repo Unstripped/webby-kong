@@ -4,3 +4,19 @@ node = "24.22.0"
 cmake = "4.5.0"
 ninja = "1.13.2"
 emsdk = "6.0.13"
+
+[env]
+# Local settings for `mise run serve` (WEBBY_KONG_* variables, see .env.example). Missing file = no overrides, so a
+# fresh clone runs with the defaults. The same file feeds the image: docker run --env-file .env ...
+_.file = ".env"
+
+[tasks.serve]
+description = "Serve build/web with the save API and the optional passkey gate (same settings as the Docker image)"
+run = '''
+set -e
+if [ ! -x tools/.venv/bin/python ]; then
+  python -m venv tools/.venv
+fi
+tools/.venv/bin/python -m pip install --quiet --disable-pip-version-check -r tools/requirements-server.txt
+exec tools/.venv/bin/python tools/serve.py "$@"
+'''

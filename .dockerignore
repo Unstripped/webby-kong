@@ -25,3 +25,4 @@ decomp/emu/
 decomp/drafts/
 decomp/knowledge/
 decomp/reports/
+.env

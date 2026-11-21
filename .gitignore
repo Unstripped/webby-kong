@@ -10,3 +10,6 @@ __pycache__/
 *.ndd
 *.wasm
 *.eep
+
+# Local settings for `mise run serve` / `docker run --env-file` (see .env.example)
+.env

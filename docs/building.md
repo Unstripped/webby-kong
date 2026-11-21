@@ -24,7 +24,9 @@ tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-dep
 ```
 
 The order matters: the decomp's requirements install a `clang` package, and the second command then reinstalls
-`libclang` from `tools/requirements.txt` over it (without touching other dependencies).
+`libclang` from `tools/requirements.txt` over it (without touching other dependencies). `mise run serve` installs
+`tools/requirements-server.txt` (the optional sign-in dependency) into `tools/.venv` on every run, so serving needs
+no extra setup.
 
 Optional but recommended: refuse ROMs and ROM-derived files at commit time in this clone:
 
@@ -68,28 +70,35 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 ## Serving and saves
 
 ```sh
-tools/serve.py   # --dir build/web --port 8080 --bind :: --db ~/.local/share/webby-kong/saves.sqlite3
+mise run serve   # build/web on port 8080, saves in ~/.local/share/webby-kong/saves.sqlite3
 ```
 
-Open `http://localhost:8080/` and pick the ROM. With `--rom /path/to/dk64.z64` (or a directory holding one
+`mise run serve` installs the sign-in dependency into `tools/.venv` and runs `tools/serve.py` with no flags: every
+setting comes from a `WEBBY_KONG_*` variable (the table is in the [README](../README.md#configuration)), optionally
+through the gitignored `.env` at the repository root, and a CLI flag overrides one (`mise run serve -- --port 9000`).
+The effective configuration is printed at startup.
+
+Open `http://localhost:8080/` and pick the ROM. With `WEBBY_KONG_ROM` set to a ROM file (or a directory holding one
 `*.z64`/`*.n64`/`*.v64`) the server serves it at `/api/rom` and the page starts it without the picker. For a ROM at
 another URL, open `http://localhost:8080/?rom=<url>`.
 
 The game save (EEPROM) lives in IndexedDB; `web/saves.js` also uploads every version to `tools/serve.py`, which keeps
-them in `~/.local/share/webby-kong/saves.sqlite3` (change with `--db`) and restores the newest one at page load. The
-recovery commands (list, export, make a version current) are in the `tools/serve.py` docstring
+them in `WEBBY_KONG_DB` (default `~/.local/share/webby-kong/saves.sqlite3`) and restores the newest one at page load.
+The recovery commands (list, export, make a version current) are in the `tools/serve.py` docstring
 (`tools/serve.py --help`). Under a plain static server the page warns and keeps the save in the browser only.
 
 ## Docker image
 
 ```sh
 docker build -t webby-kong .
-docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data webby-kong
+docker run -p 8080:8080 --env-file .env -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data webby-kong
 ```
 
 The build stage (emsdk, on the build platform: the wasm is architecture-independent) runs `tools/prepare.py all`
-and builds `dk64`; `.dockerignore` keeps ROMs and the reference decomp build out of the context. The runtime stage
-is `python:3.12-slim` running `tools/serve.py` as uid 10001 with `--rom /rom` and saves in the `/data` volume (with a
+and builds `dk64`; `.dockerignore` keeps ROMs, `.env` and the reference decomp build out of the context. The runtime
+stage is `python:3.12-slim` running `tools/serve.py` as uid 10001 with no flags: the image sets
+`WEBBY_KONG_DIR=/srv/web`, `WEBBY_KONG_BIND=0.0.0.0`, `WEBBY_KONG_DB=/data/saves.sqlite3` and `WEBBY_KONG_ROM=/rom`,
+so `--env-file .env` takes the same settings file as `mise run serve` and saves live in the `/data` volume (with a
 host bind mount instead of a volume, add `--user $(id -u)`). `.github/workflows/docker.yml` publishes
 `ghcr.io/mjquinlan2000/webby-kong` for linux/amd64 and linux/arm64: `:latest` from `development`, `:<version>` from
 each release.
@@ -118,3 +127,4 @@ each release.
 | `link_check: function signature mismatch (fix the prototype by patch)` | A function is declared and defined with different types; fix the prototype in a patch. |
 | `Unsupported ROM: need Donkey Kong 64 (USA), SHA-1 …` (in the page) | Wrong ROM, region or revision. |
 | `prepare: build/tree has uncommitted changes` | `prepare.py tree`/`all` would discard work in `build/tree`: commit it there and `tools/prepare.py export`, or move it away. |
+| `serve: <dir> does not exist: build the page …` / `serve: <dir> has no index.html, …` | `mise run serve` / `tools/serve.py` points at an unbuilt or stale directory (with `WEBBY_KONG_AUTH=1` it also needs `auth/index.html` and `dashboard/index.html`): build as above (`tools/prepare.py all`, `emcmake cmake …`, `cmake --build build/web`) or set `WEBBY_KONG_DIR`/`--dir` to a built directory. |

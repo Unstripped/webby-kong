@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Webby - Sign in</title>
+<link rel="stylesheet" href="/auth/splash.css">
+</head>
+<body>
+<div class="bn-hero"><div id="banana"></div></div>
+<main class="card" id="card">
+  <h1 id="title">Webby</h1>
+  <h2 id="heading">Sign in to continue</h2>
+  <p id="sub">Use your passkey. No password needed.</p>
+
+  <form id="form" class="hidden" autocomplete="off">
+    <label for="username">Username</label>
+    <input id="username" name="username" autocapitalize="none" autocorrect="off" spellcheck="false"
+           autocomplete="username webauthn" minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]{3,32}" required>
+    <button type="submit" class="primary" id="create-btn">Create account with a passkey</button>
+  </form>
+
+  <button type="button" class="primary" id="signin-btn">Sign in</button>
+  <div class="links" id="links"></div>
+  <div class="msg" id="msg" role="status" aria-live="polite"></div>
+</main>
+
+<script src="/auth/webauthn.js"></script>
+<script src="/auth/banana.js"></script>
+<script>
+(function () {
+  'use strict';
+  var W = window.Webauthn;
+  var $ = function (id) { return document.getElementById(id); };
+  var mode = 'login';      // login | owner | register | invite
+  var cfg = null, inviteToken = null, busy = false;
+
+  function safeNext() {
+    var n = new URLSearchParams(location.search).get('next');
+    // same-origin absolute paths only: "/x" yes, "//host" and "/\host" no
+    if (n && n.charAt(0) === '/' && n.charAt(1) !== '/' && n.charAt(1) !== '\\') return n;
+    return '/';
+  }
+
+  function say(kind, text) {
+    var m = $('msg');
+    m.className = 'msg' + (text ? ' show ' + kind : '');
+    m.textContent = text || '';
+  }
+
+  function setBusy(b) {
+    busy = b;
+    $('signin-btn').disabled = b || !W.supported();
+    $('create-btn').disabled = b || !W.supported();
+  }
+
+  function render() {
+    var form = $('form'), signin = $('signin-btn'), links = $('links');
+    links.textContent = '';
+    form.classList.toggle('hidden', mode === 'login');
+    signin.classList.toggle('hidden', mode !== 'login');
+    var heads = {
+      login: ['Sign in to continue', 'Use your passkey. No password needed.'],
+      owner: ['Create the owner account', 'First time here. Pick a username, then save a passkey on this device.'],
+      register: ['Create an account', 'Pick a username, then save a passkey on this device.'],
+      invite: ['You\u2019ve been invited', 'Pick a username, then save a passkey on this device.']
+    };
+    $('heading').textContent = heads[mode][0];
+    $('sub').textContent = heads[mode][1];
+    $('create-btn').textContent = mode === 'owner' ? 'Create owner account' : 'Create account with a passkey';
+    if (mode === 'login' && cfg && cfg.registration_open) links.appendChild(linkBtn('Create account', 'register'));
+    if (mode === 'register') links.appendChild(linkBtn('Back to sign in', 'login'));
+    if (mode === 'login' && cfg && !cfg.has_users) links.appendChild(linkBtn('Create owner account', 'owner'));
+    if (mode !== 'login' && mode !== 'invite') { /* form visible */ }
+    if (mode !== 'login') $('username').focus();
+    setBusy(busy);
+  }
+
+  function linkBtn(label, to) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'link'; b.textContent = label;
+    b.onclick = function () { say(); mode = to; render(); };
+    return b;
+  }
+
+  function finish() { say('ok', 'Signed in. Redirecting\u2026'); location.assign(safeNext()); }
+
+  function doLogin() {
+    if (busy) return;
+    say(); setBusy(true);
+    W.api('POST', '/auth/api/login/options', {}).then(function (o) {
+      return W.signIn(o.publicKey).then(function (cred) {
+        return W.api('POST', '/auth/api/login/complete', { challenge_id: o.challenge_id, credential: cred });
+      });
+    }).then(finish, function (e) { say('err', e.message); setBusy(false); });
+  }
+
+  function doCreate(ev) {
+    ev.preventDefault();
+    if (busy) return;
+    var username = $('username').value.trim();
+    if (!username) return;
+    say(); setBusy(true);
+    var body = { username: username };
+    if (mode === 'invite') body.invite = inviteToken;
+    W.api('POST', '/auth/api/register/options', body).then(function (o) {
+      return W.register(o.publicKey).then(function (cred) {
+        return W.api('POST', '/auth/api/register/complete', { challenge_id: o.challenge_id, credential: cred });
+      });
+    }).then(finish, function (e) { say('err', e.message); setBusy(false); });
+  }
+
+  function init() {
+    if (window.Banana) window.Banana.mount($('banana'));
+    $('signin-btn').onclick = doLogin;
+    $('form').onsubmit = doCreate;
+    if (!W.supported()) say('warn', 'Passkeys need HTTPS (or localhost).');
+    var m = location.pathname.match(/^\/invite\/([^\/]+)/);
+    W.api('GET', '/auth/api/config').then(function (c) {
+      cfg = c;
+      document.title = (c.rp_name || 'Webby') + ' - Sign in';
+      $('title').textContent = c.rp_name || 'Webby';
+      if (m) {
+        inviteToken = decodeURIComponent(m[1]);
+        return W.api('GET', '/auth/api/invites/' + encodeURIComponent(inviteToken)).then(function () {
+          mode = 'invite';
+        }, function (e) {
+          if (e.code === 'invite_invalid') {
+            say('err', 'This invite link is no longer valid. Ask for a new one.');
+            $('signin-btn').classList.remove('hidden');
+            mode = 'login';
+          } else throw e;
+        });
+      }
+      mode = c.has_users ? 'login' : 'owner';
+    }).then(render, function (e) { say('err', e.message); render(); });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
