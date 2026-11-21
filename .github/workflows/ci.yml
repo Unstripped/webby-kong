@@ -35,8 +35,10 @@ jobs:
       - name: Python syntax
         run: python -m compileall -q tools tests/tools
       - name: JavaScript syntax
-        run: for f in web/*.js; do node --check "$f"; done
+        run: for f in web/*.js web/auth/*.js web/dashboard/*.js; do node --check "$f"; done
       - name: Shell syntax
         run: sh -n tools/link_check.sh && sh -n .githooks/pre-commit
+      - name: Server requirements
+        run: pip install -r tools/requirements-server.txt
       - name: Unit tests
         run: python -m unittest discover -s tests/tools -v

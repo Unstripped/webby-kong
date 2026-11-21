@@ -43,6 +43,28 @@ docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-save
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
 asks for the ROM.
 
+## Optional sign-in (passkeys)
+
+`WEBBY_AUTH=1` puts a passkey gate in front of everything: splash page at `/auth/`, dashboard at `/`, the game at
+`/play`. Left unset (the default) every URL behaves exactly as before.
+
+```sh
+docker run -p 8080:8080 -e WEBBY_AUTH=1 -e WEBBY_EXTERNAL_URL=https://kong.example.com \
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+```
+
+- Sign-in is WebAuthn (passkey) only, no passwords. Browsers refuse passkeys on plain `http://` LAN addresses, so
+  serve it over TLS or use `http://localhost`. `WEBBY_EXTERNAL_URL` must be the URL people actually open: it is the
+  WebAuthn origin, the source of the RP ID (its host) and the base of invite links.
+- Fresh install (no users yet): the first visitor picks a username, registers a passkey and becomes the owner.
+- Open registration is on by default; the owner can close it on the dashboard. Invite links (single use, reusable or
+  expiring) keep working while registration is closed.
+- Users, passkeys, sessions and invites live in the same `/data` SQLite file as the saves, so the existing
+  `-v ...:/data` already persists them. Saves are still shared by everyone (there are no per-user saves yet).
+- Emailed invites need `WEBBY_SMTP_HOST`, `WEBBY_SMTP_PORT`, `WEBBY_SMTP_USERNAME`, `WEBBY_SMTP_PASSWORD`,
+  `WEBBY_SMTP_FROM` and `WEBBY_SMTP_TLS` (`starttls`, `ssl` or `none`); without a host the dashboard offers the link
+  to copy instead. `WEBBY_RP_NAME` (default `Webby`) is what the passkey prompt shows.
+
 From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 
 ```sh

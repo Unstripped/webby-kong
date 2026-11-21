@@ -17,12 +17,25 @@ RUN python tools/prepare.py all \
 
 FROM python:3.12-slim
 RUN useradd --system --uid 10001 --no-create-home kong && mkdir -p /data /rom && chown kong /data
+# runtime deps of the optional passkey sign-in (WEBBY_AUTH=1): webauthn + cryptography/cbor2, wheels only
+COPY tools/requirements-server.txt /app/requirements-server.txt
+RUN pip install --no-cache-dir -r /app/requirements-server.txt
 COPY web/ /srv/web/
 COPY --from=build /src/build/web/dk64.js /src/build/web/dk64.wasm /srv/web/
 ARG VERSION=dev
 ARG REVISION=unknown
 RUN printf '{"version":"%s","revision":"%s"}\n' "$VERSION" "$REVISION" > /srv/web/version.json
 COPY tools/serve.py /app/serve.py
+COPY tools/auth /app/auth
+# Optional passkey sign-in (off by default: every URL behaves as before). docker run -e WEBBY_AUTH=1 ...
+#   WEBBY_AUTH=1                        enable the gate (splash at /auth/, dashboard at /, game at /play)
+#   WEBBY_EXTERNAL_URL=https://host:port  canonical origin: invite links + WebAuthn origin (passkeys need https
+#                                       or localhost); its host is the WebAuthn RP ID
+#   WEBBY_RP_NAME=Webby                 name shown in the passkey prompt
+#   WEBBY_SESSION_DAYS=30               session cookie lifetime
+#   WEBBY_REGISTRATION_OPEN=1           seed for the owner's registration toggle (the database wins afterwards)
+#   WEBBY_SMTP_HOST/PORT/USERNAME/PASSWORD/FROM/TLS  invite email (TLS: starttls | ssl | none)
+# users, passkeys, sessions and invites live in the same /data volume as the saves.
 USER kong
 VOLUME /data
 EXPOSE 8080

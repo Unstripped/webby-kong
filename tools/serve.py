@@ -9,6 +9,10 @@ Static files are served like `python3 -m http.server -d build/web 8080`. web/sav
   GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
                     404 if none. web/main.js starts it without the file picker (the Docker image mounts /rom)
 
+WEBBY_AUTH=1 puts an optional passkey sign-in gate in front of all of that (tools/auth/): the splash page lives at
+/auth/, the dashboard at /, the game at /play, and everything else needs a session cookie. Without the variable
+every URL behaves exactly as described above.
+
 Recovery with the sqlite3 CLI (DB defaults to ~/.local/share/webby-kong/saves.sqlite3):
 
   list versions        sqlite3 DB "select id, mtime_ms, received_at, sha1 from eeprom order by id"
@@ -26,6 +30,8 @@ import socket
 import sqlite3
 import urllib.parse
 from pathlib import Path
+
+import auth
 
 API_PATH = "/api/eeprom"
 ROM_PATH = "/api/rom"
@@ -76,8 +82,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def is_api(self):
         return urllib.parse.urlsplit(self.path).path == API_PATH
 
+    def translate_path(self, path):
+        target = auth.rewrite(urllib.parse.urlsplit(path).path)
+        return super().translate_path(path if target is None else target)
+
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
+        if auth.enabled():
+            if auth.handle(self) or not auth.gate(self):
+                return
+            if path == "/play/":
+                return self.redirect("/play")
         if path == ROM_PATH:
             return self.send_rom()
         if path != API_PATH:
@@ -108,7 +123,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.copyfile(f, self.wfile)
 
+    def do_POST(self):
+        if not (auth.enabled() and auth.handle(self)):
+            self.send_error(501, "Unsupported method (%r)" % self.command)
+
+    do_PATCH = do_POST
+    do_DELETE = do_POST
+
+    def do_HEAD(self):
+        if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
+            return
+        super().do_HEAD()
+
+    def redirect(self, location):
+        self.send_response(301)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_PUT(self):
+        if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
+            return
         if not self.is_api():
             return self.send_error(404)
         try:
@@ -148,6 +183,7 @@ def main():
     with contextlib.closing(sqlite3.connect(args.db)) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
+    config = auth.configure(args.db)
 
     Handler.db_path = args.db
     Handler.rom_path = args.rom
@@ -156,6 +192,8 @@ def main():
     handler = functools.partial(Handler, directory=args.dir)
     with Server((args.bind, args.port), handler) as httpd:
         print(f"serving {args.dir} on [{args.bind}]:{args.port}, saves in {args.db}", flush=True)
+        if config.enabled:
+            print(f"sign-in: enabled, origin {config.origin} (passkeys need https or localhost)", flush=True)
         if args.rom is not None:
             rom = find_rom(args.rom)
             print(f"rom: {rom}" if rom else f"rom: none in {args.rom}", flush=True)

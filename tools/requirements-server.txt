@@ -1,0 +1,3 @@
+# Runtime dependencies of tools/serve.py when the optional sign-in gate is on (WEBBY_AUTH=1).
+# Build tooling lives in requirements.txt: that one is installed in the emscripten stage, this one in the runtime image.
+webauthn==3.0.1
