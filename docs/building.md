@@ -114,6 +114,7 @@ each release.
 | `PORT: rom fill seg <n> inflated 0x… bytes, expected 0x…` | `port/ref/` does not match the ROM's segment layout: regenerate it with `tools/prepare.py ref`. |
 | `configure with: emcmake cmake -S . -B build/web -G Ninja` | CMake was run without Emscripten: prefix it with `emcmake`. |
 | `run tools/prepare.py all (or tree + gen --headers) first` | `build/tree` / `build/gen` are missing: run `tools/prepare.py all`. |
+| `Cannot find source file: …/build/gen/<file>.c` (CMake) | `build/gen` predates a change to `tools/gen_data.py` that added the file: run `tools/prepare.py gen`. |
 | `link_check: function signature mismatch (fix the prototype by patch)` | A function is declared and defined with different types; fix the prototype in a patch. |
 | `Unsupported ROM: need Donkey Kong 64 (USA), SHA-1 …` (in the page) | Wrong ROM, region or revision. |
 | `prepare: build/tree has uncommitted changes` | `prepare.py tree`/`all` would discard work in `build/tree`: commit it there and `tools/prepare.py export`, or move it away. |
