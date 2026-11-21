@@ -11,6 +11,7 @@ static u32 sPeakTicks;
 extern s32 gCurrentMap;
 extern u8 gGameMode;
 extern u8 *gPrimaryPlayerActor; /* Actor * in the game */
+extern u8 gPlayerCount;
 extern u16 gActiveActorCount;
 
 /* Actor field offsets (build/tree/include/actor.h): actorType 0x58, x 0x7C, y 0x80, z 0x84, yaw 0xE6, chunkIndex 0x12C */
@@ -156,10 +157,11 @@ EMSCRIPTEN_KEEPALIVE const char *port_debug_stats(void) {
     u8 *player = gPrimaryPlayerActor;
     int n = snprintf(buf, sizeof buf,
                      "{\"vi\":%u,\"frames\":%u,\"gfxTasks\":%u,\"audTasks\":%u,\"map\":%d,\"mode\":%d,\"overlay\":%d,"
-                     "\"audioPeak\":%d,\"viFb\":\"0x%x\",\"viBlack\":%d,\"lastError\":\"%s\",\"actors\":%u,\"player\":",
+                     "\"audioPeak\":%d,\"viFb\":\"0x%x\",\"viBlack\":%d,\"lastError\":\"%s\",\"actors\":%u,\"players\":%d,"
+                     "\"player\":",
                      gPortStatVi, gPortStatFrames, gPortStatGfxTasks, gPortStatAudTasks, (int)gCurrentMap, (int)gGameMode,
                      gPortCurrentOverlay, (int)(sPeakLast > sPeakCur ? sPeakLast : sPeakCur), (u32)gPortViCurrentFb,
-                     gPortViBlack, sLastError, (u32)gActiveActorCount);
+                     gPortViBlack, sLastError, (u32)gActiveActorCount, (int)gPlayerCount);
     if (PORT_IS_PTR(player)) {
         f32 x, y, z;
         s16 yaw, chunk;

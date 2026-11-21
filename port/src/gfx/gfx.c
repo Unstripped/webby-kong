@@ -105,6 +105,10 @@ u8 *gfxHost(u32 a) {
     return (u8 *)host;
 }
 
+/* co-op: the game builds every player's view (its render passes update sim state); this client rasterises only
+ * its own player's view. State commands still run in suppressed views; only primitives are dropped. */
+static int sViewSuppress;
+
 static void flush(void) {
     if (sBatchCount != 0) {
         gfxBackendDrawTriangles(&gGfx, sBatch, sBatchCount);
@@ -429,6 +433,9 @@ static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) 
 
 static void triangle(int a, int b, int c) {
     RspVtx *v0, *v1, *v2;
+    if (sViewSuppress) {
+        return;
+    }
     if (a >= MAX_VTX || b >= MAX_VTX || c >= MAX_VTX) {
         gfxWarnOnce("triidx", "PORT: gfx triangle index out of range");
         return;
@@ -632,6 +639,9 @@ static void texRect(u32 w0, u32 w1, u32 h1, u32 h2, int flip) {
     float s = (s16)(h1 >> 16) / 32.0f, t = (s16)(h1 & 0xFFFF) / 32.0f;
     float dsdx = (s16)(h2 >> 16) / 1024.0f, dtdy = (s16)(h2 & 0xFFFF) / 1024.0f;
     u32 cyc = gGfx.otherH & (3u << G_MDSFT_CYCLETYPE);
+    if (sViewSuppress) {
+        return;
+    }
     flush();
     if (cyc == G_CYC_COPY) {
         dsdx /= 4.0f;
@@ -648,6 +658,9 @@ static void fillRect(u32 w0, u32 w1) {
     float lrx = ((w0 >> 12) & 0xFFF) / 4.0f, lry = (w0 & 0xFFF) / 4.0f;
     float ulx = ((w1 >> 12) & 0xFFF) / 4.0f, uly = (w1 & 0xFFF) / 4.0f;
     u32 cyc = gGfx.otherH & (3u << G_MDSFT_CYCLETYPE);
+    if (sViewSuppress) {
+        return;
+    }
     flush();
     if (cyc == G_CYC_FILL || cyc == G_CYC_COPY) {
         lrx += 1.0f;
@@ -686,6 +699,11 @@ static void runDl(u32 addr, int depth) {
         cmd += 2;
         switch (op) {
         case G_NOOP:
+            if ((w0 & 0xFFFFFF) == PORT_G_VIEW_TAG) { /* co-op view marker (src/global/2F550.c) */
+                flush();
+                sViewSuppress = !(w1 == PORT_VIEW_SHARED || w1 == (u32)port_net_local_view());
+            }
+            break;
         case G_SPNOOP:
         case G_RDPLOADSYNC:
         case G_RDPPIPESYNC:
@@ -917,6 +935,7 @@ void portGfxInit(void) {
 void portGfxRunTask(OSTask *task) {
     int i;
     memset(&R, 0, sizeof R);
+    sViewSuppress = 0;
     for (i = 0; i < 4; i++) {
         R.mv[0][i][i] = 1.0f;
         R.proj[i][i] = 1.0f;

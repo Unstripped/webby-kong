@@ -46,6 +46,7 @@ static void viTick(void) {
     u64 end = portTimeNow() + PORT_CYCLES_PER_VI;
     gPortStatVi++;
     portAudioPeakTick();
+    portAiNetViTick();
     portViTick();
     runAll();
     while (portTimersNextDue() < end) {
@@ -79,7 +80,18 @@ void port_frame_step(double elapsedMs) {
     } else {
         sAccumMs -= n * PORT_VI_PERIOD_MS;
     }
+    /* netplay: behind the host's bundles (after a stall) catches up two ticks per frame */
+    if (portNetActive() && portNetReadsAhead() >= portNetDelay() + 3) {
+        n += 2;
+        if (n > 8) {
+            n = 8;
+        }
+    }
     while (n-- > 0) {
+        if (!portNetTickAllowed()) {
+            sAccumMs = 0; /* waiting for the network: no time debt */
+            break;
+        }
         viTick();
     }
     if (gPortViSwapped) {
@@ -115,14 +127,15 @@ EM_JS(int, port_node_load_rom, (const char *path), {
 
 typedef struct {
     u32 frame;
-    int press;
+    int kind; /* 0 release, 1 press, 2 stick */
+    int pad;  /* 0..PORT_MAX_PLAYERS-1 */
     u16 button;
+    s8 x, y;
 } InputEvent;
 
 static InputEvent sEvents[256];
 static int sEventCount;
-static u16 sHeldButtons;
-/* gPortHeadlessButtons lives in input.c */
+static OSContPad sScriptPads[PORT_MAX_PLAYERS]; /* scripted pads; pad 0 drives gPortHeadlessButtons/Stick */
 
 int portMainQsRanges(QsRange *out) {
     (void)out;
@@ -180,24 +193,58 @@ static void loadInputFile(const char *path) {
     }
     while (fgets(line, sizeof line, f) != NULL) {
         unsigned frame;
-        char verb[16], btn[16];
+        char verb[16], arg[16];
+        int x, y, pad = 0, n;
+        InputEvent *ev = &sEvents[sEventCount];
         if (line[0] == '#' || line[0] == '\n') {
             continue;
         }
-        if (sscanf(line, "frame %u %15s %15s", &frame, verb, btn) == 3 && sEventCount < 256) {
-            sEvents[sEventCount].frame = frame;
-            sEvents[sEventCount].press = strcmp(verb, "press") == 0;
-            sEvents[sEventCount].button = buttonByName(btn);
-            sEventCount++;
+        if (sEventCount >= 256 || sscanf(line, "frame %u %15s %n", &frame, verb, &n) != 2) {
+            continue;
         }
+        ev->frame = frame;
+        if (strcmp(verb, "stick") == 0) {
+            if (sscanf(line + n, "%d %d pad %d", &x, &y, &pad) < 2) {
+                portAbort("PORT: bad input line %s", line);
+            }
+            ev->kind = 2;
+            ev->x = (s8)(x > 80 ? 80 : x < -80 ? -80 : x);
+            ev->y = (s8)(y > 80 ? 80 : y < -80 ? -80 : y);
+        } else {
+            if (sscanf(line + n, "%15s pad %d", arg, &pad) < 1) {
+                portAbort("PORT: bad input line %s", line);
+            }
+            ev->kind = strcmp(verb, "press") == 0;
+            ev->button = buttonByName(arg);
+        }
+        if (pad < 0 || pad >= PORT_MAX_PLAYERS) {
+            portAbort("PORT: bad pad %d (0..%d)", pad, PORT_MAX_PLAYERS - 1);
+        }
+        ev->pad = pad;
+        sEventCount++;
     }
     fclose(f);
+}
+
+static u32 packScriptPad(int p) {
+    return ((u32)sScriptPads[p].button << 16) | ((u32)(u8)sScriptPads[p].stick_x << 8) | (u8)sScriptPads[p].stick_y;
+}
+
+/* --net-sim N: the ring gets the next reads from the scripted pads; slots 1..N-1 join at frame --net-join */
+static void netSimFeed(int players, u32 joinFrame, u32 frame) {
+    u8 mask = frame >= joinFrame ? (u8)((1u << players) - 1) : 1;
+    int k;
+    for (k = portNetReadsAhead(); k < 3; k++) {
+        port_net_push(gPortNetRead + (u32)k, mask, 0xFF, 0xFF, packScriptPad(0), packScriptPad(1), packScriptPad(2),
+                      packScriptPad(3), packScriptPad(4));
+    }
 }
 
 int main(int argc, char **argv) {
     const char *rom = NULL, *input = NULL;
     u32 frames = 600, i;
-    int a, e;
+    int a, e, netSim = 0;
+    u32 netJoin = 0;
     u8 *qsBuf = NULL;
     u32 qsAt = 0, qsLoadAt = 0;
     int qsLoaded = 0;
@@ -231,18 +278,33 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
+        } else if (strcmp(argv[a], "--net-sim") == 0 && a + 1 < argc) {
+            netSim = atoi(argv[++a]);
+            if (netSim < 1 || netSim > PORT_MAX_PLAYERS) {
+                portAbort("PORT: --net-sim %d (1..%d)", netSim, PORT_MAX_PLAYERS);
+            }
+        } else if (strcmp(argv[a], "--net-join") == 0 && a + 1 < argc) {
+            netJoin = (u32)strtoul(argv[++a], NULL, 0);
+        } else if (strcmp(argv[a], "--hash-every") == 0 && a + 1 < argc) {
+            gPortNetHashEvery = atoi(argv[++a]);
         }
     }
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
                "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
-               "[--audio-rate 22050|44100] [--hrtf 0|1] [--progress]\n");
+               "[--audio-rate 22050|44100] [--hrtf 0|1] [--progress] [--net-sim N [--net-join F] [--hash-every K]]\n");
         return 2;
     }
     if (input != NULL) {
         loadInputFile(input);
     }
     portInit();
+    if (netSim != 0) {
+        if (gPortNetHashEvery <= 0) {
+            gPortNetHashEvery = 30;
+        }
+        port_net_begin(1, 0, 2);
+    }
     if (resume != NULL) {
         int rs, rk, rm, re, rp, ryaw;
         float rx, ry, rz;
@@ -253,15 +315,26 @@ int main(int argc, char **argv) {
     }
     for (i = 0; i < frames; i++) {
         for (e = 0; e < sEventCount; e++) {
-            if (sEvents[e].frame == i) {
-                if (sEvents[e].press) {
-                    sHeldButtons |= sEvents[e].button;
-                } else {
-                    sHeldButtons &= ~sEvents[e].button;
-                }
+            const InputEvent *ev = &sEvents[e];
+            OSContPad *p = &sScriptPads[ev->pad];
+            if (ev->frame != i) {
+                continue;
+            }
+            if (ev->kind == 2) {
+                p->stick_x = ev->x;
+                p->stick_y = ev->y;
+            } else if (ev->kind == 1) {
+                p->button |= ev->button;
+            } else {
+                p->button &= ~ev->button;
             }
         }
-        gPortHeadlessButtons = sHeldButtons;
+        gPortHeadlessButtons = sScriptPads[0].button;
+        gPortHeadlessStickX = sScriptPads[0].stick_x;
+        gPortHeadlessStickY = sScriptPads[0].stick_y;
+        if (netSim != 0) {
+            netSimFeed(netSim, netJoin, i);
+        }
         port_frame_step(PORT_VI_PERIOD_MS);
         if ((i + 1) % 60 == 0) {
             printf("frame %u %s\n", i + 1, port_debug_stats());
@@ -315,8 +388,12 @@ int portMainQsRanges(QsRange *out) {
     return 5;
 }
 
-/* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
+/* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes.
+ * A netplay session never pauses: the other players keep playing (web/menu.js mutes the local pad instead). */
 EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
+    if (portNetActive()) {
+        return;
+    }
     sMenuPaused = paused != 0;
     if (!sMenuPaused) {
         sLastMs = 0; /* the first frame after resume steps one VI period, not the paused time */
@@ -325,6 +402,7 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
 
 /* web/settings.js: applied between frames; each returns the value in effect */
 EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
+EMSCRIPTEN_KEEPALIVE f32 port_get_drawdist(void) { return gPortDrawDistance; }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
@@ -333,7 +411,9 @@ EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 
 static void port_frame(void) {
     double now, dt;
-    if (sMenuPaused) {
+    if (portNetActive()) {
+        sMenuPaused = 0; /* a menu opened before the session must not freeze the game after it */
+    } else if (sMenuPaused) {
         return;
     }
     now = emscripten_get_now();

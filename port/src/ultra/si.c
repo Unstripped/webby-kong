@@ -1,4 +1,5 @@
-/* Serial interface: controller pad 0 only, no rumble pak. */
+/* Serial interface: controller pad 0 from the host's input, or every co-op player's pad from the netplay ring
+ * (net.c); no rumble pak. */
 #include "port_internal.h"
 
 OSContPad gPortPad;
@@ -23,8 +24,14 @@ s32 osContStartReadData(OSMesgQueue *mq) {
 
 void osContGetReadData(OSContPad *pad) {
     int i;
-    u16 taps = portInputTakeTaps();
-    for (i = 0; i < MAXCONTROLLERS; i++) {
+    u16 taps;
+    if (portNetActive()) {
+        portNetFillPads(pad);
+        return;
+    }
+    gPortNetRead++;
+    taps = portInputTakeTaps();
+    for (i = 0; i < PORT_MAX_PLAYERS; i++) { /* the game's pad arrays hold PORT_MAX_PLAYERS (co-op) */
         if (i == 0) {
             pad[i] = gPortPad;
             pad[i].button |= taps;

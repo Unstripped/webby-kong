@@ -1,0 +1,13 @@
+# co-op smoke (headless --net-sim 5): four extra kongs walk apart and jump
+frame 300 stick 0 80 pad 1
+frame 300 stick 80 0 pad 2
+frame 300 stick 0 -80 pad 3
+frame 300 stick -80 0 pad 4
+frame 500 press a pad 1
+frame 506 release a pad 1
+frame 500 press a pad 3
+frame 506 release a pad 3
+frame 800 stick 0 0 pad 1
+frame 800 stick 0 0 pad 2
+frame 800 stick 0 0 pad 3
+frame 800 stick 0 0 pad 4

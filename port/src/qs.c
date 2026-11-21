@@ -36,6 +36,7 @@ static int collect(QsRange *r) {
     n += portOverlayQsRanges(r + n);
     n += gfxTmemQsRanges(r + n);
     n += gfxBackendQsRanges(r + n);
+    n += portNetQsRanges(r + n);
     if (n > MAX_KEEP) {
         portAbort("PORT: too many qs keep ranges (%d)", n);
     }
@@ -106,6 +107,7 @@ EMSCRIPTEN_KEEPALIVE int port_qs_load_end(u8 *stash) {
         return 0;
     }
     gfxBackendQsRestored();
+    portNetRingClear(); /* bundles were for reads of the session's timeline, not the snapshot's */
     portLog("PORT: quickload restored %u bytes", port_qs_size());
     return 1;
 }

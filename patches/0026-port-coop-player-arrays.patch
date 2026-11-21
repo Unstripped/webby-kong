@@ -1,0 +1,195 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 20:17:50 -0700
+Subject: [PATCH] port: coop player arrays
+
+
+diff --git a/include/render.h b/include/render.h
+index b0dea8f..cb9e7e0 100644
+--- a/include/render.h
++++ b/include/render.h
+@@ -155,17 +155,18 @@ typedef struct EffectParamPair {
+     s16 hi; // confetti: base angle
+ } EffectParamPair;
+ 
+-// One live 2D/3D effect (effectCreate, 119370.c); 0x3A0 bytes.
++// One live 2D/3D effect (effectCreate, 119370.c); 0x3A0 bytes on N64.
++// PORT: coop: per-view arrays hold PORT_MAX_PLAYERS views (was 4); the offsets below are the N64 layout.
+ struct EffectNode;
+ typedef void (*EffectCallback)(struct EffectNode *effect, u8 *isDone);
+ 
+ typedef struct EffectNode {
+-    /* 0x000 */ Gfx *displayLists[4][2];
++    /* 0x000 */ Gfx *displayLists[PORT_MAX_PLAYERS][2];
+     /* 0x020 */ u8 viewportCount;
+     /* 0x021 */ u8 displayListIndex;
+     /* 0x022 */ u8 pad22[6];
+     /* 0x028 */ Vtx vertices[16];
+-    /* 0x128 */ Mtx matrices[4][2];
++    /* 0x128 */ Mtx matrices[PORT_MAX_PLAYERS][2];
+     /* 0x328 */ EffectCallback callback;
+     /* 0x32C */ u8 state;
+     /* 0x32D */ u8 freePending;
+diff --git a/src/global/117190.c b/src/global/117190.c
+index f072f7b..9f04ed6 100644
+--- a/src/global/117190.c
++++ b/src/global/117190.c
+@@ -224,7 +224,7 @@ void controllerFilterInput(OSContPad *pads) {
+     s32 i;
+ 
+     controllerGetReadData(pads);
+-    for (i = 0; i < 4; i++) {
++    for (i = 0; i < PORT_MAX_PLAYERS; i++) { // PORT: coop (was 4)
+         pads[i].stick_x &= gControllerStickXMask;
+         pads[i].stick_y &= gControllerStickYMask;
+         pads[i].button &= gControllerButtonMask;
+diff --git a/src/global/201B0.c b/src/global/201B0.c
+index 6c51a18..54a20f4 100644
+--- a/src/global/201B0.c
++++ b/src/global/201B0.c
+@@ -921,11 +921,9 @@ void camUpdateFollowHeight(CamState *cam) {
+     }
+ }
+ 
+-extern s8 D_807FD63F[];
+-
+ void camUpdateFollowTargetDistance(Actor *camActor) {
+     CamState *cam = camActor->customState;
+-    f32 target = D_807FD63F[cam->playerIndex * 0x34] * 0.5;
++    f32 target = gPlayerPadState[cam->playerIndex].stickY * 0.5; // PORT: coop: was D_807FD63F[playerIndex * 0x34] (gPlayerPadState + 0x2F)
+     s32 sel;
+ 
+     if (!(cam->unkAC & 0x2000) && !(gGlobalOverlayFlags & 0x40)) {
+diff --git a/src/global/7CA80.c b/src/global/7CA80.c
+index 1635f3d..c7f3b35 100644
+--- a/src/global/7CA80.c
++++ b/src/global/7CA80.c
+@@ -459,7 +459,7 @@ u16 *D_8074E218[344] = {
+     D_8074E1F0, D_8074E1F4, D_8074E1FC, D_8074E200, D_8074E204, D_8074E20C,
+     D_8074E210, D_8074E214,
+ };
+-u8 gPlayerCharacterId[4] = { 0, 0, 2, 3 };
++u8 gPlayerCharacterId[PORT_MAX_PLAYERS] = { 0, 0, 2, 3, 4 }; // PORT: coop (was 4)
+ extern const char D_80759260[];
+ extern const char D_80759268[];
+ extern const char D_80759270[];
+diff --git a/src/global/E4090.c b/src/global/E4090.c
+index 29a3124..8f2673d 100644
+--- a/src/global/E4090.c
++++ b/src/global/E4090.c
+@@ -43,6 +43,10 @@ extern u8 gCurrentPlayerIndex;
+ extern PlayerState *gActivePlayerState;
+ extern s16 gCurrentCharacterIndex;
+ 
++// PORT: coop: gPlayerPadState (asm .bss at 0x807FD610, room for 4) is relocated here for 5 players; prelude.h
++// renames every use
++PadInputState gPortPlayerPadState[PORT_MAX_PLAYERS];
++
+ void playerHolsterGun(Actor *actor, PlayerState *state, u8 isFirstPerson) {
+     s32 id;
+ 
+diff --git a/src/global/F600.c b/src/global/F600.c
+index 59f6a90..ab78336 100644
+--- a/src/global/F600.c
++++ b/src/global/F600.c
+@@ -15,16 +15,16 @@ OSMesg D_807ECCE0[4];
+ OSMesgQueue D_807ECCF0;
+ u8 gContReadPending;
+ u8 gControllerConnectedMask;
+-OSContPad gControllerPads[4];
+-OSContPad D_807ECD28[4];
+-u16 D_807ECD40[4];
+-u16 gPadPressedButtons[4];
+-u16 D_807ECD50[4];
++OSContPad gControllerPads[PORT_MAX_PLAYERS]; // PORT: coop (was 4)
++OSContPad D_807ECD28[PORT_MAX_PLAYERS];
++u16 D_807ECD40[PORT_MAX_PLAYERS];
++u16 gPadPressedButtons[PORT_MAX_PLAYERS];
++u16 D_807ECD50[PORT_MAX_PLAYERS];
+ OSContPad gContPadCur;
+ u8 D_807ECD5E[2];
+ OSContPad gContPadPrev;
+ u16 gButtonsPressed;
+-s16 D_807ECD68[4][16];
++s16 D_807ECD68[PORT_MAX_PLAYERS][16];
+ OSContPad *D_807ECDE8;
+ OSContPad *gCurrentContPad;
+ u16 gContPressedButtons;
+@@ -33,7 +33,12 @@ u8 D_807ECDF8;
+ u8 D_807ECDF9;
+ u8 D_807ECDFA;
+ u8 D_807ECDFB;
+-u8 D_807ECDFC[4];
++u8 D_807ECDFC[PORT_MAX_PLAYERS];
++
++// PORT: coop: every co-op player's pad is connected and active (the game's masks know 4 controllers)
++#define COOP_PADS ((1 << PORT_MAX_PLAYERS) - 1)
++#define COOP_ACTIVE_MASK (gPortCoop ? COOP_PADS : D_807ECDF8)
++#define COOP_CONNECTED_MASK (gControllerConnectedMask | (gPortCoop ? COOP_PADS : 0))
+ 
+ 
+ u8 controllerInit(void) {
+@@ -76,7 +81,7 @@ void controllerSetActiveMask(u8 mask) {
+ 
+     count = 0;
+     D_807ECDF8 = gControllerConnectedMask & mask;
+-    for (i = 0; i < 4; i++) {
++    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
+         gPadPressedButtons[i] = 0;
+         D_807ECD40[i] = 0;
+         D_807ECD50[i] = 0;
+@@ -100,8 +105,8 @@ void controllerCompactPads(OSContPad *pads) {
+     s32 dst;
+ 
+     dst = 0;
+-    for (i = 0; i < 4; i++) {
+-        if (D_807ECDF8 & (1 << i)) {
++    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
++        if (COOP_ACTIVE_MASK & (1 << i)) {
+             if (dst != i) {
+                 pads[dst] = pads[i];
+             }
+@@ -167,8 +172,8 @@ void controllerUpdate(void) {
+             controllerFilterInput(D_807ECDF4);
+             controllerLatchPad(D_807ECDF4);
+             func_8060B4D4(D_807ECDE8);
+-            for (i = 0; i < 4; i++) {
+-                if (gControllerConnectedMask & (1 << i)) {
++            for (i = 0; i < PORT_MAX_PLAYERS; i++) {
++                if (COOP_CONNECTED_MASK & (1 << i)) {
+                     D_807ECDE8[i].button |= D_807ECDF4[i].button & 0x1000;
+                 }
+             }
+@@ -185,11 +190,11 @@ void controllerUpdate(void) {
+     }
+     gButtonsPressed = BUTTONS_PRESSED(gContPadCur.button, gContPadPrev.button);
+     padIdx = 0;
+-    for (i = 0; i < 4; i++) {
++    for (i = 0; i < PORT_MAX_PLAYERS; i++) {
+         if (compact != 0) {
+-            mask = D_807ECDF8 & (1 << i);
++            mask = COOP_ACTIVE_MASK & (1 << i);
+         } else {
+-            mask = gControllerConnectedMask & (1 << i);
++            mask = COOP_CONNECTED_MASK & (1 << i);
+             padIdx = i;
+         }
+         if (i == 0 && D_807463B8 == 2) {
+diff --git a/src/global/F9450.c b/src/global/F9450.c
+index 82d4b14..9b7f700 100644
+--- a/src/global/F9450.c
++++ b/src/global/F9450.c
+@@ -163,8 +163,11 @@ void gridRebuildNodeLists(void) {
+     gridBuildNodeLists();
+ }
+ 
+-extern GridBounds D_807FD740[];
+-extern GridBoundsNode *D_807FD780[];
++// PORT: coop: relocated from asm .bss (D_807FD740, D_807FD780 hold 4 players) for 5 players
++GridBounds gPortGridBounds[PORT_MAX_PLAYERS];
++GridBoundsNode *gPortGridNodes[PORT_MAX_PLAYERS];
++#define D_807FD740 gPortGridBounds
++#define D_807FD780 gPortGridNodes
+ 
+ // One placed model of the map's model asset (assetLoad table 9); same record as 36880.c's.
+ typedef struct {

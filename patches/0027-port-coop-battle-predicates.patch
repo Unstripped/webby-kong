@@ -1,0 +1,1021 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 20:20:18 -0700
+Subject: [PATCH] port: coop battle predicates
+
+
+diff --git a/src/global/103AB0.c b/src/global/103AB0.c
+index 9d051aa..8217dfc 100644
+--- a/src/global/103AB0.c
++++ b/src/global/103AB0.c
+@@ -220,7 +220,7 @@ Gfx *playerViewDrawScopeCrosshair(Gfx *dl, Actor *actor) {
+ 
+     targetKind = 2;
+     player = ((PlayerState *)actor->customState)->playerIndex;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         targetKind = 3;
+     }
+     dl = playerViewGfxSetup(dl, player);
+@@ -1131,7 +1131,7 @@ Gfx *screenFadeUpdate(Gfx *dl, u8 mode) {
+             } else {
+                 switch (mode) {
+                     case 3:
+-                        if (gActivePlayerCount == 1) {
++                        if (gActivePlayerCount == 1 || gPortCoop) {
+                             viewportShrinkToCenter(alpha);
+                             break;
+                         }
+diff --git a/src/global/104F0.c b/src/global/104F0.c
+index 7b932fc..3a70ced 100644
+--- a/src/global/104F0.c
++++ b/src/global/104F0.c
+@@ -854,7 +854,7 @@ void eepromSavePlayerData(void) {
+     s32 j;
+     s32 k;
+ 
+-    if (gPlayerCount == 1) {
++    if (!PORT_BATTLE()) {
+         if (menuIsTransitionType7Or9() != 0 || menuIsTransitionType6() != 0) {
+             entry = gPlayerInventoryTable[0].kong;
+             total = playTimeGetSeconds();
+@@ -917,7 +917,7 @@ u8 *eepromGetSectionBuffer(u8 section) {
+     result = NULL;
+     switch (section) {
+     case 0:
+-        if ((menuIsTransitionType3Or4() != 0) || (gPlayerCount >= 2)) {
++        if ((menuIsTransitionType3Or4() != 0) || (PORT_BATTLE())) {
+             flagsClearAllBank2();
+             bzero(D_807EDEB0, ((((D_807ECEA0 + 0x6B7) & ~0x3F) + 0x27) & ~7) / 8);
+             result = D_807EDEB0;
+diff --git a/src/global/109660.c b/src/global/109660.c
+index 29323b0..3bdef19 100644
+--- a/src/global/109660.c
++++ b/src/global/109660.c
+@@ -121,7 +121,7 @@ Gfx *gfxDrawSplitScreenDividers(Gfx *dl) {
+     gDPSetCycleType(dl++, G_CYC_FILL);
+     gDPSetFillColor(dl++, 0x10001);
+     for (; D_80750840[i].players != -1; i++) {
+-        if (((D_80750840[i].players == 2) && (gPlayerCount >= 2) && (D_80750840[i].viewMask & D_80750ABC)) || ((gPlayerCount == D_80750840[i].players) && (gSplitScreenMode == D_80750840[i].splitMode) && (D_80750840[i].viewMask & D_80750ABC))) {
++        if (((D_80750840[i].players == 2) && (PORT_BATTLE()) && (D_80750840[i].viewMask & D_80750ABC)) || ((gPlayerCount == D_80750840[i].players) && !gPortCoop && (gSplitScreenMode == D_80750840[i].splitMode) && (D_80750840[i].viewMask & D_80750ABC))) {
+             gDPFillRectangle(dl++, D_80750840[i].x0 * gHiResScale, D_80750840[i].y0 * gHiResScale,
+                              (D_80750840[i].x1 + 1) * gHiResScale - 1, (D_80750840[i].y1 + 1) * gHiResScale - 1);
+         }
+@@ -735,12 +735,12 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+ Gfx *gfxDrawPlayerViewBackground(Gfx *glist, s16 player) {
+     s32 clearView;
+ 
+-    if ((gPlayerCount >= 2) || !(gGlobalPauseFlags & 0x10)) {
++    if ((PORT_BATTLE()) || !(gGlobalPauseFlags & 0x10)) {
+         if (gCurrentMap == 0x50) {
+             glist = gfxBuildScrollingBackground(glist);
+         } else {
+             clearView = !(gGlobalPauseFlags & 2);
+-            if (gPlayerCount >= 2) {
++            if (PORT_BATTLE()) {
+                 s32 forceClear;
+                 switch (gCurrentMap) {
+                 case 0xBE:
+diff --git a/src/global/10D2D0.c b/src/global/10D2D0.c
+index b2e88a1..c6fb0b0 100644
+--- a/src/global/10D2D0.c
++++ b/src/global/10D2D0.c
+@@ -106,7 +106,7 @@ void healthApplyPendingDelta(s32 playerIndex, PlayerStruct *player, PlayerInvent
+             if (inv->health <= 0) {
+                 inv->health = 0;
+                 player->unk2E6 = 0xC;
+-                if (gPlayerCount >= 2) {
++                if (PORT_BATTLE()) {
+                     func_80026B0C(playerIndex);
+                 }
+             } else {
+@@ -139,7 +139,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
+     kong = &inv->kong[kongId];
+     mode = player->unk2E4;
+     flags = (u8)player->unk2E2; // PORT: unk2E3 is the low byte only on the N64 (+3); here it is at +2
+-    singlePlayer = gPlayerCount == 1;
++    singlePlayer = !PORT_BATTLE();
+     if (!singlePlayer) {
+         mode = 0;
+     }
+@@ -228,7 +228,7 @@ Gfx *healthHudDrawAll(Gfx *glist) {
+ 
+ 
+ s32 healthGetPerMelon(void) {
+-    return (gPlayerCount >= 2) ? 10 : 4;
++    return (PORT_BATTLE()) ? 10 : 4;
+ }
+ 
+ 
+diff --git a/src/global/117190.c b/src/global/117190.c
+index 9f04ed6..75a293b 100644
+--- a/src/global/117190.c
++++ b/src/global/117190.c
+@@ -213,7 +213,7 @@ void playerRefillHealth(Actor *player, s32 playerIndex) {
+         mapRequestTransition(savedMap, savedExit);
+         return;
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         func_80026D40(player, playerIndex);
+         return;
+     }
+@@ -947,7 +947,7 @@ void menuSetFlag5324(void) {
+ s32 mpIsMatchType(s32 value) {
+     s32 isMultiplayer;
+ 
+-    isMultiplayer = gPlayerCount >= 2;
++    isMultiplayer = PORT_BATTLE();
+     if (isMultiplayer) {
+         return value == gMpSettings.unk0;
+     }
+diff --git a/src/global/12E800.c b/src/global/12E800.c
+index eb7b1ff..43428eb 100644
+--- a/src/global/12E800.c
++++ b/src/global/12E800.c
+@@ -665,7 +665,7 @@ u8 behaviourCheckTargetCollisionMode(u8 checkMode, u8 *outTarget) {
+     *outTarget = 1;
+     if (gCurrentActor->collisionFlags & 2) {
+         if (gCurrentActor->state != 0x15 &&
+-            ((gBehaviourTargetActor->actorType == 6 && gPlayerSlots->unk2C0 == 2 && gPlayerCount == 1) ||
++            ((gBehaviourTargetActor->actorType == 6 && gPlayerSlots->unk2C0 == 2 && !PORT_BATTLE()) ||
+              ((gBehaviourTargetActor->collisionFlags & 1) && (playerState->stateFlags & 0x10)))) {
+             nextState = 7;
+         } else if (gBehaviourWorkState->engageState == 7 && checkMode != 0 && !(gBehaviourWorkState->flags & 0x200) && gBehaviourWorkState->unk20 == 0) {
+diff --git a/src/global/133A90.c b/src/global/133A90.c
+index 5132b95..e8963f1 100644
+--- a/src/global/133A90.c
++++ b/src/global/133A90.c
+@@ -194,7 +194,7 @@ void proxPathUpdateAllPlayers(void) {
+ 
+     for (i = 0; i < gPlayerCount; i++) {
+         if (gPlayerSlots[i].active != 0) {
+-            proxPathAttachNearestToPlayer(gPlayerSlots[i].actor, i, flagGet(0x183, 0) || (gGlobalOverlayFlags & 0x10000000) || gPlayerCount >= 2 || menuIsTransitionType3Or4());
++            proxPathAttachNearestToPlayer(gPlayerSlots[i].actor, i, flagGet(0x183, 0) || (gGlobalOverlayFlags & 0x10000000) || PORT_BATTLE() || menuIsTransitionType3Or4());
+         }
+     }
+ }
+diff --git a/src/global/201B0.c b/src/global/201B0.c
+index 54a20f4..9ef13e3 100644
+--- a/src/global/201B0.c
++++ b/src/global/201B0.c
+@@ -1706,12 +1706,12 @@ s32 camEvaluateZones(Actor *camActor, f32 *eyeX, f32 *eyeY, f32 *eyeZ, f32 *focu
+                                             }
+                                         }
+                                         if (!(st->unkAC & 2) && !(e->flags & 1)) {
+-                                            if (!(gFrameCounter & 8) && gPlayerCount == 1) {
++                                            if (!(gFrameCounter & 8) && !PORT_BATTLE()) {
+                                                 renderCallbacksRegister(renderBonusTargetMarker, camActor, 3);
+                                             }
+                                             break;
+                                         }
+-                                        if (!(e->flags & 0x38) && gPlayerCount == 1) {
++                                        if (!(e->flags & 0x38) && !PORT_BATTLE()) {
+                                             renderCallbacksRegister(renderBonusTargetMarker, camActor, 3);
+                                         }
+                                     default:
+diff --git a/src/global/3C10.c b/src/global/3C10.c
+index 24f34a6..269c467 100644
+--- a/src/global/3C10.c
++++ b/src/global/3C10.c
+@@ -702,7 +702,7 @@ s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason) {
+         return 0;
+     }
+     /* flagGet(.., 0) in multiplayer goes through eepromGetSectionBuffer, which clears save state */
+-    if (gPlayerCount >= 2 || menuIsTransitionType3Or4()) {
++    if (PORT_BATTLE() || menuIsTransitionType3Or4()) {
+         *reason = "multiplayer";
+         return 0;
+     }
+diff --git a/src/global/450.c b/src/global/450.c
+index b83229f..d8c782d 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -585,7 +585,7 @@ s32 pauseStateUpdate(void) {
+         if ((gGlobalPauseFlags & 0x40) && (menuIsTransitionType6() != 0 || menuIsTransitionTypeC() != 0)) {
+             sfxStopChannel(0x22, 0);
+             gGlobalPauseFlags &= 0xFFEBFFBD;
+-            actor = actorFindByType((gPlayerCount < 2 && menuIsTransitionTypeC() == 0) ? 0x5F : 0x157);
++            actor = actorFindByType((!PORT_BATTLE() && menuIsTransitionTypeC() == 0) ? 0x5F : 0x157);
+             if (actor != NULL) {
+                 actorDespawn(actor);
+             }
+@@ -605,7 +605,7 @@ s32 pauseStateUpdate(void) {
+                     if ((menuIsTransitionType6() != 0 || menuIsTransitionTypeC() != 0) && !(gGlobalPauseFlags & 0x40000)) {
+                         sfxAllocateChannel(0x22, 1.0f);
+                         sfxAllocateChannel(0x29, 1.0f);
+-                        if (gPlayerCount < 2 && menuIsTransitionTypeC() == 0) {
++                        if (!PORT_BATTLE() && menuIsTransitionTypeC() == 0) {
+                             actorSpawn(0x5F, 0);
+                             gGlobalPauseFlags |= 0x100000;
+                         } else {
+diff --git a/src/global/5E2F0.c b/src/global/5E2F0.c
+index 537119e..a63b100 100644
+--- a/src/global/5E2F0.c
++++ b/src/global/5E2F0.c
+@@ -308,7 +308,7 @@ void lightApplyToActors(void) {
+     for (i = 0; i < gActiveActorCount; i++) {
+         litActors[i] = 0;
+     }
+-    for (i = 0; i < gLightVolumeCount && gPlayerCount < 3; i++) {
++    for (i = 0; i < gLightVolumeCount && (gPlayerCount < 3 || gPortCoop); i++) { // PORT: coop: light volumes stay on
+         if ((lightCheckPlayerDistance(&gLightVolumes[i]) != 0) && (lightCount < 12)) {
+             lightCount++;
+             for (j = 0; j < gActiveActorCount; j++) {
+diff --git a/src/global/68EA0.c b/src/global/68EA0.c
+index 729f28e..a070f78 100644
+--- a/src/global/68EA0.c
++++ b/src/global/68EA0.c
+@@ -108,7 +108,7 @@ void modelEmittersUpdate(void) {
+     s32 i;
+     f32 distSq;
+ 
+-    if (gPlayerCount < 2) {
++    if (!PORT_BATTLE()) {
+         for (i = 0; i < gModelEmitterCount; i++) {
+             distSq = SQ(gPlayerSlots->eyeX - gModelEmitters[i].x) + SQ(gPlayerSlots->eyeY - gModelEmitters[i].y) +
+                      SQ(gPlayerSlots->eyeZ - gModelEmitters[i].z);
+diff --git a/src/global/699B0.c b/src/global/699B0.c
+index 6420591..712f363 100644
+--- a/src/global/699B0.c
++++ b/src/global/699B0.c
+@@ -72,7 +72,7 @@ void particleSpawnPathTrail(void) {
+     f32 t;
+     f32 factor;
+ 
+-    if (gPlayerCount < 2) {
++    if (!PORT_BATTLE()) {
+         for (i = 0; i < particlePathActiveCount; i++) {
+             idx = particlePathActiveIndices[i];
+             player = gPlayerSlots;
+diff --git a/src/global/7130.c b/src/global/7130.c
+index e77b365..85170c2 100644
+--- a/src/global/7130.c
++++ b/src/global/7130.c
+@@ -932,7 +932,7 @@ void sfxUpdateLevelAmbient(void) {
+ 
+     count = mapGetSoundEmitters(&soundEmitters);
+     for (group = 0; group < 15; group++) {
+-        portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
++        portSpatialReset(!PORT_BATTLE()); // PORT: 3D sound
+         D_80770DE8 = 0.0f;
+         D_80770DEC = 0.0f;
+         D_80770DF0 = 0.0f;
+@@ -1402,7 +1402,7 @@ void sfxUpdateSourceGroups(void) {
+     if (gActivePlayerState != NULL) {}  // FAKE: dead test keeps &gActivePlayerState out of a register so the store/reload after the loop stays split
+     for (i = 0; i < 22; i++) {
+         if (gSfxVoiceSoundId[i] == 0x88) {
+-            portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
++            portSpatialReset(!PORT_BATTLE()); // PORT: 3D sound
+             D_80770DE8 = 0.0f;
+             D_80770DEC = 0.0f;
+             D_80770DF0 = 0.0f;
+@@ -1473,7 +1473,7 @@ void sfxUpdateSourceGroups(void) {
+             }
+             if (sSoundSlotHandles[i] != 0) {
+                 if (gSfxVoiceSources[i][0] != -1 && (gSfxSourceActor[gSfxVoiceSources[i][0]] != NULL || gSfxSourceModelSlot[gSfxVoiceSources[i][0]] != -1)) {
+-                    portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
++                    portSpatialReset(!PORT_BATTLE()); // PORT: 3D sound
+                     D_80770DE8 = 0.0f;
+                     D_80770DEC = 0.0f;
+                     if (gSfxVoiceSoundId[i] >= 0xFD && gSfxVoiceSoundId[i] < 0x142) {
+@@ -1983,7 +1983,7 @@ void sfxUpdateSourceGroups(void) {
+     gActivePlayerState = gPlayerSlots->actor->customState;
+     camActor = gActivePlayerState->camActor;
+     camState = camActor->customState;
+-    if (camState->unkFA != 0 && gPlayerSlots->camY < (camState->unk90 + 3.0f) && D_80745838 == 0 && gPlayerCount < 2) {
++    if (camState->unkFA != 0 && gPlayerSlots->camY < (camState->unk90 + 3.0f) && D_80745838 == 0 && !PORT_BATTLE()) {
+         D_80745838 = 1;
+         seqUpdateUnderwaterAudio(0);
+         seqUpdateUnderwaterAudio(1);
+@@ -2073,7 +2073,7 @@ s16 sfxPlayAtPositionPooled(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, s16 pitch
+         level = ((f64)(u32)volume * 32767.0) / 255.0;
+     } else {
+         D_80770DE4 = sqrtf(D_80770DE4);
+-        if (gPlayerCount == 1 && (f64)directionality >= 0.8) {
++        if (!PORT_BATTLE() && (f64)directionality >= 0.8) {
+             srcPitch = mathAngleBetweenPointsRad(pos[1], 0.0f, y, sqrtf(((x - pos[0]) * (x - pos[0])) + ((z - pos[2]) * (z - pos[2]))));
+             lookPitch = mathAngleBetweenPointsRad(pos[1], 0.0f, gPlayerSlots->focusY, sqrtf(((gPlayerSlots->focusX - pos[0]) * (gPlayerSlots->focusX - pos[0])) + ((gPlayerSlots->focusZ - pos[2]) * (gPlayerSlots->focusZ - pos[2]))));
+             diff = srcPitch - lookPitch;
+@@ -2106,7 +2106,7 @@ s16 sfxPlayAtPositionPooled(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, s16 pitch
+         s16 slot;
+ 
+         // PORT: 3D sound; angle 0 is the game centring a source at the camera
+-        portSpatialPending(gPlayerCount == 1 && angle != 0.0f
++        portSpatialPending(!PORT_BATTLE() && angle != 0.0f
+                                ? portSpatialAt(angle, x - pos[0], y - pos[1], z - pos[2], gPlayerSlots[closest].focusX - pos[0],
+                                                gPlayerSlots[closest].focusY - pos[1], gPlayerSlots[closest].focusZ - pos[2])
+                                : 0);
+@@ -2236,7 +2236,7 @@ void sfxPlayAtPosition(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, f32 pitch, u8
+         vol = (s32)(((sinApprox(((2.0 * pan) / 3.0) + 2.617993950843811) * 0.3) + 1.0) * vol);
+     }
+     // PORT: 3D sound
+-    portSpatialPending(gPlayerCount == 1 ? portSpatialAt(pan, x - gPlayerSlots->camX, y - gPlayerSlots->camY, z - gPlayerSlots->camZ,
++    portSpatialPending(!PORT_BATTLE() ? portSpatialAt(pan, x - gPlayerSlots->camX, y - gPlayerSlots->camY, z - gPlayerSlots->camZ,
+                                                          gPlayerSlots->focusX - gPlayerSlots->camX, gPlayerSlots->focusY - gPlayerSlots->camY,
+                                                          gPlayerSlots->focusZ - gPlayerSlots->camZ)
+                                          : 0);
+@@ -2334,7 +2334,7 @@ void sfxPlayAtPositionForPlayer(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, u8 pi
+         }
+ 
+         // PORT: 3D sound; angle 0 is the game centring a source at the camera
+-        portSpatialPending(gPlayerCount == 1 && angle != 0.0f
++        portSpatialPending(!PORT_BATTLE() && angle != 0.0f
+                                ? portSpatialAt(angle, x - gPlayerSlots[gCurrentPlayerIndex].camX, y - gPlayerSlots[gCurrentPlayerIndex].camY,
+                                                z - gPlayerSlots[gCurrentPlayerIndex].camZ,
+                                                gPlayerSlots[gCurrentPlayerIndex].focusX - gPlayerSlots[gCurrentPlayerIndex].camX,
+diff --git a/src/global/7AF60.c b/src/global/7AF60.c
+index 13e20b0..ad920c9 100644
+--- a/src/global/7AF60.c
++++ b/src/global/7AF60.c
+@@ -195,7 +195,7 @@ u8 playerIsGiantAgainstEnemy(Actor *actor, Actor *target, ActorCollisionList *li
+ 
+     if (target->collisionFlags & 2) {
+         ret = gPlayerSlots[index].unk2C0 == 2;
+-        if (ret && gPlayerCount == 1) {
++        if (ret && !PORT_BATTLE()) {
+             ret = actor->actorType == 6;
+         }
+     }
+diff --git a/src/global/8CA50.c b/src/global/8CA50.c
+index e27cd87..456eb91 100644
+--- a/src/global/8CA50.c
++++ b/src/global/8CA50.c
+@@ -21,7 +21,7 @@ void animListInit(Actor *actor, AnimInitData *initData) {
+     void **bufferSlot;
+ 
+     if (actor->animList != NULL) {
+-        if (gCurrentMap == 0x50 || gPlayerCount >= 2) {
++        if (gCurrentMap == 0x50 || PORT_BATTLE()) {
+             animListFree(&actor->animList);
+         } else {
+             return;
+diff --git a/src/global/8F050.c b/src/global/8F050.c
+index c35f4e7..f06ea72 100644
+--- a/src/global/8F050.c
++++ b/src/global/8F050.c
+@@ -99,7 +99,7 @@ void actorProximityUpdate(void) {
+                 scaledRange = renderScaleDistanceByFov(gActorOverrideModelConfigs[cfgIndex].range);
+                 switch (gActorOverrideModelConfigs[cfgIndex].mode) {
+                 case 0:
+-                    if (gPlayerCount >= 2) {
++                    if (PORT_BATTLE()) {
+                         playerState = actor->customState;
+                         frame = gMpSettings.playerControllerSlots[playerState->playerIndex];
+                         if (frame >= 0) {
+diff --git a/src/global/936B0.c b/src/global/936B0.c
+index 98bc328..689b73d 100644
+--- a/src/global/936B0.c
++++ b/src/global/936B0.c
+@@ -1356,7 +1356,7 @@ void projectileHomingUpdate(void) {
+     lifetime = D_80750350;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, &D_807200A0, 0);
+@@ -1393,7 +1393,7 @@ void projectileHomingUpdate(void) {
+             }
+         }
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if (gCurrentMap == 0x10) {
+@@ -1434,7 +1434,7 @@ void projectileMultiplayerUpdate(void) {
+     lifetime = D_8075035C;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, &D_8072029C, 0);
+@@ -1462,7 +1462,7 @@ void projectileMultiplayerUpdate(void) {
+         sfxPlayFromActorWithAltitudeCheck(gCurrentActor, 0x91, 0xFF, 0x7F, 0x1E);
+         actorDespawn(gCurrentActor);
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if ((u32)(state->spawnFrame + lifetime) < gGameFrameCounter) {
+@@ -1554,7 +1554,7 @@ void projectileBounceExplodeScaledUpdate(void) {
+         gCurrentActor->flags &= ~0x00080000;
+     }
+     value = 2;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         value = 3;
+     }
+     projectileSteerTowardTarget(value, gCurrentActor, NULL, 1);
+@@ -1800,7 +1800,7 @@ void projectileBeamUpdate(void) {
+     lifetime = D_80750358;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, &D_807201A0, 0);
+@@ -1831,7 +1831,7 @@ void projectileBeamUpdate(void) {
+             }
+         }
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if ((u32)(state->spawnFrame + lifetime) < gGameFrameCounter) {
+@@ -1872,7 +1872,7 @@ void projectileImpactExplosionUpdate(void) {
+     lifetime = D_80750358;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, &D_80720268, 0);
+@@ -1890,7 +1890,7 @@ void projectileImpactExplosionUpdate(void) {
+             actorDespawn(gCurrentActor);
+         }
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if ((u32)(state->spawnFrame + lifetime) < gGameFrameCounter) {
+@@ -1942,7 +1942,7 @@ void projectileRotatingUpdate(void) {
+     lifetime = D_80750360;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, &D_807206A8, 0);
+@@ -1974,7 +1974,7 @@ void projectileRotatingUpdate(void) {
+             }
+         }
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if ((u32)(state->spawnFrame + lifetime) < gGameFrameCounter) {
+@@ -2019,7 +2019,7 @@ void projectileMatrixRotationUpdate(void) {
+     lifetime = D_80750354;
+     if (state->param & 2) {
+         collisionMask = 2;
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             collisionMask = 3;
+         }
+         projectileSteerTowardTarget(collisionMask, gCurrentActor, 0, 0);
+@@ -2066,7 +2066,7 @@ void projectileMatrixRotationUpdate(void) {
+     if (((gCurrentActor->contactFlags & 1) && collisionGetStateByte() == 1) || gActorGlobalState.unk15 != 0) {
+         actorDespawn(gCurrentActor);
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         lifetime = (s32)((f32)lifetime * 1.4f);
+     }
+     if ((u32)(state->spawnFrame + lifetime) < gGameFrameCounter) {
+diff --git a/src/global/9DD70.c b/src/global/9DD70.c
+index 7ba69ba..5ebbee5 100644
+--- a/src/global/9DD70.c
++++ b/src/global/9DD70.c
+@@ -1292,7 +1292,7 @@ void textSpawnMarker(u8 fontStyle, s16 x, s16 y, u8 *textStr, u16 startDelay, u1
+ extern u8 gPlayerCount;
+ 
+ void textSpawnMarkerChecked(u8 fontStyle, s16 x, s16 y, u8 *textStr, u16 startDelay, u16 holdTime, u8 fadeInStep, u8 fadeOutStep) {
+-    if (gPlayerCount < 2) {
++    if (!PORT_BATTLE()) {
+         if (menuIsTransitionType5() == 0) {
+             if (menuIsTransitionType3Or4() == 0) {
+                 if (menuIsTransitionType6() != 0 || menuIsTransitionTypeB() != 0) {
+diff --git a/src/global/AA960.c b/src/global/AA960.c
+index 9571415..65f8b8d 100644
+--- a/src/global/AA960.c
++++ b/src/global/AA960.c
+@@ -106,7 +106,7 @@ void sfxSpawnTableNodes(Actor *actor) {
+     i = 0;
+     found = 0;
+     yaw = 0;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         return;
+     }
+     if (gGlobalOverlayFlags & 0x4000) {
+diff --git a/src/global/CC800.c b/src/global/CC800.c
+index 1211892..e90281c 100644
+--- a/src/global/CC800.c
++++ b/src/global/CC800.c
+@@ -243,10 +243,10 @@ void playerAllocSlots(s32 spawnIndex) {
+         func_806C80E4();
+         D_807FD570 = 0;
+     }
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         actorSpawn(0x13E, 0);
+     }
+-    gMultiplayerReducedEffects = (gSplitScreenMode == 0) && (gPlayerCount >= 2);
++    gMultiplayerReducedEffects = (gSplitScreenMode == 0) && (PORT_BATTLE());
+ }
+ 
+ 
+@@ -350,7 +350,7 @@ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
+     u32 slot = playerIndex;
+     s32 i;
+ 
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         gPlayerCharacterId[slot] = gPlayerCharacterId[controllerGetPort(slot)];
+     }
+     if (slot == 0 && gCurrentMap == 0x50) {
+@@ -363,7 +363,7 @@ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
+     gSpawnedActor->unk16E[0] = 0x42;
+     gSpawnedActor->unk16E[1] = 0x42;
+     gSpawnedActor->flags |= 0x01000000;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         gSpawnedActor->renderFlags |= 0x200;
+     }
+     gSpawnedActor->flags2 |= 0xC0;
+@@ -711,7 +711,7 @@ void playerSyncInventoryOnSpawn(s32 spawnIndex) {
+     ps->stateFlags &= ~0x080000A0;
+     ps->statusEffectTimer = 0;
+     ps->maxSpeed = 0.0f;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         func_800268DC(gActivePlayerActor, ps, inventory); /* mpResetPlayerOnRespawn */
+     }
+     playerRevertAnimalTransformation(gActivePlayerActor, ps);
+@@ -791,7 +791,7 @@ s8 func_806C9830(s8 delta, Actor *actor) {
+ 
+     result = delta;
+ 
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         ps = actor->customState;
+         pl = &gPlayerSlots[ps->playerIndex];
+         if (pl->queuedActor != NULL) {
+@@ -829,7 +829,7 @@ s32 playerAddHealthDelta(u8 playerIndex, s8 delta) {
+ 
+     pl = &gPlayerSlots[playerIndex];
+     pl->unk2E2 |= 0x11;
+-    if (gPlayerCount >= 2 && delta < 0 && gMpSettings.matchPhase == 1) {
++    if (PORT_BATTLE() && delta < 0 && gMpSettings.matchPhase == 1) {
+         func_80026E20(playerIndex, delta);
+     }
+     if (delta < 0) {
+@@ -854,7 +854,7 @@ void playerResetSpawnGlobals(void) {
+ 
+     for (i = 0; i < 4; i++) {
+         bzero(p, sizeof(PlayerInventory));
+-        if (gActivePlayerCount >= 2) {
++        if (gActivePlayerCount >= 2 && !gPortCoop) {
+             if (gMpSettings.unk0 == 1) {
+                 for (j = 0; j < 6; j++) {
+                     p->kong[j].weaponFlags = 7;
+diff --git a/src/global/CEAE0.c b/src/global/CEAE0.c
+index 121b952..d39bd85 100644
+--- a/src/global/CEAE0.c
++++ b/src/global/CEAE0.c
+@@ -498,7 +498,7 @@ void playerUpdateCommon(s32 mode) {
+         proxPathUpdateAllPlayers();
+     }
+     gridSetNodeBounds(gCurrentPlayerIndex, gCurrentActor->x, gCurrentActor->y, gCurrentActor->z, gCurrentActor->sub4->scaleY / 0.15 * 20.0);
+-    if (gPlayerCount == 1) {
++    if (!PORT_BATTLE()) {
+         if (gCurrentActor->renderFlags & 0x1000) {
+             gCurrentActor->renderFlags |= 0x200;
+         }
+@@ -506,7 +506,7 @@ void playerUpdateCommon(s32 mode) {
+     gCurrentActor->renderFlags &= ~0x1000;
+     gPlayerStateHandlers[gCurrentActor->state].fn();
+     gActivePlayerState->hitStatus = collisionGetHitStatus();
+-    if (gPlayerCount == 1) {
++    if (!PORT_BATTLE()) {
+         gCurrentActor->renderFlags &= ~0x200;
+     }
+     if ((gActivePlayerState->stateFlags & 0x01000000) && gActorGlobalState.unk1C != 0 && gCurrentActor->state != 0x47) {
+@@ -523,7 +523,7 @@ void playerUpdateCommon(s32 mode) {
+     gActivePlayerState->stateFlags &= ~0x40000000;
+     func_806CF580();
+     gActivePlayerState->prevState = gActivePlayerActor->state;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         if (gCurrentActor->contactFlags & 1) {
+             if (gActivePlayerState->attackTimer != 0) {
+                 gActivePlayerState->attackTimer--;
+@@ -629,7 +629,7 @@ void playerUpdateCommon(s32 mode) {
+         gActivePlayerState->transitionTimer--;
+     }
+     if ((gCurrentActor->x < D_807F5FE4 || gCurrentActor->z < D_807F5FE6 || gCurrentActor->x > D_807F5FE8 || gCurrentActor->z > D_807F5FEA || materialType != 0) && gActivePlayerState->idleTimeoutFlag == 0 && gFrameCounter >= 0x65 && !(gGlobalOverlayFlags & 0x4000) && gCurrentMap != 0xE) {
+-        if (gPlayerCount == 1) {
++        if (!PORT_BATTLE()) {
+             if (flagGet(0x186, 0) == 0) {
+                 mapSetPendingTransition(0xB0, 1);
+             }
+@@ -640,7 +640,7 @@ void playerUpdateCommon(s32 mode) {
+             func_80026D40(gCurrentActor, gCurrentPlayerIndex);
+         }
+     }
+-    if (gCurrentPlayerIndex == 0) {
++    if (gCurrentPlayerIndex == 0 || gPortCoop) { // PORT: coop: any kong's void/fall timeout reloads the map for all
+         switch (gCurrentMap) {
+             case 0x7:
+             case 0x1A:
+@@ -734,7 +734,7 @@ void playerUpdateScaleAndPhysics(void) {
+         gActivePlayerState->padHintTimer = 0;
+     }
+     gActivePlayerState->stateFlags &= ~0x80000000;
+-    if (((gPlayerPadState[gCurrentPlayerIndex].pressedButtons & 2) && (gPlayerPadState[gCurrentPlayerIndex].heldButtons & 0x2000) && gPlayerCount == 1) || slotQueueGetValue(5, gActivePlayerState->playerIndex) == 0) {
++    if (((gPlayerPadState[gCurrentPlayerIndex].pressedButtons & 2) && (gPlayerPadState[gCurrentPlayerIndex].heldButtons & 0x2000) && !PORT_BATTLE()) || slotQueueGetValue(5, gActivePlayerState->playerIndex) == 0) {
+         if (!(gActivePlayerState->stateFlags & 0x2000) && gCurrentMap != 0xCF) {
+             flag = 0;
+             if (gPlayerSlots[gCurrentPlayerIndex].unk2C0 != 1) {
+@@ -1443,9 +1443,9 @@ s16 playerSelectMoveTier(Actor *actor, f32 targetSpeed, f32 speed, s16 tier, s16
+         }
+         if (tier == 0 && (gCurrentMap == 1 || gCurrentMap == 5 || gCurrentMap == 0x19 || gCurrentMap == 0xF)) {
+             tier = 2;
+-        } else if (tier == 0 && (gPlayerCount >= 2 || (gActivePlayerState->stateFlags & 0x40) || !(actor->flags & 4) || gGameMode == 1)) {
++        } else if (tier == 0 && (PORT_BATTLE() || (gActivePlayerState->stateFlags & 0x40) || !(actor->flags & 4) || gGameMode == 1)) {
+             tier = 1;
+-        } else if (tier == 1 && gPlayerCount < 2 && !(gActivePlayerState->stateFlags & 0x40) && (actor->flags & 4) && gGameMode != 1) {
++        } else if (tier == 1 && !PORT_BATTLE() && !(gActivePlayerState->stateFlags & 0x40) && (actor->flags & 4) && gGameMode != 1) {
+             tier = 0;
+         }
+     } else {
+@@ -2144,7 +2144,7 @@ void func_806CF580(void) {
+         }
+     }
+     if (gCurrentActor->state != 0x36 && currentActorAnimTryIdleVariant(0, &gActivePlayerState->unk84) != 0 &&
+-        (gPlayerCharacterId[gCurrentPlayerIndex] == 1 || (gPlayerCount == 1 && gPlayerCharacterId[gCurrentPlayerIndex] == 3))) {
++        (gPlayerCharacterId[gCurrentPlayerIndex] == 1 || (!PORT_BATTLE() && gPlayerCharacterId[gCurrentPlayerIndex] == 3))) {
+         currentActorAnimTryIdleVariant(0x81, &gActivePlayerState->unk84);
+     }
+     if ((gCurrentActor->state == 0x4F || gCurrentActor->state == 0x7F) && gMultiplayerReducedEffects == 0 &&
+@@ -2333,7 +2333,7 @@ void playerResumeLocomotion(Actor *actor) {
+         actor->unk155 = 0;
+         return;
+     }
+-    if ((p->stateFlags & 0x20) && gPlayerCount == 1) {
++    if ((p->stateFlags & 0x20) && !PORT_BATTLE()) {
+         nextState = playerSelectSurfaceState(actor, actor->speedXZ, p->maxSpeed, 1);
+         actor->state = nextState;
+         actor->unk155 = 0;
+@@ -2464,7 +2464,7 @@ void playerSetSizeMode(Actor *actor, u8 mode) {
+             break;
+     }
+     if (mode != 1) {
+-        if (gPlayerCount == 1) {
++        if (!PORT_BATTLE()) {
+             for (i = 0; i < 3; i++) {
+                 state->currentScale[i] = state->targetScale[i];
+                 (&actor->sub4->scaleX)[i] = state->targetScale[i];
+@@ -2474,7 +2474,7 @@ void playerSetSizeMode(Actor *actor, u8 mode) {
+     gPlayerSlots[slot].unk2C0 = mode;
+     gPlayerSlots[slot].sizeModeDirty = 1;
+     state->scaleMode = 0;
+-    if (mode == 1 || gPlayerCount >= 2) {
++    if (mode == 1 || PORT_BATTLE()) {
+         if (state->currentScale[0] < state->targetScale[0]) {
+             diff = state->targetScale[0] - state->currentScale[0];
+         } else {
+@@ -2647,7 +2647,7 @@ u8 playerIsSmallerThanAttacker(Actor *victim, Actor *attacker) {
+     victimSize = 1;
+     attackerSize = 1;
+     attackerNotRolling = 1;
+-    if ((gPlayerCount < 2) || ((victim->collisionFlags & 4) != 0) || ((attacker->collisionFlags & 4) != 0)) {
++    if ((!PORT_BATTLE()) || ((victim->collisionFlags & 4) != 0) || ((attacker->collisionFlags & 4) != 0)) {
+         return 0;
+     }
+     if (victim->collisionFlags & 1) {
+diff --git a/src/global/D5E10.c b/src/global/D5E10.c
+index 489c2b5..8781017 100644
+--- a/src/global/D5E10.c
++++ b/src/global/D5E10.c
+@@ -2291,7 +2291,7 @@ void playerStateSwimStroke(void) {
+             if (gGlobalCutsceneFlags & 2) {
+                 sfxPlayOnFreeSlot(0x424, 0x7FFF, 63.0f, 1.0f, 0, 0);
+             }
+-            if (gPlayerCount == 1) {
++            if (!PORT_BATTLE()) {
+                 camStartPathNearWall(gPrimaryPlayerActor, 0xC, 0x25, 0x85);
+             }
+             gCurrentActor->unk155++;
+@@ -2338,7 +2338,7 @@ void playerStateSwimStroke(void) {
+             playerApplyMotion();
+             break;
+         default:
+-            if (gPlayerCount >= 2) {
++            if (PORT_BATTLE()) {
+                 playerRefillHealth(gCurrentActor, gCurrentPlayerIndex);
+             }
+             gActivePlayerState->stateFlags &= ~0x1000;
+diff --git a/src/global/E4090.c b/src/global/E4090.c
+index 8f2673d..2006c8f 100644
+--- a/src/global/E4090.c
++++ b/src/global/E4090.c
+@@ -2012,7 +2012,7 @@ u8 playerInputCanFireWeapon(void) {
+     ok = !mpIsMatchType(0) && !(gGlobalOverlayFlags & 0x200) && slotQueueGetValue(4, gCurrentPlayerIndex) &&
+            gPlayerCharacterId[gCurrentPlayerIndex] < 6 &&
+            actorCountOwnedByClass(gCurrentActor, 4, 0) < gKongMaxActiveProjectiles[gCurrentCharacterIndex] &&
+-           (flagGet(0x184, 0) || (gGlobalOverlayFlags & 0x10000000) || gPlayerCount >= 2 || menuIsTransitionType3Or4() ||
++           (flagGet(0x184, 0) || (gGlobalOverlayFlags & 0x10000000) || PORT_BATTLE() || menuIsTransitionType3Or4() ||
+             menuIsTransitionTypeC());
+     return ok;
+ }
+@@ -2051,7 +2051,7 @@ void playerInputHandleZButtonCrouch(void) {
+     s32 canCrouch;
+ 
+     canCrouch = 1;
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         canCrouch = playerInputCheckMultiplayerPlayerTarget() == 0;
+     }
+     if (canCrouch && (gCurrentActor->state != 0x62) && (gCurrentActor->contactFlags & 1)) {
+@@ -2471,7 +2471,7 @@ void playerInputHandleBButtonGun(void) {
+         gActivePlayerState->jumpStartTime = gScheduler.unk280;
+     }
+     if (gActorGlobalState.unk1C &&
+-        (flagGet(0x185, 0) || (gGlobalOverlayFlags & 0x10000000) || (gPlayerCount >= 2) || menuIsTransitionTypeC())) {
++        (flagGet(0x185, 0) || (gGlobalOverlayFlags & 0x10000000) || (PORT_BATTLE()) || menuIsTransitionTypeC())) {
+         playerStateQueueCallback(3, 0, gCurrentPlayerIndex);
+         return;
+     }
+@@ -3036,7 +3036,7 @@ void playerInputHandleRButtonCameraLock(void) {
+     obj = gActivePlayerState->camActor->customState;
+     obj->unkAC |= 4;
+     if (gPlayerPadState[gCurrentPlayerIndex].pressedButtons & 0x10) {
+-        if ((gGlobalOverlayFlags & 1) || ((gPlayerCount >= 2) && (gSplitScreenMode == 0))) {
++        if ((gGlobalOverlayFlags & 1) || ((PORT_BATTLE()) && (gSplitScreenMode == 0))) {
+             if (obj->unkAC & 0x10000) {
+                 camClearSecondTarget(gActivePlayerState->camActor);
+                 return;
+@@ -3059,7 +3059,7 @@ void playerInputHandleRButtonCameraLock(void) {
+ void playerInputHandleRButtonReleaseCameraLock(void) {
+     CamState *obj;
+ 
+-    if (!(gGlobalOverlayFlags & 1) && ((gPlayerCount < 2) || (gSplitScreenMode != 0))) {
++    if (!(gGlobalOverlayFlags & 1) && ((!PORT_BATTLE()) || (gSplitScreenMode != 0))) {
+         obj = gActivePlayerState->camActor->customState;
+         obj->unk4 = 0;
+         obj->unkAC &= ~4;
+@@ -3437,7 +3437,7 @@ void playerInputHandleCDownFairyCheck(void) {
+ u8 playerInputCanPerformFairySnap(void) {
+     s32 ok;
+ 
+-    ok = flagGet(0x182, 0) || (gGlobalOverlayFlags & 0x10000000) || gPlayerCount >= 2 || menuIsTransitionTypeC();
++    ok = flagGet(0x182, 0) || (gGlobalOverlayFlags & 0x10000000) || PORT_BATTLE() || menuIsTransitionTypeC();
+     return ok;
+ }
+ 
+@@ -4277,7 +4277,7 @@ void playerInputHandleBButtonFairyPhotoInWater(void) {
+ 
+ 
+ s32 playerTryEnterViewMode(s16 callbackId, u8 param1, u8 param2) {
+-    if (((gPlayerCount < 2) || (gSplitScreenMode != 1)) && (gScreenFadeProgress == 0.0f) && (gCurrentActor->floorSlopeFactor == 0.0f)) {
++    if (((!PORT_BATTLE()) || (gSplitScreenMode != 1)) && (gScreenFadeProgress == 0.0f) && (gCurrentActor->floorSlopeFactor == 0.0f)) {
+         playerStateSetCallbackParameters(gCurrentPlayerIndex, param1, param2, 0);
+         playerStateQueueCallback(callbackId, 0, gCurrentPlayerIndex);
+         gCurrentActor->speedXZ = 0.0f;
+diff --git a/src/global/EFDC0.c b/src/global/EFDC0.c
+index 0b2a9d4..fd1c653 100644
+--- a/src/global/EFDC0.c
++++ b/src/global/EFDC0.c
+@@ -771,7 +771,7 @@ void playerStateTakeHitAndDamage(void) {
+ }
+ 
+ void playerStateEnterState10(void) {
+-    if ((gPlayerCount >= 2) || (gActivePlayerActor->actorType != 6) || (gPlayerSlots[gCurrentPlayerIndex].unk2C0 == 1)) {
++    if ((PORT_BATTLE()) || (gActivePlayerActor->actorType != 6) || (gPlayerSlots[gCurrentPlayerIndex].unk2C0 == 1)) {
+         gActivePlayerActor->speedY = 260.0f;
+         playerSetBaseGravity();
+         gActivePlayerState->unk50 = 0;
+@@ -1209,7 +1209,7 @@ void playerStateDamageSelector(void) {
+             gCurrentActor->unk155 = 1;
+         }
+     }
+-    if ((gActivePlayerState->surfaceTimer == 0) && (gPlayerCount < 2)) {
++    if ((gActivePlayerState->surfaceTimer == 0) && (!PORT_BATTLE())) {
+         gActivePlayerState->surfaceTimer = D_807530B0[gCurrentCharacterIndex];
+     }
+     if (shake != 0) {
+@@ -1236,7 +1236,7 @@ void playerTakeFallDamage(void) {
+         gCurrentActor->state = 0x20;
+         gCurrentActor->unk155 = 1;
+     }
+-    if ((gActivePlayerState->surfaceTimer == 0) && (gPlayerCount < 2)) {
++    if ((gActivePlayerState->surfaceTimer == 0) && (!PORT_BATTLE())) {
+         gActivePlayerState->surfaceTimer = D_807530B0[gCurrentCharacterIndex];
+     }
+     if (shake != 0) {
+@@ -1408,7 +1408,7 @@ void playerTakeDamage(s16 damage) {
+                 }
+             } else {
+                 isDead = 0;
+-                if (gPlayerCount >= 2) {
++                if (PORT_BATTLE()) {
+                     if (playerHitSourceIsStale(gPlayerSlots[gCurrentPlayerIndex].queuedState) == 0) {
+                         return;
+                     }
+@@ -1425,7 +1425,7 @@ void playerTakeDamage(s16 damage) {
+                         }
+                     }
+                 }
+-                if (((gPlayerCount != 1) || (gPlayerSlots[gCurrentPlayerIndex].queuedState != 0x2B)) &&
++                if (((PORT_BATTLE()) || (gPlayerSlots[gCurrentPlayerIndex].queuedState != 0x2B)) &&
+                     (menuIsTransitionType3Or4() == 0)) {
+                     healthDelta = func_806C9830(-damage, gActivePlayerActor);
+                     if (healthDelta < 0) {
+@@ -1532,7 +1532,7 @@ void playerTakeDamage(s16 damage) {
+                         gActivePlayerActor->speedXZ = gKongSwimTurnSpeeds[gCurrentCharacterIndex];
+                         gActivePlayerState->surfaceTimer = D_807530B0[gCurrentCharacterIndex];
+                     } else {
+-                        if (gPlayerCount >= 2) {
++                        if (PORT_BATTLE()) {
+                             playerSetRecentAttacker(actorResolveKillCreditOwner(gPlayerSlots[gCurrentPlayerIndex].queuedActor),
+                                           gActivePlayerState);
+                         }
+@@ -1543,7 +1543,7 @@ void playerTakeDamage(s16 damage) {
+                     }
+                     break;
+                 case 0x32:
+-                    if (gPlayerCount >= 2) {
++                    if (PORT_BATTLE()) {
+                         playerSetRecentAttacker(actorResolveKillCreditOwner(gPlayerSlots[gCurrentPlayerIndex].queuedActor),
+                                       gActivePlayerState);
+                     }
+@@ -1552,7 +1552,7 @@ void playerTakeDamage(s16 damage) {
+                     gActivePlayerActor->accelY = D_8075310C[gCurrentCharacterIndex];
+                     break;
+                 case 0xE:
+-                    if (gPlayerCount >= 2) {
++                    if (PORT_BATTLE()) {
+                         playerSetRecentAttacker(actorResolveKillCreditOwner(gPlayerSlots[gCurrentPlayerIndex].queuedActor),
+                                       gActivePlayerState);
+                     }
+@@ -1577,7 +1577,7 @@ void playerTakeDamage(s16 damage) {
+                 case 0x2B: // ORIG: target's jump table starts at 0x2B (addiu t6,v0,-43; sltiu at,t6,13 at 0x4360), its .rodata+0x210 entry is the switch exit 0x46bc
+                     break;
+                 }
+-                if ((gPlayerCount >= 2) && (isDead == 0)) {
++                if ((PORT_BATTLE()) && (isDead == 0)) {
+                     gActivePlayerState->surfaceTimer = 0x3C;
+                 }
+                 if (gActivePlayerActor->state == 0x36) {
+diff --git a/src/global/F9450.c b/src/global/F9450.c
+index 9b7f700..6b76625 100644
+--- a/src/global/F9450.c
++++ b/src/global/F9450.c
+@@ -603,7 +603,7 @@ void gridCollectItem(u8 playerIndex, s32 modelType, u8 collisionOverride) {
+             shouldComplete = 1;
+             break;
+         case 0x91: case 0x15D: case 0x15E: case 0x15F: case 0x160:
+-            if (gPlayerCount == 1) {
++            if (!PORT_BATTLE()) {
+                 sfxPlayOnFreeSlot(0x331, 0x7FFF, 63.0f, 1.0f, 5, 0);
+             }
+         case 0xA: case 0xD: case 0x16: case 0x1E: case 0x1F:
+@@ -658,7 +658,7 @@ void gridSpawnBunchItems(u8 playerIndex, s16 modelSlot, Actor *player) {
+     s32 i;
+     s16 modelType;
+ 
+-    if (gPlayerCount == 1) {
++    if (!PORT_BATTLE()) {
+         modelSlotGetTransformVectors(modelSlot, &x, &y, &z, &unusedA, &unusedB, &unusedC, &unusedD, &unusedE, 1);
+     }
+     switch (player->actorType) {
+@@ -674,7 +674,7 @@ void gridSpawnBunchItems(u8 playerIndex, s16 modelSlot, Actor *player) {
+     }
+     delay = 0;
+     for (i = 0; i < 5; i++) {
+-        if (gPlayerCount == 1) {
++        if (!PORT_BATTLE()) {
+             gridAddModelNode(modelSlotAppend(modelType, x, y, z, 0.0f, 0), modelType, delay, 1, 0, 1);
+         } else {
+             gridCollectItem(playerIndex, modelType, 0);
+@@ -696,7 +696,7 @@ void gridSpawnAmmoCrateItems(u8 playerIndex, s16 modelSlot, Actor *player, u16 p
+     s32 i;
+     s16 modelType;
+ 
+-    if (gPlayerCount == 1) {
++    if (!PORT_BATTLE()) {
+         modelSlotGetTransformVectors(modelSlot, &x, &y, &z, &unusedA, &unusedB, &unusedC, &unusedD, &unusedE, 1);
+     }
+     switch (player->actorType) {
+@@ -710,7 +710,7 @@ void gridSpawnAmmoCrateItems(u8 playerIndex, s16 modelSlot, Actor *player, u16 p
+     }
+     delay = 0;
+     for (i = 0; i < 5; i++) {
+-        if (gPlayerCount == 1) {
++        if (!PORT_BATTLE()) {
+             gridAddModelNode(modelSlotAppend(modelType, x, y, z, 0.0f, 0), modelType, delay, 1, (parentType == 0x11) ? 1 : 0, 1);
+         } else {
+             gridCollectItem(playerIndex, modelType, (parentType == 0x11) ? 1 : 0);
+@@ -841,7 +841,7 @@ void gridCollectNodesInBounds(GridNode *node, u8 playerIndex, GridBounds *bounds
+             if (node->flagIndex != -1) {
+                 func_8060E430(node->flagIndex, 1, mapGetHubWorldIndex(gCurrentWorldId, 1));
+             }
+-            if (gPlayerCount == 1) {
++            if (!PORT_BATTLE()) {
+                 if (D_807FD734 == NULL) {
+                     tail = D_807FD730;
+                     D_807FD734 = tail;
+@@ -873,12 +873,12 @@ void gridCollectNodesInBounds(GridNode *node, u8 playerIndex, GridBounds *bounds
+                 gridSpawnAmmoCrateItems(playerIndex, node->modelSlot, player, node->modelType);
+                 break;
+             default:
+-                if (gPlayerCount >= 2) {
++                if (PORT_BATTLE()) {
+                     gridCollectItem(playerIndex, node->modelType, node->collisionOverride);
+                 }
+                 break;
+             }
+-            if (gPlayerCount >= 2) {
++            if (PORT_BATTLE()) {
+                 playerStateHandleSoundEffects(node->modelType, playerIndex);
+                 modelSlotFreeByIndex(node->modelSlot, 1);
+             }
+@@ -1013,7 +1013,7 @@ void gridUpdatePlayerNodes(u8 playerIndex) {
+         gridDispatchRect(playerIndex, &rect->bounds);
+         rect = rect->next;
+     }
+-    if ((D_807FD730 != NULL) && (gPlayerCount == 1)) {
++    if ((D_807FD730 != NULL) && (!PORT_BATTLE()) && (!gPortCoop || playerIndex == 0)) { // PORT: coop: once per frame
+         mtx = &gPlayerSlots[playerIndex].viewMtx[gGfxBufferIndex];
+         guMtxL2F(mf, mtx);
+         matrix4Invert(inv, mf);
+@@ -1220,7 +1220,7 @@ void gridCollectActorsInRange(u8 playerIndex) {
+                             }
+                             pickupState = actor->customState;
+                             if (pickupState->collectable != 0) {
+-                                if (gPlayerCount >= 2) {
++                                if (PORT_BATTLE()) {
+                                     switch (actor->actorType) {
+                                     case 0x7A:
+                                         playerStateHandleSoundEffects(0x1D2, playerIndex);
+diff --git a/src/global/FCCD0.c b/src/global/FCCD0.c
+index d2e6a9e..09b2904 100644
+--- a/src/global/FCCD0.c
++++ b/src/global/FCCD0.c
+@@ -179,7 +179,7 @@ void slotQueueInit(s32 reset) {
+ 
+     shownMask = D_80744544;
+     world = mapGetHubWorldIndex(gCurrentWorldId, 1);
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         shownMask = 0;
+     }
+     if (reset != 0) {
+@@ -366,7 +366,7 @@ s32 slotQueueGetValue(u8 index, u8 player) {
+ }
+ 
+ void slotQueueUpdate(s32 slot, u8 show, s32 delay) {
+-    if ((gPlayerCount < 2) && (menuIsTransitionType3Or4() == 0)) {
++    if ((!PORT_BATTLE()) && (menuIsTransitionType3Or4() == 0)) {
+         if (slot == 8) {
+             slotQueueUpdate(9, show, delay + 0xA);
+             if (gCurrentMap == 0xF) {
+@@ -479,7 +479,7 @@ u16 slotQueueGetMaxValue(s32 slot, s32 player) {
+         max = (1 << gPlayerInventoryTable[player].kong[kong].ammoBeltLevel) * 0x32;
+         break;
+     case 3:
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             max = 0xA;
+         } else {
+             max = (1 << gPlayerInventoryTable[player].kong[kong].ammoBeltLevel) * 0x32;
+@@ -489,7 +489,7 @@ u16 slotQueueGetMaxValue(s32 slot, s32 player) {
+         max = (gPlayerInventoryTable[player].kong[kong].ammoBeltLevel * 5) + 0x14;
+         break;
+     case 5:
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             max = 0xBB8;
+         } else if (anyKongUsesAbilityEnergy() != 0) {
+             max = (countBananaFairies() * 0x96) + 0xBB8;
+@@ -498,7 +498,7 @@ u16 slotQueueGetMaxValue(s32 slot, s32 player) {
+         }
+         break;
+     case 7:
+-        if (gPlayerCount >= 2) {
++        if (PORT_BATTLE()) {
+             max = 0x14;
+         } else {
+             bits = gPlayerInventoryTable[player].kong[kong].instrumentFlags;
+@@ -1141,7 +1141,7 @@ Gfx *slotQueueStateFadeOut(s32 slot, Gfx *gfx) {
+ Gfx *slotQueueBuildDisplayList(Gfx *gfx) {
+     s32 i;
+ 
+-    if (gPlayerCount >= 2) {
++    if (PORT_BATTLE()) {
+         return gfx;
+     }
+     gDPPipeSync(gfx++);

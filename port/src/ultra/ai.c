@@ -1,4 +1,6 @@
-/* Audio interface: SDL queue of s16 stereo at gPortAudioRate (web); discarded in headless builds. */
+/* Audio interface: SDL queue of s16 stereo at gPortAudioRate (web); discarded in headless builds.
+ * Netplay: osAiGetLength steers the game's audio (and the sfx code draws from the sim RNG), so it reads a virtual
+ * queue drained by VI ticks instead of the host's audio clock. */
 #include "port_internal.h"
 #ifndef PORT_HEADLESS
 #include <SDL2/SDL.h>
@@ -13,6 +15,15 @@ static s32 sDevRate; /* rate sDev was opened at: a quickload may restore a snaps
 #else
 static u32 sFakeQueued;
 #endif
+/* netplay virtual queue: sim state (in the snapshot) */
+static u32 sNetQueued, sNetLastLen;
+
+void portAiNetViTick(void) {
+    u32 bytes = (u32)(gPortAudioRate * 4 * PORT_VI_PERIOD_MS / 1000.0);
+    if (portNetActive()) {
+        sNetQueued = sNetQueued > bytes ? sNetQueued - bytes : 0;
+    }
+}
 
 /* headless keeps nothing live: sFakeQueued/sLastLen are restored for determinism */
 int portAiQsRanges(QsRange *out) {
@@ -84,14 +95,35 @@ s32 osAiSetFrequency(u32 freq) {
 
 s32 osAiSetNextBuffer(void *buf, u32 len) {
     s16 *samples = (s16 *)portHostAddr((u32)buf);
-    sLastLen = len;
+    u32 ceiling = (u32)gPortAudioRate * 4 * AI_MAX_QUEUED_MS / 1000;
+    if (portNetActive()) {
+        sNetLastLen = len;
+    } else {
+        sLastLen = len;
+    }
     portAudioPeakFeed(samples, len / 2);
 #ifndef PORT_HEADLESS
     if (sDev && sDevRate != gPortAudioRate) {
         openDevice();
     }
 #endif
-    if (queuedBytes() > (u32)gPortAudioRate * 4 * AI_MAX_QUEUED_MS / 1000) {
+    if (portNetActive()) {
+        if (sNetQueued > ceiling) {
+            return 0;
+        }
+        sNetQueued += len;
+#ifndef PORT_HEADLESS
+        /* the host clock drifts from the VI clock: drop a backlog instead of letting latency grow */
+        if (sDev && SDL_GetQueuedAudioSize(sDev) > (u32)gPortAudioRate * 4 * 400 / 1000) {
+            SDL_ClearQueuedAudio(sDev);
+        }
+        if (sDev) {
+            SDL_QueueAudio(sDev, samples, len);
+        }
+#endif
+        return 0;
+    }
+    if (queuedBytes() > ceiling) {
         return 0;
     }
 #ifndef PORT_HEADLESS
@@ -105,12 +137,13 @@ s32 osAiSetNextBuffer(void *buf, u32 len) {
 }
 
 u32 osAiGetLength(void) {
-    s32 q = (s32)queuedBytes() - (s32)sLastLen;
+    u32 last = portNetActive() ? sNetLastLen : sLastLen;
+    s32 q = (s32)(portNetActive() ? sNetQueued : queuedBytes()) - (s32)last;
     if (q < 0) {
         q = 0;
     }
-    if ((u32)q > sLastLen) {
-        q = (s32)sLastLen;
+    if ((u32)q > last) {
+        q = (s32)last;
     }
     return (u32)q;
 }

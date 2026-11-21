@@ -81,6 +81,7 @@ void portOverlayInit(void);
 const char *port_debug_stats(void);
 const char *port_level_progress(void); /* progress.c */
 extern u16 gPortHeadlessButtons;
+extern s8 gPortHeadlessStickX, gPortHeadlessStickY;
 extern int gPortAssetStrict;
 extern int gPortAssetTrace;
 extern int gPortCurrentOverlay;
@@ -111,4 +112,18 @@ void gfxBackendQsRestored(void);
 int portThreadsQsEncode(void);
 void portThreadsQsRestoreLive(void);
 int portThreadsQsDecode(void);
+
+/* net.c: lockstep netplay (web/net.js; headless --net-sim) */
+int portNetActive(void);
+int portNetTickAllowed(void);
+int portNetReadsAhead(void); /* consecutive reads in the ring from gPortNetRead on */
+int portNetDelay(void);
+void portNetFillPads(OSContPad *pad);
+void portNetRingClear(void);
+int portNetQsRanges(QsRange *out);
+void port_net_begin(s32 role, s32 localSlot, s32 delay);
+void port_net_push(u32 read, s32 mask, s32 joinSlot, s32 joinKong, u32 p0, u32 p1, u32 p2, u32 p3, u32 p4);
+extern int gPortNetHashEvery; /* headless: print `hash <read> <hash>` every N reads instead of calling web/net.js */
+void portSaveSetForeign(void); /* save.c */
+void portAiNetViTick(void);   /* ai.c */
 #endif

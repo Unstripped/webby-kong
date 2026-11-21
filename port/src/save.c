@@ -9,11 +9,19 @@ extern u8 gPortEeprom[0x800];
 
 static int sDirty;
 static double sDirtySince;
+static int sForeign; /* this page joined someone's co-op session: the EEPROM is theirs until the page reloads */
 
 int portSaveQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sDirty);
     out[1] = QS_RANGE(sDirtySince);
-    return 2;
+    out[2] = QS_RANGE(sForeign);
+    return 3;
+}
+
+/* net.c: a co-op joiner plays the host's save; its own save file (and the host's save server) stay untouched */
+void portSaveSetForeign(void) {
+    sForeign = 1;
+    sDirty = 0;
 }
 
 #ifndef PORT_HEADLESS
@@ -63,6 +71,9 @@ void portSaveInit(void) {
 }
 
 void portSaveWritten(void) {
+    if (sForeign) {
+        return;
+    }
     sDirty = 1;
     sDirtySince = emscripten_get_now();
 }

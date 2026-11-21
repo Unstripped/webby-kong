@@ -1,0 +1,669 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 20:38:05 -0700
+Subject: [PATCH] port: coop gameplay
+
+
+diff --git a/src/global/10D2D0.c b/src/global/10D2D0.c
+index c6fb0b0..078b7e8 100644
+--- a/src/global/10D2D0.c
++++ b/src/global/10D2D0.c
+@@ -134,7 +134,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
+     u8 flags;
+     s32 singlePlayer;
+ 
+-    inv = &gPlayerInventoryTable[playerIndex];
++    inv = &gPlayerInventoryTable[PORT_INV(playerIndex)];
+     kongId = playerGetResolvedKongId(playerIndex);
+     kong = &inv->kong[kongId];
+     mode = player->unk2E4;
+@@ -236,7 +236,7 @@ s32 healthGetPerMelon(void) {
+ void healthRefill(u8 playerIndex) {
+     PlayerInventory *inv;
+ 
+-    inv = &gPlayerInventoryTable[playerIndex];
++    inv = &gPlayerInventoryTable[PORT_INV(playerIndex)];
+     inv->health = inv->melons * healthGetPerMelon();
+     inv->healthDelta = 0;
+ }
+diff --git a/src/global/1295B0.c b/src/global/1295B0.c
+index a477cbc..f214edb 100644
+--- a/src/global/1295B0.c
++++ b/src/global/1295B0.c
+@@ -1076,15 +1076,17 @@ void spawnNodesUpdate(void) {
+ }
+ 
+ 
+-u8 spawnNodeInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
++// PORT: coop: the spawn tests take the player whose camera they test (was player 0); the wrappers below spawn
++// around any co-op player and despawn only out of every player's range
++static u8 spawnNodeInRangeAndVisibleFor(SpawnNode *node, s32 rangeSq, s32 p) {
+     f32 dx;
+     f32 dy;
+     f32 dz;
+     s32 ret;
+ 
+-    dz = gPlayerSlots[0].camZ - node->z;
+-    dx = gPlayerSlots[0].camX - node->x;
+-    dy = gPlayerSlots[0].camY - node->y;
++    dz = gPlayerSlots[p].camZ - node->z;
++    dx = gPlayerSlots[p].camX - node->x;
++    dy = gPlayerSlots[p].camY - node->y;
+     ret = 0;
+     if (((dz * dz) + ((dx * dx) + (dy * dy))) < rangeSq) {
+         ret = 1;
+@@ -1094,22 +1096,22 @@ u8 spawnNodeInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
+         if (!ret) {
+             ret = (node->flags & 0x20) != 0;
+             if (!ret) {
+-                ret = mapChunkIsVisibleForPlayer(0, node->chunkIndex) != 0;
++                ret = mapChunkIsVisibleForPlayer(p, node->chunkIndex) != 0;
+             }
+         }
+     }
+     return ret;
+ }
+ 
+-u8 spawnNodeActorInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
++static u8 spawnNodeActorInRangeAndVisibleFor(SpawnNode *node, s32 rangeSq, s32 p) {
+     f32 dx;
+     f32 dy;
+     f32 dz;
+     s32 ret;
+ 
+-    dz = gPlayerSlots[0].camZ - node->actor->z;
+-    dx = gPlayerSlots[0].camX - node->actor->x;
+-    dy = gPlayerSlots[0].camY - node->actor->y;
++    dz = gPlayerSlots[p].camZ - node->actor->z;
++    dx = gPlayerSlots[p].camX - node->actor->x;
++    dy = gPlayerSlots[p].camY - node->actor->y;
+     ret = 0;
+     if (((dz * dz) + ((dx * dx) + (dy * dy))) < rangeSq) {
+         ret = 1;
+@@ -1119,32 +1121,32 @@ u8 spawnNodeActorInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
+         if (!ret) {
+             ret = (node->flags & 0x20) != 0;
+             if (!ret) {
+-                ret = mapChunkIsVisibleForPlayer(0, node->chunkIndex) != 0;
++                ret = mapChunkIsVisibleForPlayer(p, node->chunkIndex) != 0;
+             }
+         }
+     }
+     return ret;
+ }
+ 
+-u8 spawnNodeActorOutOfRangeOrHidden(SpawnNode *node, s32 rangeSq) {
++static u8 spawnNodeActorOutOfRangeOrHiddenFor(SpawnNode *node, s32 rangeSq, s32 p) {
+     s32 ret;
+ 
+-    ret = rangeSq < ((gPlayerSlots[0].camX - node->actor->x) * (gPlayerSlots[0].camX - node->actor->x)) +
+-                        ((gPlayerSlots[0].camY - node->actor->y) * (gPlayerSlots[0].camY - node->actor->y)) +
+-                        ((gPlayerSlots[0].camZ - node->actor->z) * (gPlayerSlots[0].camZ - node->actor->z));
++    ret = rangeSq < ((gPlayerSlots[p].camX - node->actor->x) * (gPlayerSlots[p].camX - node->actor->x)) +
++                        ((gPlayerSlots[p].camY - node->actor->y) * (gPlayerSlots[p].camY - node->actor->y)) +
++                        ((gPlayerSlots[p].camZ - node->actor->z) * (gPlayerSlots[p].camZ - node->actor->z));
+     if (ret == 0) {
+         ret = (node->actor->collisionFlags & 0x40) == 0;
+         if (ret != 0) {
+             ret = (node->flags & 0x20) == 0;
+             if (ret != 0) {
+-                ret = mapChunkIsVisibleForPlayer(0, node->chunkIndex) == 0;
++                ret = mapChunkIsVisibleForPlayer(p, node->chunkIndex) == 0;
+             }
+         }
+     }
+     return ret;
+ }
+ 
+-u8 spawnNodeActorOutOfRangeScaled(SpawnNode *node, s32 rangeSq) {
++static u8 spawnNodeActorOutOfRangeScaledFor(SpawnNode *node, s32 rangeSq, s32 p) {
+     f32 r;
+     s32 scaledRange;
+     s32 ret;
+@@ -1158,15 +1160,61 @@ u8 spawnNodeActorOutOfRangeScaled(SpawnNode *node, s32 rangeSq) {
+             if (ret) {
+                 scaledRange = r * 1.5;
+                 ret = (scaledRange * scaledRange) <
+-                      ((gPlayerSlots[0].camX - node->actor->x) * (gPlayerSlots[0].camX - node->actor->x)) +
+-                          ((gPlayerSlots[0].camY - node->actor->y) * (gPlayerSlots[0].camY - node->actor->y)) +
+-                          ((gPlayerSlots[0].camZ - node->actor->z) * (gPlayerSlots[0].camZ - node->actor->z));
++                      ((gPlayerSlots[p].camX - node->actor->x) * (gPlayerSlots[p].camX - node->actor->x)) +
++                          ((gPlayerSlots[p].camY - node->actor->y) * (gPlayerSlots[p].camY - node->actor->y)) +
++                          ((gPlayerSlots[p].camZ - node->actor->z) * (gPlayerSlots[p].camZ - node->actor->z));
+             }
+         }
+     }
+     return ret;
+ }
+ 
++#define COOP_TEST_PLAYERS (gPortCoop ? gPlayerCount : 1)
++
++u8 spawnNodeInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
++    s32 p;
++
++    for (p = 0; p < COOP_TEST_PLAYERS; p++) {
++        if (spawnNodeInRangeAndVisibleFor(node, rangeSq, p)) {
++            return 1;
++        }
++    }
++    return 0;
++}
++
++u8 spawnNodeActorInRangeAndVisible(SpawnNode *node, s32 rangeSq) {
++    s32 p;
++
++    for (p = 0; p < COOP_TEST_PLAYERS; p++) {
++        if (spawnNodeActorInRangeAndVisibleFor(node, rangeSq, p)) {
++            return 1;
++        }
++    }
++    return 0;
++}
++
++u8 spawnNodeActorOutOfRangeOrHidden(SpawnNode *node, s32 rangeSq) {
++    s32 p;
++
++    for (p = 0; p < COOP_TEST_PLAYERS; p++) {
++        if (!spawnNodeActorOutOfRangeOrHiddenFor(node, rangeSq, p)) {
++            return 0;
++        }
++    }
++    return 1;
++}
++
++u8 spawnNodeActorOutOfRangeScaled(SpawnNode *node, s32 rangeSq) {
++    s32 p;
++
++    for (p = 0; p < COOP_TEST_PLAYERS; p++) {
++        if (!spawnNodeActorOutOfRangeScaledFor(node, rangeSq, p)) {
++            return 0;
++        }
++    }
++    return 1;
++}
++
+ void spawnNodeAssignZone(SpawnNode *node) {
+     s16 i;
+     Zone *entry;
+diff --git a/src/global/36880.c b/src/global/36880.c
+index b4a09dc..78b7409 100644
+--- a/src/global/36880.c
++++ b/src/global/36880.c
+@@ -2864,12 +2864,12 @@ void modelKongVisibilityCheck(s16 type, u8 *visibleOut, s16 *alphaOut) {
+         }
+         break;
+     case 0x11:
+-        if ((gPlayerInventoryTable[gCurrentPlayerIndex].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 3) != 3) {
++        if ((gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 3) != 3) {
+             hit = 1;
+         }
+         break;
+     case 0x8F:
+-        if (!(gPlayerInventoryTable[gCurrentPlayerIndex].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 1)) {
++        if (!(gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 1)) {
+             hit = 1;
+         }
+         break;
+diff --git a/src/global/42630.c b/src/global/42630.c
+index 42589bb..062c2d2 100644
+--- a/src/global/42630.c
++++ b/src/global/42630.c
+@@ -872,7 +872,7 @@ u8 csCondEval(CsCond *cond, CsState *cs, s16 csId) {
+         break;
+     case 0x34:
+         kong = playerLookupKongByActorType(cond->arg[0]);
+-        q = gPlayerInventoryTable[gCurrentPlayerIndex].kong[kong].unk0;
++        q = gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[kong].unk0;
+         if (*q >= cond->arg[1]) {
+             ret = 1;
+         } else {
+diff --git a/src/global/478F0.c b/src/global/478F0.c
+index a7c9c5b..3a41f0f 100644
+--- a/src/global/478F0.c
++++ b/src/global/478F0.c
+@@ -4058,7 +4058,7 @@ void csCmdSetFlag1C1Or1C2(CsState *cs, s16 csId, s16 b, s16 c) {
+ extern u8 gCurrentPlayerIndex;
+ 
+ u8 csCondKongHasHubItems(CsState *cs, s16 csId, s16 b, s16 c) {
+-    PlayerInventory *p = &gPlayerInventoryTable[gCurrentPlayerIndex];
++    PlayerInventory *p = &gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)];
+     s32 idx = mapGetHubWorldIndex(gCurrentWorldId, 0);
+ 
+     return p->kong[gPlayerCharacterId[gCurrentPlayerIndex]].coloredBananas[idx] > 0;
+diff --git a/src/global/7CA80.c b/src/global/7CA80.c
+index c7f3b35..27e5df4 100644
+--- a/src/global/7CA80.c
++++ b/src/global/7CA80.c
+@@ -2004,7 +2004,7 @@ void playerSetActiveGlobals(Actor *actor) {
+     gCurrentPlayerIndex = gActivePlayerState->playerIndex;
+     character = gPlayerCharacterId[gCurrentPlayerIndex];
+     gActivePlayerActor = gPlayerSlots[gCurrentPlayerIndex].actor;
+-    gCurrentKongInventory = &gPlayerInventoryTable[gCurrentPlayerIndex].kong[character];
++    gCurrentKongInventory = &gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[character];
+     gCurrentContPad = gPlayerSlots[gCurrentPlayerIndex].contPad;
+     gContPressedButtons = *gPlayerSlots[gCurrentPlayerIndex].heldButtonsPtr;
+     gCurrentCharacterIndex = gKongCharacterTable[character].characterIndex;
+diff --git a/src/global/80150.c b/src/global/80150.c
+index f742429..303c0d4 100644
+--- a/src/global/80150.c
++++ b/src/global/80150.c
+@@ -415,6 +415,7 @@ void tagBarrelCheckProximity1A(void) {
+ 
+ extern u8 gPlayerCount;
+ extern PlayerStruct *gPlayerSlots;
++extern u8 gCurrentPlayerIndex;
+ 
+ s32 tagBarrelCheckProximityAndFall(s32 spawnType, u8 *inRange, u8 *falling, u8 *triggered) {
+     volatile u8 spawn; // FAKE: force stack home
+@@ -1763,7 +1764,8 @@ void movingLaunchBarrelUpdate(void) {
+         if (sub->launchDelay) {
+             sub->launchDelay--;
+         }
+-        if (((gPlayerPadState[0].pressedButtons & 0xE000) || sub->mode == 3) && sub->launchDelay == 0) {
++        // PORT: coop: the rider's pad launches the barrel
++        if (((gPlayerPadState[sub->rider != NULL ? ((PlayerState *)sub->rider->customState)->playerIndex : 0].pressedButtons & 0xE000) || sub->mode == 3) && sub->launchDelay == 0) {
+             PlayerState *riderState;
+             sfxPlayFromActorWithAltitudeCheck(gCurrentActor, 0x18, 0xFF, 0x7F, 1);
+             riderState = sub->rider->customState;
+@@ -2652,6 +2654,69 @@ void actorScriptStartByKongIndex(void *actor, u16 *kongIndex, s32 index) {
+ 
+ 
+ 
++// PORT: coop: the player index using this tag barrel (0 with one player)
++static s32 tagBarrelCoopPlayer(TagBarrelData *data) {
++    s32 i;
++
++    if (gPortCoop) {
++        for (i = 0; i < gPlayerCount; i++) {
++            if (gPlayerSlots[i].actor == data->player) {
++                return i;
++            }
++        }
++    }
++    return 0;
++}
++
++// PORT: coop: bit k = kong k (0..4) played by a session slot, other than player index `except` on this map
++static s32 coopHeldKongs(s32 except) {
++    s32 held;
++    s32 s;
++    s32 i;
++    s32 onMap;
++    s32 k;
++
++    held = 0;
++    if (!gPortCoop) {
++        if (gPlayerCharacterId[0] < 5) {
++            held |= 1 << gPlayerCharacterId[0];
++        }
++        return held;
++    }
++    for (s = 0; s < PORT_MAX_PLAYERS; s++) {
++        if (!(gPortCoopActiveMask & (1 << s))) {
++            continue;
++        }
++        onMap = -1;
++        for (i = 0; i < gPortCoopPlayers && i < gPlayerCount; i++) {
++            if (gPortCoopPlayerSlot[i] == s) {
++                onMap = i;
++            }
++        }
++        if (onMap >= 0 && onMap == except) {
++            continue;
++        }
++        k = (onMap >= 0 && gPlayerCharacterId[onMap] < 5) ? gPlayerCharacterId[onMap] : gPortCoopSlotKong[s];
++        if (k < 5) {
++            held |= 1 << k;
++        }
++    }
++    return held;
++}
++
++// PORT: coop: kongs a joining player can take: unlocked in this save (the tag barrel test) and not played
++s32 coopFreeKongs(void) {
++    s32 i;
++    s32 unlocked;
++
++    unlocked = 0;
++    for (i = 0; i < 5; i++) {
++        if (flagGet(mapGetConfigValue(0, i), 0)) {
++            unlocked |= 1 << i;
++        }
++    }
++    return unlocked & ~coopHeldKongs(-1);
++}
+ 
+ void tagBarrelSpawnKongs(TagBarrelData *orbit) {
+     s32 i;
+@@ -2667,7 +2732,9 @@ void tagBarrelSpawnKongs(TagBarrelData *orbit) {
+     gSpawnedActor->z = gCurrentActor->z + mathCosF(gCurrentActor->yaw) * 35.0f;
+ 
+     for (i = 0; i < 5; i++) {
+-        if (flagGet(mapGetConfigValue(gCurrentActor->actorType, i), 0)) {
++        // PORT: coop: kongs other players play show locked (the selection skips them)
++        if (flagGet(mapGetConfigValue(gCurrentActor->actorType, i), 0) &&
++            !(coopHeldKongs(tagBarrelCoopPlayer(orbit)) & (1 << i))) {
+             actorType = 0x13C;
+             model = D_8074E814[i].model;
+         } else {
+@@ -2894,6 +2961,11 @@ void tagBarrelUpdateSelection(TagBarrelData *data) {
+     s32 timedOut;
+     s32 isKong;
+     s32 kong;
++    s32 coopPlayer = tagBarrelCoopPlayer(data); // PORT: coop: the player using the barrel
++    s16 savedCharacter;
++    u8 savedPlayerIndex;
++    Actor *savedActor;
++    PlayerState *savedState;
+ 
+     value = data->timer;
+     prevTimer = value;
+@@ -2906,14 +2978,14 @@ void tagBarrelUpdateSelection(TagBarrelData *data) {
+     if (value == 0 && hudCanRender() != 0) {
+         isKong = data->kongs[data->selected]->actorType == 0x13C;
+         timedOut = data->frames >= 9001;
+-        if (((gPlayerPadState[0].stickAbsX >= 0x29) && !timedOut) || !isKong) {
++        if (((gPlayerPadState[coopPlayer].stickAbsX >= 0x29) && !timedOut) || !isKong) {
+             data->timer = 20;
+             if (data->kongs[data->selected]->actorType == 0x13C) {
+                 actorScriptStartByKongIndex(data->kongs[data->selected], data->kongs[data->selected]->customState, 0x8C);
+             }
+             data->previous = data->selected;
+             if (isKong) {
+-                data->direction = (gPlayerPadState[0].stickX >= 0) ? 1 : -1;
++                data->direction = (gPlayerPadState[coopPlayer].stickX >= 0) ? 1 : -1;
+             }
+             data->selected += data->direction;
+             if (data->selected < 0) {
+@@ -2930,7 +3002,7 @@ void tagBarrelUpdateSelection(TagBarrelData *data) {
+                 sfxSetChannelParam(0x65, D_8074E848[data->selected], 2);
+                 return;
+             }
+-            if (((timedOut && isKong) || (gPlayerPadState[0].pressedButtons & 0xE000)) && screenWipeGetState() == 0) {
++            if (((timedOut && isKong) || (gPlayerPadState[coopPlayer].pressedButtons & 0xE000)) && screenWipeGetState() == 0) {
+                 if (isKong) {
+                     player = data->player;
+                     playerState = player->customState;
+@@ -2956,15 +3028,32 @@ void tagBarrelUpdateSelection(TagBarrelData *data) {
+                     data->timer = 30;
+                     playerState->stateFlags &= ~0x20000000;
+                     kong = D_8074E814[data->selected].kongIndex;
++                    // PORT: coop: the kong change applies to the barrel's player (playerApplyCharacterModel works on
++                    // the active player)
++                    savedPlayerIndex = gCurrentPlayerIndex;
++                    savedActor = gActivePlayerActor;
++                    savedState = gActivePlayerState;
++                    savedCharacter = gCurrentCharacterIndex;
++                    if (gPortCoop) {
++                        gCurrentPlayerIndex = coopPlayer;
++                        gActivePlayerActor = player;
++                        gActivePlayerState = playerState;
++                    }
+                     playerSetKongByActorType(kong);
++                    if (gPortCoop && coopPlayer != savedPlayerIndex) {
++                        gCurrentPlayerIndex = savedPlayerIndex;
++                        gActivePlayerActor = savedActor;
++                        gActivePlayerState = savedState;
++                        gCurrentCharacterIndex = savedCharacter;
++                    }
+                     playerKongStopAudioChannels(player, kong);
+                     playerState->gunDrawn = 0;
+                     player->yaw = data->playerYaw;
+                     camRestoreYaw(playerState->camActor);
+-                    camResetPlayer(player, 0);
++                    camResetPlayer(player, coopPlayer);
+                     screenWipeStart(3);
+-                    healthRefill(0);
+-                    gPlayerSlots->unk2E2 |= 0x11;
++                    healthRefill(coopPlayer);
++                    gPlayerSlots[coopPlayer].unk2E2 |= 0x11;
+                     return;
+                 }
+                 sfxPlayOnFreeSlot(0x98, 0x7FFF, 63.0f, 1.0f, 0, 0);
+diff --git a/src/global/ACDC0.c b/src/global/ACDC0.c
+index 435b262..3f532a6 100644
+--- a/src/global/ACDC0.c
++++ b/src/global/ACDC0.c
+@@ -141,6 +141,9 @@ s32 hudFindLevelSlot(s8 levelId) {
+ 
+ 
+ extern OSContPad *gCurrentContPad;
++// PORT: coop: the player who paused drives the pause menu
++#define PAUSE_SLOT (gPortCoop ? &gPlayerSlots[gPausingPlayer] : gPlayerSlots)
++#define PAUSE_PAD (gPortCoop ? gPlayerSlots[gPausingPlayer].contPad : gCurrentContPad)
+ extern u8 gSaveIconTimer;
+ extern s32 D_8076A098;
+ extern u8 gCurrentWorldId;
+@@ -246,7 +249,7 @@ void hudPauseMenuUpdate(void) {
+     }
+     if (hud->fade == 0.0f && sPauseExitRequested == 0) {
+         moved = hud->worldIndex[hud->buffer] != hud->worldIndex[1 - hud->buffer];
+-        buttons = *gPlayerSlots->heldButtonsPtr;
++        buttons = *PAUSE_SLOT->heldButtonsPtr;
+         if (moved == 0 && hud->carouselProgress == 0.0f && sPauseCarouselIndex == sPauseCarouselTarget) {
+             if (buttons & 0x5000) {
+                 sfxPlayOnFreeSlot(0x2C9, 0x7FFF, 63.0f, 1.0f, 0, 0);
+@@ -285,7 +288,7 @@ void hudPauseMenuUpdate(void) {
+         switch (sel) {
+             case 0:
+                 if (hud->menuRow != 3) {
+-                    stickY = gCurrentContPad->stick_y;
++                    stickY = PAUSE_PAD->stick_y;
+                     if (stickY < -0x32) {
+                         if (sPauseStickHeld == 0) {
+                             hud->menuRow++;
+@@ -364,7 +367,7 @@ void hudPauseMenuUpdate(void) {
+                 if (sPauseCarouselTimer == 0.0f) {
+                     D_807FC802 = 0;
+                     if (moved == 0) {
+-                        x = gCurrentContPad->stick_x;
++                        x = PAUSE_PAD->stick_x;
+                         if (x < -0x28) {
+                             do {
+                                 D_807FC802 -= 0x333;
+@@ -429,7 +432,7 @@ void hudPauseMenuUpdate(void) {
+                     hud->carouselAngle += step;
+                 } else {
+                     flag = 0;
+-                    x = gCurrentContPad->stick_x;
++                    x = PAUSE_PAD->stick_x;
+                     if (x < -0x28) {
+                         sPauseCarouselTarget += 1;
+                         if (sPauseCarouselTarget >= sPauseCarouselCount) {
+diff --git a/src/global/CC800.c b/src/global/CC800.c
+index aaed71e..ec51982 100644
+--- a/src/global/CC800.c
++++ b/src/global/CC800.c
+@@ -236,7 +236,7 @@ void playerAllocSlots(s32 spawnIndex) {
+         blk->unk2EB = 0;
+         healthHudReset(&blk->healthHud);
+         if (((gGlobalOverlayFlags & 1) && !(gGlobalCutsceneFlags & 2)) ||
+-            (gPlayerInventoryTable[i].health + gPlayerInventoryTable[i].healthDelta <= 0)) {
++            (gPlayerInventoryTable[PORT_INV(i)].health + gPlayerInventoryTable[PORT_INV(i)].healthDelta <= 0)) {
+             healthRefill(sel);
+         }
+     }
+@@ -702,7 +702,7 @@ void playerSyncInventoryOnSpawn(s32 spawnIndex) {
+     u8 i;
+ 
+     playerGetResolvedKongId(ps->playerIndex);
+-    inventory = &gPlayerInventoryTable[ps->playerIndex];
++    inventory = &gPlayerInventoryTable[PORT_INV(ps->playerIndex)];
+     ps->effectTimer = 0x78;
+     for (i = 0; i < 2; i++) {
+         sfxStopSlotSound(gActivePlayerActor, i);
+@@ -839,9 +839,9 @@ s32 playerAddHealthDelta(u8 playerIndex, s8 delta) {
+         rumbleRequest(playerIndex, 0xFF, 5);
+     }
+     if (!(gGlobalOverlayFlags & 0x800)) {
+-        gPlayerInventoryTable[playerIndex].healthDelta += delta;
++        gPlayerInventoryTable[PORT_INV(playerIndex)].healthDelta += delta;
+     }
+-    if (gPlayerInventoryTable[playerIndex].healthDelta + gPlayerInventoryTable[playerIndex].health <= 0) {
++    if (gPlayerInventoryTable[PORT_INV(playerIndex)].healthDelta + gPlayerInventoryTable[PORT_INV(playerIndex)].health <= 0) {
+         pl->unk2E2 |= 0xC0;
+         return 1;
+     }
+@@ -891,7 +891,7 @@ void playerSpawnMapActors(s32 mapId) {
+ 
+ void playerInitKongActor(s32 playerIndex, s32 unused1, s32 unused2) {
+     s32 kong = playerGetResolvedKongId(playerIndex);
+-    KongInventory *p = &gPlayerInventoryTable[playerIndex].kong[kong];
++    KongInventory *p = &gPlayerInventoryTable[PORT_INV(playerIndex)].kong[kong];
+ 
+     p->weaponFlags = 7;
+     p->instrumentFlags = 0xF;
+@@ -982,6 +982,8 @@ void coopPrepareMapLoad(void) {
+         gPortCoopEnding = 0;
+         gPortCoopActiveMask = 0;
+     }
++    PORT_TRACE(PORT_TRACE_MAP, "coop roster map=0x%x players=%d mask=0x%x mode=%d overlay=0x%x", (int)gCurrentMap,
++               (int)gPortCoopPlayers, (int)gPortCoopActiveMask, (int)gGameMode, (unsigned)gGlobalOverlayFlags);
+ }
+ 
+ // PORT: coop: lockstep check value (port/src/net.c): diverging clients differ here first
+diff --git a/src/global/E4090.c b/src/global/E4090.c
+index 2006c8f..378d81c 100644
+--- a/src/global/E4090.c
++++ b/src/global/E4090.c
+@@ -1747,7 +1747,7 @@ void playerInputHandleAButtonState41(void) {
+ extern s32 gCurrentMap;
+ 
+ void playerInputCheckBButtonChargeCallback(void) {
+-    if ((gPlayerPadState[gCurrentPlayerIndex].pressedButtons & 0x8000) && (gPlayerInventoryTable[gCurrentPlayerIndex].kong[3].moveLevel >= 2) && (gCurrentMap != 0xE)) {
++    if ((gPlayerPadState[gCurrentPlayerIndex].pressedButtons & 0x8000) && (gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[3].moveLevel >= 2) && (gCurrentMap != 0xE)) {
+         playerStateQueueCallback(9, 0, gCurrentPlayerIndex);
+         gActivePlayerState->jumpTimer = gScheduler.unk280 - 0x1E;
+     }
+@@ -2567,17 +2567,17 @@ void playerInputHandleBButtonSpecial(void) {
+         } else {
+             switch (gPlayerCharacterId[gCurrentPlayerIndex]) {
+                 case 2:
+-                    if (gPlayerInventoryTable[gCurrentPlayerIndex].kong[2].moveLevel > 0) {
++                    if (gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[2].moveLevel > 0) {
+                         playerStateQueueCallback(0x25, 0, gCurrentPlayerIndex);
+                     }
+                     break;
+                 case 4:
+-                    if (gPlayerInventoryTable[gCurrentPlayerIndex].kong[4].moveLevel >= 2) {
++                    if (gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[4].moveLevel >= 2) {
+                         playerStateQueueCallback(0x26, 0, gCurrentPlayerIndex);
+                     }
+                     break;
+                 case 1:
+-                    if (gPlayerInventoryTable[gCurrentPlayerIndex].kong[1].moveLevel > 0) {
++                    if (gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[1].moveLevel > 0) {
+                         gActivePlayerState->turnRate = 0x64;
+                         gCurrentActor->state = 0x2E;
+                         gCurrentActor->unk155 = 0;
+diff --git a/src/global/F56F0.c b/src/global/F56F0.c
+index e6b0c33..d437e21 100644
+--- a/src/global/F56F0.c
++++ b/src/global/F56F0.c
+@@ -404,7 +404,7 @@ void playerKongDrawGun(Actor *actor) {
+             extra->gunDrawn = 1;
+         }
+         if (mpIsMatchType(0) != 0) {
+-            gPlayerInventoryTable[extra->playerIndex].kong[playerGetResolvedKongId(extra->playerIndex)].weaponFlags = 1;
++            gPlayerInventoryTable[PORT_INV(extra->playerIndex)].kong[playerGetResolvedKongId(extra->playerIndex)].weaponFlags = 1;
+             gridSpawnAmmoCrateItems(extra->playerIndex, 0, actor, 0x8F);
+         }
+     }
+diff --git a/src/global/F9450.c b/src/global/F9450.c
+index 6b76625..6516721 100644
+--- a/src/global/F9450.c
++++ b/src/global/F9450.c
+@@ -621,7 +621,7 @@ void gridCollectItem(u8 playerIndex, s32 modelType, u8 collisionOverride) {
+             break;
+         case 0xB7:
+             for (i = 0; i < 5; i++) {
+-                gPlayerInventoryTable[playerIndex].kong[i].coins += 5;
++                gPlayerInventoryTable[PORT_INV(playerIndex)].kong[i].coins += 5;
+             }
+             cutsceneStartFlag16CPath();
+             break;
+@@ -897,7 +897,7 @@ void gridDispatchRect(u8 playerIndex, GridBounds *bounds) {
+     f32 radius;
+     s32 cell;
+ 
+-    if (gPlayerInventoryTable[playerIndex].health > 0) {
++    if (gPlayerInventoryTable[PORT_INV(playerIndex)].health > 0) {
+         radius = bounds->radius;
+         x = bounds->x;
+         if (x <= D_807FD726 + radius) {
+@@ -922,12 +922,12 @@ s32 gridCheckNodeCondition(s16 modelSlot, u8 playerIndex, u16 modelType) {
+ 
+     switch (modelType) {
+     case 0x11:
+-        if ((gPlayerInventoryTable[gCurrentPlayerIndex].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 3) != 3) {
++        if ((gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 3) != 3) {
+             return 0;
+         }
+         break;
+     case 0x8F:
+-        if ((gPlayerInventoryTable[gCurrentPlayerIndex].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 1) == 0) {
++        if ((gPlayerInventoryTable[PORT_INV(gCurrentPlayerIndex)].kong[gPlayerCharacterId[gCurrentPlayerIndex]].weaponFlags & 1) == 0) {
+             return 0;
+         }
+         break;
+@@ -1202,7 +1202,7 @@ void gridCollectActorsInRange(u8 playerIndex) {
+ 
+     player = gPlayerSlots[playerIndex].actor;
+     playerState = player->customState;
+-    if (gPlayerInventoryTable[playerIndex].health > 0) {
++    if (gPlayerInventoryTable[PORT_INV(playerIndex)].health > 0) {
+         for (typeIndex = 0; typeIndex < 0x2A; typeIndex++) {
+             if (gGridTypeTable[typeIndex].actorType != 0) {
+                 for (i = 0; i < gActiveActorCount; i++) {
+diff --git a/src/global/FCCD0.c b/src/global/FCCD0.c
+index 09b2904..0ff71d5 100644
+--- a/src/global/FCCD0.c
++++ b/src/global/FCCD0.c
+@@ -151,7 +151,7 @@ void slotQueueUpdateGoldenBananaTotal(u8 player) {
+     s32 count;
+ 
+     sum = 0;
+-    inv = &gPlayerInventoryTable[player];
++    inv = &gPlayerInventoryTable[PORT_INV(player)];
+     count = sizeof(inv->kong[0].goldenBananas) / sizeof(inv->kong[0].goldenBananas[0]);
+     for (i = 0; i < count; i++) {
+         for (j = 0; j < 5; j++) {
+@@ -476,17 +476,17 @@ u16 slotQueueGetMaxValue(s32 slot, s32 player) {
+         max = 0x3E7;
+         break;
+     case 2:
+-        max = (1 << gPlayerInventoryTable[player].kong[kong].ammoBeltLevel) * 0x32;
++        max = (1 << gPlayerInventoryTable[PORT_INV(player)].kong[kong].ammoBeltLevel) * 0x32;
+         break;
+     case 3:
+         if (PORT_BATTLE()) {
+             max = 0xA;
+         } else {
+-            max = (1 << gPlayerInventoryTable[player].kong[kong].ammoBeltLevel) * 0x32;
++            max = (1 << gPlayerInventoryTable[PORT_INV(player)].kong[kong].ammoBeltLevel) * 0x32;
+         }
+         break;
+     case 4:
+-        max = (gPlayerInventoryTable[player].kong[kong].ammoBeltLevel * 5) + 0x14;
++        max = (gPlayerInventoryTable[PORT_INV(player)].kong[kong].ammoBeltLevel * 5) + 0x14;
+         break;
+     case 5:
+         if (PORT_BATTLE()) {
+@@ -501,7 +501,7 @@ u16 slotQueueGetMaxValue(s32 slot, s32 player) {
+         if (PORT_BATTLE()) {
+             max = 0x14;
+         } else {
+-            bits = gPlayerInventoryTable[player].kong[kong].instrumentFlags;
++            bits = gPlayerInventoryTable[PORT_INV(player)].kong[kong].instrumentFlags;
+             level = 1;
+             if (bits & 1) {
+                 rest = bits;
+@@ -542,7 +542,7 @@ void slotQueueAddValue(s32 slot, u8 player, s16 delta) {
+     s32 pad;
+ 
+     kong = playerGetResolvedKongId(player);
+-    kongInv = &gPlayerInventoryTable[player].kong[kong];
++    kongInv = &gPlayerInventoryTable[PORT_INV(player)].kong[kong];
+     slots = slotQueueGetAddress(player);
+     if (((slots[slot].locked == 0) || (delta >= 0)) && (slots[slot].displayMode == 0)) {
+         switch (slot) {

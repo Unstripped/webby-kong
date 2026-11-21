@@ -143,4 +143,31 @@ s32 portSpatialPan(void *voice, s32 pan);   /* 0x40 for a voice rendered binaura
 void portSpatialVoiceStart(void *pvoice);   /* a physical voice starts a new sound: its filter history resets */
 u32 portSpatialEnvmix(void *pvoice, void *voice, s32 *retarget); /* END command word, 0: plain envmixer */
 
+/* ---- online co-op (port/src/net.c; lockstep netplay, web/net.js) ---- */
+#define PORT_MAX_PLAYERS 5
+/* sim state (in the snapshot, identical on every client) */
+extern u8 gPortCoop;            /* co-op session: several adventure players, not Kong Battle */
+extern u8 gPortCoopEnding;      /* the host ended the session: the next map load returns to one player */
+extern u8 gPortCoopActiveMask;  /* bit s: network slot s is in the session (0: no session started) */
+extern u8 gPortCoopSlotKong[PORT_MAX_PLAYERS];   /* kong of each slot, 0xFF: inactive */
+extern u8 gPortCoopPlayerSlot[PORT_MAX_PLAYERS]; /* player index on this map -> slot */
+extern u8 gPortCoopPlayers;     /* players on this map */
+extern u8 gPortCoopRosterDirty; /* the active mask changed: reload the map with the new roster */
+extern u8 gPortCoopTrigger;     /* player index that started the last map transition */
+extern u32 gPortNetRead;        /* controller reads so far */
+/* the game treats gPlayerCount >= 2 as Kong Battle; co-op keeps the adventure rules */
+#define PORT_BATTLE() (gPlayerCount >= 2 && !gPortCoop)
+#define PORT_INV(i) (gPortCoop ? 0 : (i)) /* co-op players share inventory block 0 */
+/* G_NOOP view marker: w0 = G_NOOP << 24 | PORT_G_VIEW_TAG, w1 = owning view index or one of the values below */
+#define PORT_G_VIEW_TAG 0x564945u
+#define PORT_VIEW_SHARED 0xFFFFFFFFu /* every client draws it */
+#define PORT_VIEW_NONE 0xFFFFFFFEu   /* nobody draws it */
+s32 port_net_local_view(void);
+u32 coopStateHash(void);              /* src/global/CC800.c */
+void coopPrepareMapLoad(void);        /* src/global/CC800.c: roster of the map mapLoadLevel loads */
+void coopReloadAtLeader(void);        /* src/global/3C10.c: reload the map at player 1 (roster change) */
+void coopNoteTransitionTrigger(void); /* src/global/3C10.c: remember which player started a transition */
+u32 coopViewOwner(s32 view);         /* src/global/2F550.c: view marker value for view i */
+s32 coopFreeKongs(void);              /* src/global/80150.c */
+
 #endif

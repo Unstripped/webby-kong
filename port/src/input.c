@@ -2,12 +2,13 @@
 #include "port_internal.h"
 
 u16 gPortHeadlessButtons;
+s8 gPortHeadlessStickX, gPortHeadlessStickY;
 
 #ifdef PORT_HEADLESS
 void portInputPoll(void) {
     gPortPad.button = gPortHeadlessButtons;
-    gPortPad.stick_x = 0;
-    gPortPad.stick_y = 0;
+    gPortPad.stick_x = gPortHeadlessStickX;
+    gPortPad.stick_y = gPortHeadlessStickY;
 }
 
 u16 portInputTakeTaps(void) {

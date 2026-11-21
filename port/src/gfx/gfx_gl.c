@@ -594,7 +594,11 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
 }
 
 int portGfxWideSpanX(f32 *left, f32 *right) {
-    float half = gfxFbPhysWidth(gPortViWidth) / (float)gGfxScale * 0.5f, mid = gPortViWidth * 0.5f;
+    /* netplay: every client's sim must see the same span, so it comes from the forced 16:9 aspect, not the
+     * render scale's rounded image width */
+    float half = portNetActive() ? gPortViWidth * 0.75f * (16.0f / 9.0f) * 0.5f
+                                 : gfxFbPhysWidth(gPortViWidth) / (float)gGfxScale * 0.5f,
+          mid = gPortViWidth * 0.5f;
     if (half <= mid) {
         return 0;
     }

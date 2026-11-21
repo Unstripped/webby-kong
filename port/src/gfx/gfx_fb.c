@@ -253,10 +253,11 @@ void gfxFbInit(void) {
 }
 
 /* the drawable size picks the scale for images allocated from now on: at least the canvas height (present only
- * downsamples), capped at 6x and at the GL size limits */
+ * downsamples), capped at 6x and at the GL size limits. Netplay: the game sees the wide span (chunk and spawn
+ * culling), so every client renders 16:9 whatever its window; present letterboxes. */
 void gfxFbSetWindowSize(int w, int h) {
     u32 imgH = gPortViWidth * 3 / 4, s;
-    sWinAspect = h > 0 ? (float)w / h : 4.0f / 3.0f;
+    sWinAspect = portNetActive() ? 16.0f / 9.0f : h > 0 ? (float)w / h : 4.0f / 3.0f;
     if (sScaleOverride != 0) {
         s = sScaleOverride;
     } else {
@@ -606,8 +607,21 @@ static void syncDepth(u32 addr, u32 len) {
 
 void gfxFbSyncRdram(u32 addr, u32 len) {
     int i;
-    if (gGfxDepthDirty && gGfx.zimg != 0 && addr < gGfx.zimg + gGfxDepthW * gGfxDepthH * 2 && addr + len > gGfx.zimg) {
-        syncDepth(gGfx.zimg, len);
+    if ((gGfxDepthDirty || portNetActive()) && gGfx.zimg != 0 && addr < gGfx.zimg + gGfxDepthW * gGfxDepthH * 2 &&
+        addr + len > gGfx.zimg) {
+        if (portNetActive()) {
+            /* the game's depth reads (camera, visibility) feed the sim: every client sees the far plane, whatever
+             * its GPU drew */
+            u32 lo = addr > gGfx.zimg ? addr : gGfx.zimg, hi = gGfx.zimg + gGfxDepthW * gGfxDepthH * 2, a;
+            if (addr + len < hi) {
+                hi = addr + len;
+            }
+            for (a = lo & ~1u; a + 2 <= hi; a += 2) {
+                *(u16 *)a = 0xFFFC;
+            }
+        } else {
+            syncDepth(gGfx.zimg, len);
+        }
         gGfxDepthDirty = 0;
     }
     for (i = 0; i < sFbCount; i++) {

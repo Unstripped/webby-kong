@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 20:38:04 -0700
+Subject: [PATCH] port: coop views
+
+
+diff --git a/src/global/109660.c b/src/global/109660.c
+index 3bdef19..d8d3940 100644
+--- a/src/global/109660.c
++++ b/src/global/109660.c
+@@ -12,6 +12,10 @@
+ 
+ extern Actor *gPrimaryPlayerActor;
+ extern PlayerStruct *gPlayerSlots;
++extern u8 gCurrentPlayerIndex;
++// PORT: coop: the sky follows the camera of the view being drawn (playerViewsRender sets gCurrentPlayerIndex; one
++// player: always 0)
++#define VIEW_SLOT (&gPlayerSlots[gCurrentPlayerIndex])
+ extern u8 gPlayerCount;
+ extern s32 gCurrentMap;
+ extern s16 gScreenWidth;
+@@ -166,7 +170,7 @@ Gfx *gfxDrawBackgroundQuad(Gfx *gdl, f32 rotX, f32 angle, Mtx *mtx, u8 skyTypeA,
+     y = -(256.0f - (cosApprox(angle) * 300.0f)) - 80.0f;
+     camState = gCamActor->customState;
+     if (skyTypeA == 5) {
+-        y += 0.08 * gPlayerSlots->camYInt - 75.0;
++        y += 0.08 * VIEW_SLOT->camYInt - 75.0;
+     }
+ 
+     switch (colorMode) {
+@@ -188,7 +192,7 @@ Gfx *gfxDrawBackgroundQuad(Gfx *gdl, f32 rotX, f32 angle, Mtx *mtx, u8 skyTypeA,
+         }
+         break;
+     }
+-    if ((camState->unkFA != 0) && (gPlayerSlots->eyeY < (camState->unk90 + 3.0f))) {
++    if ((camState->unkFA != 0) && (VIEW_SLOT->eyeY < (camState->unk90 + 3.0f))) {
+         red *= 0.1;
+         green *= 0.1;
+         blue *= 0.3;
+@@ -207,13 +211,13 @@ Gfx *gfxDrawBackgroundQuad(Gfx *gdl, f32 rotX, f32 angle, Mtx *mtx, u8 skyTypeA,
+     gSPSetGeometryMode(gdl++, 0x200004);
+     gSPMatrix(gdl++, &D_2000080, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+     gSPMatrix(gdl++, &D_2000180, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+-    gSPViewport(gdl++, osVirtualToPhysical(&gPlayerSlots->viewport[gGfxBufferIndex]));
+-    gDPSetScissor(gdl++, G_SC_NON_INTERLACE, gPlayerSlots->rect[0], gPlayerSlots->rect[1], gPlayerSlots->rect[2], gPlayerSlots->rect[3]);
++    gSPViewport(gdl++, osVirtualToPhysical(&VIEW_SLOT->viewport[gGfxBufferIndex]));
++    gDPSetScissor(gdl++, G_SC_NON_INTERLACE, VIEW_SLOT->rect[0], VIEW_SLOT->rect[1], VIEW_SLOT->rect[2], VIEW_SLOT->rect[3]);
+ 
+     offset = gSkyQuadVtx[skyTypeA][2].v.ob[1];
+     vtxList = &gSkyQuadVtx[skyTypeA];
+     guTranslateF(mtxA, 0.0f, -offset, 0.0f);
+-    matrixMakeRotationZ(mtxB, (((0x1000 - gPlayerSlots->skyRoll) & 0xFFF) * 360) / 4096);
++    matrixMakeRotationZ(mtxB, (((0x1000 - VIEW_SLOT->skyRoll) & 0xFFF) * 360) / 4096);
+     guMtxCatF(mtxA, mtxB, mtxA);
+     guTranslateF(mtxB, 160.0f, offset + y, 0.0f);
+     guMtxCatF(mtxA, mtxB, mtxA);
+@@ -271,7 +275,7 @@ void lensFlareAddFromAngle(s16 azimuthAngle, s16 elevationAngle, u8 colorMode) {
+ 
+     x = mathSinF(azimuthAngle) * 32767.0;
+     z = mathCosF(azimuthAngle) * 32767.0;
+-    y = elevationAngle - 8.0 * gPlayerSlots->camYInt;
++    y = elevationAngle - 8.0 * VIEW_SLOT->camYInt;
+     if (colorMode != 0) {
+         if (colorMode == 1) {
+             lightGetColor(&lightR, &lightG, &lightB, gPrimaryPlayerActor->chunkIndex);
+@@ -313,7 +317,7 @@ Gfx *gfxDrawSkySprite(Gfx *dl, s16 azimuthAngle, s16 elevationAngle, u8 mode) {
+     gDPSetPrimColor(dl++, 0, 0, 0xFF, 0xFF, 0xFF, alpha);
+     x = mathSinF(azimuthAngle) * 32767.0;
+     z = mathCosF(azimuthAngle) * 32767.0;
+-    y = elevationAngle - 8.0 * gPlayerSlots->camYInt;
++    y = elevationAngle - 8.0 * VIEW_SLOT->camYInt;
+     camProjectToScreen(x, y, z, &screenX, &screenY, 0, 4.0f, 0);
+     if ((screenX > -320.0f) && (screenX < 1600.0f) && (screenY > -240.0f) && (screenY < 1200.0f)) {
+         dl = playerViewGfxSetup(dl, 0);
+@@ -427,7 +431,7 @@ Gfx *gfxDrawRotatedTiledBackground(Gfx *glist, f32 rotX, f32 rotY, s32 assetId,
+     f32 roll;
+ 
+     scale = 5.6f / gBgRotatedScale;
+-    playerActor = gPlayerSlots->actor;
++    playerActor = VIEW_SLOT->actor;
+     playerState = playerActor->customState;
+     guScaleF(mtxA, scale, scale, scale);
+     guTranslateF(mtxB, -2560.0f, -1920.0f, 0.0f);
+@@ -564,7 +568,7 @@ Gfx *gfxClearScreenSetViewportScissor(Gfx *glist) {
+     gDPSetScissor(glist++, G_SC_NON_INTERLACE, gGfxScreenLeft, gGfxScreenTop, gGfxScreenRight, gGfxScreenBottom);
+     gDPFillRectangle(glist++, gGfxScreenLeft, gGfxScreenTop, gGfxScreenRight - 1, gGfxScreenBottom - 1);
+     gDPPipeSync(glist++);
+-    gDPSetScissor(glist++, G_SC_NON_INTERLACE, gPlayerSlots->rect[0], gPlayerSlots->rect[1], gPlayerSlots->rect[2], gPlayerSlots->rect[3]);
++    gDPSetScissor(glist++, G_SC_NON_INTERLACE, VIEW_SLOT->rect[0], VIEW_SLOT->rect[1], VIEW_SLOT->rect[2], VIEW_SLOT->rect[3]);
+     gSPSetOtherMode(glist++, G_SETOTHERMODE_H, 20, 2, 0);
+     return glist;
+ }
+@@ -609,7 +613,7 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+         dl = gfxDrawRotatedTiledBackground(dl, rotX, rotY, 0x2E, 320.0f, 240.0f);
+         break;
+     case 0x26:
+-        switch (gPlayerSlots->unk290) {
++        switch (VIEW_SLOT->unk290) {
+         case 0:
+         case 1:
+         case 3:
+@@ -625,7 +629,7 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+         }
+         break;
+     case 0x1E:
+-        if (((gPlayerSlots->unk290 != 7) && (gPlayerSlots->unk290 != 6) && (gPlayerSlots->unk290 != 8) && (gPlayerSlots->unk290 != 0)) || (D_807FD800 != 0)) {
++        if (((VIEW_SLOT->unk290 != 7) && (VIEW_SLOT->unk290 != 6) && (VIEW_SLOT->unk290 != 8) && (VIEW_SLOT->unk290 != 0)) || (D_807FD800 != 0)) {
+             dl = gfxDrawBackgroundQuad(dl, rotX, rotY, mtx, 0, 0, ((gPrimaryPlayerActor->chunkIndex == 9) || (gPrimaryPlayerActor->chunkIndex == 0xB) || (gPrimaryPlayerActor->chunkIndex == 3)) ? 1 : 0, 9, 0.0f);
+         }
+         break;
+@@ -640,7 +644,7 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+         dl = gfxClearScreenSetViewportScissor(dl);
+         break;
+     case 0x7:
+-        switch (gPlayerSlots->unk290) {
++        switch (VIEW_SLOT->unk290) {
+         case 8:
+         case 9:
+         case 12:
+@@ -662,7 +666,7 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+         dl = gfxDrawSkySprite(gfxDrawBackgroundQuad(dl, rotX, rotY, mtx, 3, 3, 1, -1, 0.0f), 0, 0x7D00, 0);
+         break;
+     case 0x30:
+-        if ((gPlayerSlots->unk290 >= 0xC) && (gPlayerSlots->unk290 < 0x12)) {
++        if ((VIEW_SLOT->unk290 >= 0xC) && (VIEW_SLOT->unk290 < 0x12)) {
+             dl = gfxClearScreenSetViewportScissor(dl);
+         } else {
+             lensFlareAddFromAngle(0, 0x5DC0, 1);
+@@ -674,8 +678,8 @@ Gfx *gfxDrawMapBackground(Gfx *dl, f32 rotX, f32 rotY, Mtx *mtx, s16 player) {
+         break;
+     case 0x22:
+         if (camIsCutsceneActive() != 0) {
+-            x = gPlayerSlots->camX;
+-            z = gPlayerSlots->camZ;
++            x = VIEW_SLOT->camX;
++            z = VIEW_SLOT->camZ;
+         } else {
+             x = gPrimaryPlayerActor->x;
+             z = gPrimaryPlayerActor->z;
+diff --git a/src/global/2F550.c b/src/global/2F550.c
+index 96cfd97..7526c43 100644
+--- a/src/global/2F550.c
++++ b/src/global/2F550.c
+@@ -531,6 +531,20 @@ extern u8 gCurrentPlayerIndex;
+ extern PlayerStruct *gPlayerSlots;
+ 
+ 
++// PORT: coop: the view marker of view i (port/src/gfx/gfx.c draws only the local player's view). A cutscene's
++// camera is the same in every view: everyone watches view 0.
++u8 camIsCutsceneActive(void);
++
++u32 coopViewOwner(s32 view) {
++    if (!gPortCoop) {
++        return PORT_VIEW_SHARED;
++    }
++    if (camIsCutsceneActive()) {
++        return view == 0 ? PORT_VIEW_SHARED : PORT_VIEW_NONE;
++    }
++    return view;
++}
++
+ Gfx *playerViewsRender(Gfx *gfx, void *frame) {
+     s32 i;
+     u8 alpha;
+@@ -544,6 +558,7 @@ Gfx *playerViewsRender(Gfx *gfx, void *frame) {
+         gSPSetOtherMode(gfx++, G_SETOTHERMODE_H, G_MDSFT_PIPELINE, 1, G_PM_NPRIMITIVE);
+     }
+     for (i = 0; i < gViewportCount; i++) {
++        gPortViewMarker(gfx++, coopViewOwner(i)); // PORT: coop
+         if (gPlayerSlots[i].active != 0) {
+             gCurrentPlayerIndex = i;
+             gfx = mapRenderPlayerView(gfx, gPlayerSlots[i].eyeX, gPlayerSlots[i].eyeY, gPlayerSlots[i].eyeZ,
+@@ -564,6 +579,7 @@ Gfx *playerViewsRender(Gfx *gfx, void *frame) {
+             gDPPipeSync(gfx++);
+         }
+     }
++    gPortViewMarker(gfx++, PORT_VIEW_SHARED); // PORT: coop
+     mapFrameEnd();
+     gDPPipeSync(gfx++);
+     return gfx;
