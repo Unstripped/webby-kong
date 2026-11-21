@@ -79,12 +79,9 @@ async function start(romBytes) {
   module.portRom = rom;
   window.Module = module;
   if (window.dk64dbg) window.dk64dbg.moduleReady(); // before callMain: applies the saved trace mask from boot
-  const params = new URLSearchParams(location.search);
-  const args = [];
-  if (params.has('scale')) args.push('--scale', params.get('scale'));
-  if (params.has('msaa')) args.push('--msaa', params.get('msaa'));
-  if (params.has('drawdist')) args.push('--drawdist', params.get('drawdist'));
+  const args = window.dk64settings.args();
   module.callMain(args);
+  window.dk64settings.started();
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
   if (window.dk64touch) window.dk64touch.started();
   if (window.dk64menu) window.dk64menu.started();
@@ -105,7 +102,7 @@ window.addEventListener('keydown', () => {
   if (ctx && ctx.state !== 'running') ctx.resume();
 });
 
-// dev only: ?rom=<url>
+// ?rom=<url> (dev) or the server's mounted ROM
 const romUrl = new URLSearchParams(location.search).get('rom');
 if (romUrl) {
   setStatus('Fetching ROM…');
@@ -113,4 +110,11 @@ if (romUrl) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.arrayBuffer();
   }).then(start).catch((err) => setStatus(`ROM fetch failed: ${err.message}`));
+} else {
+  // tools/serve.py --rom (the Docker image); 404 = none mounted: keep the file picker
+  fetch('api/rom', { cache: 'no-store' }).then((r) => {
+    if (!r.ok) return;
+    setStatus('Loading ROM from server…');
+    return r.arrayBuffer().then(start);
+  }).catch((err) => { console.warn('server ROM fetch failed', err); setStatus('Select your ROM to start.'); });
 }

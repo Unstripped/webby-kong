@@ -55,12 +55,13 @@ static void ensureDepth(const GfxFb *fb) {
         glGenFramebuffers(1, &sDepthFbo);
         glBindFramebuffer(GL_FRAMEBUFFER, sDepthFbo);
         glDrawBuffers(1, &none);
-        if (sSamples) {
-            glGenRenderbuffers(1, &sDepthMsRb);
-            glGenFramebuffers(1, &sDepthResolveFbo);
-            glBindFramebuffer(GL_FRAMEBUFFER, sDepthResolveFbo);
-            glDrawBuffers(1, &none);
-        }
+    }
+    if (sSamples && sDepthMsRb == 0) { /* first MSAA depth, or MSAA turned on live (portGfxSetMsaa) */
+        GLenum none = GL_NONE;
+        glGenRenderbuffers(1, &sDepthMsRb);
+        glGenFramebuffers(1, &sDepthResolveFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, sDepthResolveFbo);
+        glDrawBuffers(1, &none);
     }
     gGfxDepthW = fb->width;
     gGfxDepthH = fb->height;
@@ -168,22 +169,73 @@ void gfxFbQsRestored(void) {
     gGfxDepthDirty = 0;
 }
 
-/* only stores the request: callable before gfxFbInit */
-void portGfxConfigure(int scale, int msaa) {
-    if (scale >= 0 && scale <= 8) {
-        sScaleOverride = (u32)scale;
-    } else {
+int portGfxSetScale(int scale) {
+    if (scale < 0 || scale > 8) {
         portLog("PORT: ignoring scale %d (0..8)", scale);
+        return 0;
     }
-    if (msaa == 0 || msaa == 1 || msaa == 2 || msaa == 4 || msaa == 8) {
-        sMsaaRequest = msaa;
-    } else {
-        portLog("PORT: ignoring msaa %d (0,2,4,8)", msaa);
+    sScaleOverride = (u32)scale; /* the next task's gfxFbSetWindowSize picks it up; gfxFbFor resizes the images */
+    return 1;
+}
+
+static int samplesFor(int request) {
+    GLint max = 0;
+    int s;
+    glGetIntegerv(GL_MAX_SAMPLES, &max);
+    s = request > max ? max : request;
+    return s < 2 ? 0 : s;
+}
+
+int portGfxMaxSamples(void) {
+    GLint max = 0;
+    if (sScratch == NULL) {
+        return 0;
     }
+    glGetIntegerv(GL_MAX_SAMPLES, &max);
+    return max;
+}
+
+/* before gfxFbInit only stores the request; after it, rebuilds every colour image's multisample storage between
+ * frames, carrying the drawn image over through the single-sample texture */
+int portGfxSetMsaa(int msaa) {
+    int samples, i;
+    if (msaa != 0 && msaa != 1 && msaa != 2 && msaa != 4 && msaa != 8) {
+        portLog("PORT: ignoring msaa %d (0,1,2,4,8)", msaa);
+        return sSamples;
+    }
+    sMsaaRequest = msaa;
+    if (sScratch == NULL) {
+        return 0;
+    }
+    samples = samplesFor(msaa);
+    if (samples == sSamples) {
+        return sSamples;
+    }
+    for (i = 0; i < sFbCount; i++) {
+        gfxFbResolve(&sFbs[i]); /* with the old sSamples: the colour texture now holds everything drawn */
+        if (sFbs[i].msColor != 0) {
+            glDeleteRenderbuffers(1, &sFbs[i].msColor);
+            sFbs[i].msColor = 0;
+        }
+        sFbs[i].scale = 0; /* forces gfxFbFor to reallocate */
+    }
+    if (sDepthMsRb != 0) {
+        glDeleteRenderbuffers(1, &sDepthMsRb);
+        glDeleteFramebuffers(1, &sDepthResolveFbo);
+        sDepthMsRb = sDepthResolveFbo = 0;
+    }
+    sSamples = samples;
+    sDepthPhysW = 0; /* ensureDepth reallocates */
+    /* eager: gfxFbPresent uploads into images found by gfxFbFind, which never reallocates */
+    for (i = 0; i < sFbCount; i++) {
+        gfxFbFor(sFbs[i].addr, sFbs[i].width);
+    }
+    portLog("PORT: msaa %d", sSamples);
+    return sSamples;
 }
 
 void gfxFbInit(void) {
-    GLint maxTex = 0, maxRb = 0, maxSamples = 0;
+    GLint maxTex = 0, maxRb = 0;
     glGenTextures(1, &sStageTex);
     sDepthReadProg = gfxCompileProgram(kQuadVs, kDepthReadFs);
     sCopyProg = gfxCompileProgram(kQuadVs, kCopyFs);
@@ -196,11 +248,7 @@ void gfxFbInit(void) {
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRb);
     sMaxDim = maxTex < maxRb ? maxTex : maxRb;
-    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
-    sSamples = sMsaaRequest > maxSamples ? maxSamples : sMsaaRequest;
-    if (sSamples < 2) {
-        sSamples = 0;
-    }
+    sSamples = samplesFor(sMsaaRequest);
     portLog("PORT: msaa %d", sSamples);
 }
 
@@ -313,9 +361,6 @@ GfxFb *gfxFbFor(u32 addr, u32 width) {
         memset(fb, 0, sizeof *fb);
         glGenFramebuffers(1, &fb->fbo);
         glGenFramebuffers(1, &fb->resolveFbo);
-        if (sSamples) {
-            glGenRenderbuffers(1, &fb->msColor);
-        }
     } else if (fb->gpuDirty && !fb->cpuDirty) {
         /* resized while the GPU image is newer than RDRAM: carry the drawn frame over instead of re-uploading
          * stale RDRAM (the scale follows every window height change). Pending CPU writes win, as in gfxFbBind. */
@@ -328,6 +373,9 @@ GfxFb *gfxFbFor(u32 addr, u32 width) {
     }
     if (fb->color == 0) {
         glGenTextures(1, &fb->color);
+    }
+    if (sSamples && fb->msColor == 0) {
+        glGenRenderbuffers(1, &fb->msColor);
     }
     fb->addr = addr;
     fb->width = width;

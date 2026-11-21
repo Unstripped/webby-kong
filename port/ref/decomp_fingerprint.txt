@@ -1,0 +1,2 @@
+# decomp_fingerprint() of the decomp the files beside this were generated from
+8cf6ba44a8317ce602f8dc2b1d380102feae4739

@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 15:59:04 -0700
+Subject: [PATCH] port: audio rate
+
+
+diff --git a/src/global/140600.c b/src/global/140600.c
+index edf0b09..469a7f1 100644
+--- a/src/global/140600.c
++++ b/src/global/140600.c
+@@ -187,7 +187,8 @@ void n_alFxNew(void **outFx, AudioInitArgs *config, s16 busIndex, ALHeap *heap)
+     tableOffset = 0;
+     fxState->section_count = paramTable[tableOffset];
+     tableOffset += 1;
+-    fxState->length = paramTable[tableOffset];
++    // PORT: audio rate: the delay line length and taps are 22050 Hz sample counts; keep their times at 44100
++    fxState->length = paramTable[tableOffset] * (config->outputRate / 22050);
+     tableOffset += 1;
+     fxState->delay = alHeapDBAlloc(NULL, 0, heap, fxState->section_count, sizeof(SynFxDelay));
+     fxState->base[0] = alHeapDBAlloc(NULL, 0, heap, fxState->length, 2);
+@@ -200,9 +201,9 @@ void n_alFxNew(void **outFx, AudioInitArgs *config, s16 busIndex, ALHeap *heap)
+     }
+     for (sectionIdx = 0; sectionIdx < fxState->section_count; sectionIdx++) {
+         section = &fxState->delay[sectionIdx];
+-        section->input = paramTable[tableOffset];
++        section->input = paramTable[tableOffset] * (config->outputRate / 22050);
+         tableOffset += 1;
+-        section->output = paramTable[tableOffset];
++        section->output = paramTable[tableOffset] * (config->outputRate / 22050);
+         tableOffset += 1;
+         section->fbcoef = paramTable[tableOffset];
+         tableOffset += 1;
+diff --git a/src/global/145D70.c b/src/global/145D70.c
+index ac56f0c..616d364 100644
+--- a/src/global/145D70.c
++++ b/src/global/145D70.c
+@@ -8,8 +8,10 @@ Acmd *n_alSavePull(N_PVoice *filter, s16 *outp, Acmd *p) {
+     s32 whole;
+     s32 value;
+     f32 temp;
++    f32 ratio; // PORT: audio rate: pitches are relative to 22050 Hz, so a faster output rate resamples slower
++    f32 rateScale = 22050.0f / (f32)n_syn->outputRate;
+ 
+-    if (filter->rs_upitch != 0) {
++    if ((filter->rs_upitch != 0) && (rateScale == 1.0f)) {
+         Acmd *cmd;
+ 
+         result = n_alAdpcmPull(filter, &samples, 0xB8, p);
+@@ -19,16 +21,22 @@ Acmd *n_alSavePull(N_PVoice *filter, s16 *outp, Acmd *p) {
+     } else {
+         Acmd *cmd;
+ 
+-        if (filter->rs_ratio > 1.99995999999999996) {
+-            filter->rs_ratio = 1.999959946f;
++        if (filter->rs_upitch != 0) {
++            ratio = 1.0f;
++        } else {
++            if (filter->rs_ratio > 1.99995999999999996) {
++                filter->rs_ratio = 1.999959946f;
++            }
++            filter->rs_ratio = (s32)(filter->rs_ratio * 32768.0f);
++            filter->rs_ratio = filter->rs_ratio / 32768.0f;
++            ratio = filter->rs_ratio;
+         }
+-        filter->rs_ratio = (s32)(filter->rs_ratio * 32768.0f);
+-        filter->rs_ratio = filter->rs_ratio / 32768.0f;
+-        temp = filter->rs_delta + filter->rs_ratio * 184.0f;
++        ratio = (s32)(ratio * rateScale * 32768.0f) / 32768.0f;
++        temp = filter->rs_delta + ratio * 184.0f;
+         whole = (s32)temp;
+         filter->rs_delta = temp - (f32)whole;
+         result = n_alAdpcmPull(filter, &samples, whole, p);
+-        value = (s32)(filter->rs_ratio * 32768.0f);
++        value = (s32)(ratio * 32768.0f);
+         cmd = result++;
+         cmd->words.w0 = 0x05000000 | (osVirtualToPhysical(filter->rs_state) & 0xFFFFFF);
+         cmd->words.w1 = ((filter->rs_first & 3) << 30) | ((value & 0xFFFF) << 14) | ((samples & 0xFFF) << 2);
+diff --git a/src/global/5A50.c b/src/global/5A50.c
+index 09fe76e..7c2c3b2 100644
+--- a/src/global/5A50.c
++++ b/src/global/5A50.c
+@@ -53,7 +53,13 @@ void audioInit(void) {
+     N_CSPlayer *player;
+     N_CSPlayer *arg;
+ 
+-    alHeapInit(&D_8076D1E8, D_80770F50, 0x7BD80);
++    // PORT: audio rate: the 22050 Hz heap is full; at 44100 the reverb delay lines, command lists and output
++    // buffers double, so the synthesizer gets a twice-as-large heap in port memory (game-visible, in snapshots)
++    if (gPortAudioRate > 22050) {
++        alHeapInit(&D_8076D1E8, gPortAudioHeap44, sizeof gPortAudioHeap44);
++    } else {
++        alHeapInit(&D_8076D1E8, D_80770F50, 0x7BD80);
++    }
+     args.maxVVoices = 0x2C;
+     args.maxPVoices = 0x1E;
+     args.maxUpdates = 0x40;
+@@ -65,7 +71,7 @@ void audioInit(void) {
+     args.heap = &D_8076D1E8;
+     task.outputRate = 22050;
+     task.framesPerField = 2;
+-    task.cmdCount = 0xC00;
++    task.cmdCount = 0xC00 * (gPortAudioRate / 22050); // PORT: audio rate: twice the subframes per frame at 44100
+     audioThreadInit(&args, 0x14, &task);
+     len = gSegmentTable[15].romEnd - gSegmentTable[15].romStart;
+     tmp = heapAlloc(0x38000);
+diff --git a/src/global/6710.c b/src/global/6710.c
+index dbdd1f2..bd61843 100644
+--- a/src/global/6710.c
++++ b/src/global/6710.c
+@@ -124,8 +124,9 @@ void audioThreadInit(AudioInitArgs *initArgs, s32 threadPriority, AudioTaskConfi
+ 
+     initArgs->dmaNew = audioDmaNew;
+     initArgs->outputRate = sAudioFreq;
+-    sAudioMinFrameSize = 0x228;
+-    sAudioMaxFrameSize = 0x398;
++    // PORT: audio rate: the frame sizes are 22050 Hz sample counts (3, 5 and 4 subframes of 184); 44100 doubles them
++    sAudioMinFrameSize = 0x228 * (sAudioFreq / 22050);
++    sAudioMaxFrameSize = 0x398 * (sAudioFreq / 22050);
+     synConfig = D_807452D0;
+     initArgs->params[0] = synConfig.fxParams[0];
+     initArgs->params[1] = synConfig.fxParams[1];
+@@ -229,14 +230,14 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {
+     if (prevTask != NULL) {
+         osAiSetNextBuffer(prevTask->sampleBuffer, prevTask->sampleCount * 4);
+     }
+-    if ((aiLen < 0x5C) && (sAudioFrameHoldCount == 0)) {
++    if ((aiLen < 0x5C * (sAudioFreq / 22050)) && (sAudioFrameHoldCount == 0)) { // PORT: audio rate
+         task->sampleCount = sAudioMaxFrameSize;
+         sAudioFrameHoldCount = 2;
+-    } else if ((aiLen >= 0x115) && (sAudioFrameHoldCount == 0)) {
++    } else if ((aiLen >= 0x115 * (sAudioFreq / 22050)) && (sAudioFrameHoldCount == 0)) {
+         task->sampleCount = sAudioMinFrameSize;
+         sAudioFrameHoldCount = 2;
+     } else {
+-        task->sampleCount = 0x2E0;
++        task->sampleCount = 0x2E0 * (sAudioFreq / 22050);
+         if (sAudioFrameHoldCount != 0) {
+             sAudioFrameHoldCount--;
+         }

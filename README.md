@@ -4,8 +4,8 @@ A source port of the Donkey Kong 64 decomp ([Unstripped/decomp_dk64](https://git
 pinned as the `decomp/` submodule) to WebAssembly: the game's C compiled with Emscripten, libultra replaced by a
 small cooperative runtime, and the RSP replaced by an F3DEX2 renderer on WebGL2 and an naudio HLE.
 
-Status: playable in the browser from boot through gameplay. Releases are source-only: you build the game yourself
-from your own ROM.
+Status: playable in the browser from boot through gameplay. The build needs no ROM: the page loads your ROM at
+start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kong`) that serves the game.
 
 ## Legal
 
@@ -13,8 +13,9 @@ from your own ROM.
   The browser loader accepts it in z64, v64 or n64 byte order.
 - No ROM, game asset or ROM-derived file is in this repository or its releases, and CI rejects any commit that
   adds one (`tools/check_no_roms.py`).
-- The built `dk64.wasm` contains data generated from the ROM: treat every build artifact as private and never
-  publish it.
+- The build reads no ROM: `dk64.wasm` carries placeholders for the ROM-extracted data, filled at start from the ROM
+  the page loads. The reference decomp build (`decomp/{asm,assets,bin,build}`, only needed to regenerate
+  `port/ref` after a decomp bump) is ROM-derived: keep it private.
 - This project is not affiliated with or endorsed by Nintendo or Rare.
 
 ## Features
@@ -23,13 +24,24 @@ from your own ROM.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
 - EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite).
-- Esc menu with the current level's collectable progress.
+- Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
+  anti-aliasing, touch controls), remembered in `localStorage`.
 - F5 / F9 quicksave and quickload.
 - A headless node build with scripted input for regression runs.
 
 ## Quick start
 
-Prerequisites: macOS or Linux, git, [mise](https://mise.jdx.dev), Docker, and the ROM.
+With Docker, mount your ROM (a file, or a directory holding one `*.z64`/`*.n64`/`*.v64`) at `/rom`; the page starts
+it without the file picker, and saves persist in the `/data` volume:
+
+```sh
+docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+```
+
+`:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
+asks for the ROM.
+
+From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 
 ```sh
 git clone https://github.com/mjquinlan2000/webby-kong.git && cd webby-kong
@@ -40,14 +52,7 @@ tools/.venv/bin/pip install -r decomp/requirements.txt
 tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps  # libclang after the decomp's `clang` package
 ```
 
-Reference decomp build (Docker; once per ROM or submodule bump):
-
-```sh
-cp /path/to/dk64.z64 decomp/donkey-kong.z64
-(cd decomp && docker compose build && tools/dk make setup BASEROM=donkey-kong.z64 && tools/dk make)   # ends with OK
-```
-
-Build and run:
+Build and run (no ROM needed to build):
 
 ```sh
 tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
@@ -56,7 +61,9 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 tools/serve.py                   # serves build/web on port 8080
 ```
 
-Open `http://localhost:8080/` and pick the ROM. Details and troubleshooting: [docs/building.md](docs/building.md).
+Open `http://localhost:8080/` and pick the ROM, or start the server with `--rom /path/to/dk64.z64` to load it
+automatically. Details, the reference decomp build (maintainers, after a decomp bump) and troubleshooting:
+[docs/building.md](docs/building.md).
 
 ## Playing
 
@@ -80,7 +87,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters:
+URL parameters (`drawdist`, `scale`, `msaa`, `touch`, `audio3d` and `audiorate` override the Esc menu's stored
+setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |
@@ -89,6 +97,8 @@ URL parameters:
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
+| `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |
+| `audiorate=22050\|44100` | Sound mix sample rate; 22050 = N64, default 44100; applies at load |
 | `noresume` | Do not boot into the quicksave resume point after a rebuild |
 
 ## Repository layout
@@ -96,15 +106,18 @@ URL parameters:
 - `patches/` — changes to the decomp source, one commit per concern. Edit by committing in `build/tree`,
   then `tools/prepare.py export`.
 - `tools/gen_data.py` — the decomp defines its static data in C; this emits what is left as splat asm (data only
-  handwritten asm reads, and asm `.bss`) as native C objects at its directive widths, the decomp's ROM-extracted
-  initialisers (`data_inc.us.txt`) in N64 byte order, `OVL_FN` thunks, overlay rename headers, `port_abs.h`, overlay
-  dispatchers and a layout self-check.
-- `tools/` — also `prepare.py` (patched tree), `serve.py` (static server + save API), `check_no_roms.py`
-  (ROM guard), `next_version.py` (release version), `wasm_funcs.py`, `link_check.sh`.
+  handwritten asm reads, and asm `.bss`) and the decomp's ROM-extracted initialisers (`data_inc.us.txt`) as
+  placeholders plus a table that fills them from the ROM at start, `OVL_FN` thunks, overlay rename headers,
+  `port_abs.h`, overlay dispatchers and a layout self-check.
+- `port/ref/` — ROM-free manifest of the reference decomp build (ELF symbols, splat's auto symbols, asm label
+  sizes and directive widths) that `gen_data.py` reads; regenerated by `tools/prepare.py ref` after a decomp bump.
+- `tools/` — also `prepare.py` (patched tree), `serve.py` (static server, save API and mounted ROM),
+  `check_no_roms.py` (ROM guard), `next_version.py` (release version), `wasm_funcs.py`, `link_check.sh`.
 - `port/` — runtime: fibers for N64 threads, libultra shims, ROM/asset byte-order swappers, renderer, audio.
 - `web/` — page and loader.
 - `tests/` — headless input scripts (`*.txt`) and `tests/tools/` unit tests for the tooling.
-- `.github/workflows/` — CI and releases.
+- `.github/workflows/` — CI, releases and the Docker image.
+- `Dockerfile` — ROM-free image build: the page, `dk64.wasm` and `tools/serve.py`.
 - `docs/` — building, testing, debugging and architecture guides.
 - `decomp/` — the decomp submodule; never edited here.
 
@@ -120,9 +133,12 @@ URL parameters:
 
 Every push to `main` publishes a GitHub Release after CI passes. The first is `v0.1.0`; each later one bumps the
 patch version, or the minor / major version when a commit message since the last release contains `#minor` /
-`#major`. Releases are source-only: no ROM-derived build output is attached.
+`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/mjquinlan2000/webby-kong:<version>`;
+every push to `development` publishes `:latest`. Neither contains ROM data.
 
 ## License
 
-[CC0 1.0 Universal](LICENSE), the same as the decomp. Exception: `web/nipplejs.js` is nipplejs under the MIT
-license (see its header).
+[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: `web/nipplejs.js` is nipplejs under the MIT
+license (see its header); `port/src/audio/hrir_kemar.c` is derived from the KEMAR HRTF measurements by Bill Gardner
+and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this citation
+(<https://sound.media.mit.edu/resources/KEMAR.html>).

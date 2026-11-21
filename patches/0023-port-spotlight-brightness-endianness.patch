@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 16:53:24 -0700
+Subject: [PATCH] port: spotlight brightness endianness
+
+
+diff --git a/src/global/CB230.c b/src/global/CB230.c
+index 6e59112..50b93ea 100644
+--- a/src/global/CB230.c
++++ b/src/global/CB230.c
+@@ -20,13 +20,7 @@ extern Actor *gCurrentActor;
+ extern Actor *gPrimaryPlayerActor;
+ 
+ typedef struct SpotlightActorState { // Actor 0x178 component of the spotlight actors (types 0xF0, 0xF9)
+-    union {
+-        /* 0x0 */ s16 brightness;
+-        struct {
+-            /* 0x0 */ u8 brightnessHi;
+-            /* 0x1 */ u8 brightnessLo;
+-        };
+-    };
++    /* 0x0 */ s16 brightness;
+     /* 0x2 */ u8 unk2;
+ } SpotlightActorState;
+ 
+@@ -102,7 +96,9 @@ void actorUpdateNearestSpotlight(void) {
+             break;
+     }
+     p->brightness = mathSinF(gFrameCounter * 130) * 35.0 + 220.0;
+-    lightAdd(A[0], A[1], A[2], B[0], B[1], B[2], 0.0f, 1, p->brightnessLo, p->brightnessLo, p->brightnessLo);
++    /* PORT: the N64 reads the s16's low byte at +1, which on little-endian wasm is the high byte (0): the spotlight
++     * (the lanternfish in Galleon's ships) lit nothing and the ship interiors stayed black */
++    lightAdd(A[0], A[1], A[2], B[0], B[1], B[2], 0.0f, 1, (u8)p->brightness, (u8)p->brightness, (u8)p->brightness);
+ }
+ 
+ void func_806C6884(s16 yOffset, s16 stopDist, u16 flags) {

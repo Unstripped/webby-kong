@@ -114,4 +114,33 @@ typedef struct {
 } PortLevelProgress;
 s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason); /* src/global/3C10.c */
 
+/* ---- audio output rate and 3D sound (port/src/audio/spatial.c, hrtf.c; --audio-rate, --hrtf, web settings) ---- */
+extern s32 gPortAudioRate; /* synthesizer and AI rate: 22050 (N64) or 44100; fixed at boot, restored by a quickload */
+extern s32 gPortAudioHrtf; /* 1: positional sound effects are rendered binaurally (headphones); switchable live */
+/* the synthesizer's heap at 44100: the game's 0x7BD80 bytes are full at 22050, 44100 needs 0x93200 */
+#define PORT_AUDIO_HEAP44_SIZE 0xB0000
+extern u8 gPortAudioHeap44[PORT_AUDIO_HEAP44_SIZE];
+/* Audio commands emitted around one voice's ENVMIXER (n_alEnvmixerPull) when it is rendered binaurally:
+ * BEGIN snapshots the dry mix, END replaces the voice's (centre-panned) dry contribution by its HRTF render.
+ * Opcodes 0x7E/0x7F have no handler in the game's ucode; only the port's HLE executes them. */
+#define PORT_AOP_SPATIAL_BEGIN 0x7E
+#define PORT_AOP_SPATIAL_END 0x7F
+/* sfx code (src/global/7130.c): directions are relative to the camera; a packed direction of 0 means none */
+void portSpatialReset(s32 enabled); /* start one sound's emitter sum; enabled 0: the sound stays plain stereo */
+void portSpatialFlat(void);         /* the game centres this sound: no direction */
+void portSpatialEmitter(f32 sinAz, f32 cosAz, f32 dx, f32 dy, f32 dz, f32 fdx, f32 fdy, f32 fdz, f32 level);
+u32 portSpatialResult(void);        /* level-weighted direction of the emitters since the reset */
+/* one emitter: game azimuth (radians from the camera yaw, + = left) and source / focus minus camera */
+u32 portSpatialAt(f32 az, f32 dx, f32 dy, f32 dz, f32 fdx, f32 fdy, f32 fdz);
+void portSpatialPending(u32 dir);   /* direction for the next n_alSndpPlay; reset to 0 after the call */
+struct GfSndState;
+void n_alSndpSetSpatial(struct GfSndState *state, u32 dir); /* src/global/13A7A0.c: (re)bind a playing sound */
+/* sound player (src/global/13A7A0.c) and synthesizer (src/global/1435C0.c) */
+u32 portSpatialTakePending(void);
+void portSpatialBind(void *voice, u32 dir); /* ALVoice of a sound state; 0 unbinds */
+u32 portSpatialOf(void *voice);
+s32 portSpatialPan(void *voice, s32 pan);   /* 0x40 for a voice rendered binaurally (it is mixed centred) */
+void portSpatialVoiceStart(void *pvoice);   /* a physical voice starts a new sound: its filter history resets */
+u32 portSpatialEnvmix(void *pvoice, void *voice, s32 *retarget); /* END command word, 0: plain envmixer */
+
 #endif

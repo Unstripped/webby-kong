@@ -41,6 +41,8 @@ tasks, map, mode, overlay, audio peak, last error, actor count, player position)
 | `--qs-save F --qs-load G` | Snapshot after frame F, restore it after frame G and replay from F |
 | `--resume slot,kong,map,exit,hasPos,x,y,z,yaw` | Boot straight into a map at a position |
 | `--drawdist K` | Draw/spawn distance factor 1..16 (default 4; 1 = N64) |
+| `--audio-rate 22050\|44100` | Synthesizer rate (default 22050 = N64) |
+| `--hrtf 0\|1` | 3D sound for positional effects (default 0; on changes only audio, never game state) |
 | `--progress` | At the end, print the current level's collectable progress |
 
 Input files: lines starting with `#` are comments; every other line is `frame <N> press|release <button>`, with

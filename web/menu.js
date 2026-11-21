@@ -100,7 +100,46 @@
   border: 3px solid #3a1d00; box-shadow: 0 4px 0 #3a1d00; }
 #dk64menu button:hover { background: linear-gradient(#fff08f, #ffc21a); }
 #dk64menu button:active { transform: translateY(3px); box-shadow: 0 1px 0 #3a1d00; }
-@media (max-width: 520px) { #dk64menu .title { font-size: 24px; } }
+#dk64menu .lbl.sec { margin-top: 18px; }
+#dk64menu .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#dk64menu .set { background: rgba(36,18,4,.62); border: 3px solid #c9a25a; border-radius: 10px; padding: 8px 10px 9px;
+  box-shadow: 0 3px 0 #2a1405; }
+#dk64menu .set .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+#dk64menu .set .sname { font: 900 13px/1.1 ${CHUNKY}; color: #ffd21f; -webkit-text-stroke: 1px #3a1d00; paint-order: stroke fill;
+  text-shadow: 0 2px 0 #3a1d00; text-transform: uppercase; letter-spacing: .04em; }
+#dk64menu .set .now { font: 900 13px/1 ${CHUNKY}; color: #b6ff6a; text-shadow: 0 1px 0 #000; }
+#dk64menu .set .note { font: 600 10.5px/1.3 system-ui, sans-serif; color: rgba(255,243,214,.7); margin-top: 6px; }
+#dk64menu .slider { position: relative; }
+#dk64menu .ticks { position: absolute; left: 9px; right: 9px; top: 19px; display: flex; justify-content: space-between;
+  pointer-events: none; }
+#dk64menu .ticks i { width: 2px; height: 4px; background: rgba(255,243,214,.4); }
+#dk64menu .ends { display: flex; justify-content: space-between; font: 600 10px system-ui, sans-serif; color: rgba(255,243,214,.6); margin-top: 6px; }
+#dk64menu .foot { font: 600 10.5px system-ui, sans-serif; color: rgba(255,243,214,.6); text-align: center; margin-top: 8px; }
+#dk64menu input[type=range] { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 22px; margin: 0;
+  background: transparent; cursor: pointer; }
+#dk64menu input[type=range]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; border: 2px solid #3a1d00;
+  background: linear-gradient(#ffe36a, #f5b400) 0 0 / var(--p) 100% no-repeat, rgba(0,0,0,.45); }
+#dk64menu input[type=range]::-moz-range-track { height: 8px; border-radius: 4px; border: 2px solid #3a1d00;
+  background: linear-gradient(#ffe36a, #f5b400) 0 0 / var(--p) 100% no-repeat, rgba(0,0,0,.45); }
+#dk64menu input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; margin-top: -9px; width: 22px; height: 22px;
+  border-radius: 50%; border: 3px solid #3a1d00; box-sizing: border-box;
+  background: radial-gradient(circle at 35% 30%, #fff6b0, #f5b400 60%, #b07800); box-shadow: 0 2px 0 #3a1d00; }
+#dk64menu input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #3a1d00;
+  box-sizing: border-box; background: radial-gradient(circle at 35% 30%, #fff6b0, #f5b400 60%, #b07800);
+  box-shadow: 0 2px 0 #3a1d00; }
+#dk64menu .seg { display: flex; gap: 4px; }
+#dk64menu .seg button { flex: 1; padding: 6px 0; font: 900 12px/1 ${CHUNKY}; letter-spacing: 0; text-transform: none;
+  color: #fff3d6; background: rgba(0,0,0,.35); border: 2px solid #3a1d00; border-radius: 7px; box-shadow: none;
+  text-shadow: 0 1px 0 #000; }
+#dk64menu .seg button:hover:not(:disabled):not(.sel) { background: rgba(0,0,0,.5); }
+#dk64menu .seg button.sel { color: #3a1d00; text-shadow: none; background: linear-gradient(#ffe36a, #f5b400);
+  box-shadow: 0 2px 0 #3a1d00; }
+#dk64menu .seg button:active { transform: none; }
+#dk64menu .seg button:disabled { opacity: .35; cursor: default; }
+@media (max-width: 520px) {
+  #dk64menu .title { font-size: 24px; }
+  #dk64menu .settings { grid-template-columns: 1fr; }
+}
 `;
   document.head.appendChild(style);
 
@@ -146,6 +185,9 @@
   const cards = el('div', 'cards');
   const wide = el('div', 'wide');
   const msg = el('p', 'msg');
+  const setLabel = el('div', 'lbl sec', 'Settings');
+  const settingsEl = el('div', 'settings');
+  const foot = el('div', 'foot', 'Changes apply immediately and are remembered on this device');
   const actions = el('div', 'actions');
   actions.append(el('span', 'hint', 'Esc · Back to resume'), button('Resume', null, () => close()));
   panel.append(
@@ -155,13 +197,108 @@
     cards,
     wide,
     msg,
+    setLabel,
+    settingsEl,
+    foot,
     actions,
   );
   backdrop.append(panel);
+  // close only when the press also started on the backdrop: the click that follows the ☰ tap that opened the
+  // menu, or a slider drag released outside the panel, lands on the backdrop too
+  let downOnBackdrop = false;
+  backdrop.addEventListener('pointerdown', (e) => {
+    downOnBackdrop = e.target === backdrop;
+  });
   backdrop.addEventListener('click', (e) => {
-    if (e.target === backdrop) close();
+    if (e.target === backdrop && downOnBackdrop) close();
+    downOnBackdrop = false;
   });
   document.body.appendChild(backdrop);
+
+  // one box per setting: name and current value, the control, a note; refresh() re-reads web/settings.js
+  function settingBox(name, control, extra) {
+    const box = el('div', 'set');
+    const head = el('div', 'head');
+    const now = el('span', 'now');
+    const note = el('div', 'note');
+    head.append(el('span', 'sname', name), now);
+    box.append(head, control, ...extra, note);
+    return { box, now, note };
+  }
+
+  function rangeSetting(key, name, min, max, ends, fmt, noteText) {
+    const input = el('input');
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = '1';
+    input.tabIndex = -1;
+    const slider = el('div', 'slider');
+    const ticks = el('div', 'ticks');
+    for (let v = min; v <= max; v++) ticks.append(el('i'));
+    slider.append(input, ticks);
+    const endsEl = el('div', 'ends');
+    endsEl.append(el('span', null, ends[0]), el('span', null, ends[1]));
+    const { box, now, note } = settingBox(name, slider, [endsEl]);
+    note.textContent = noteText;
+    function refresh() {
+      const v = window.dk64settings.get(key);
+      input.value = String(v);
+      input.style.setProperty('--p', ((v - min) / (max - min)) * 100 + '%');
+      now.textContent = fmt(v);
+    }
+    input.addEventListener('input', () => {
+      window.dk64settings.set(key, Number(input.value));
+      refresh();
+    });
+    return { box, refresh };
+  }
+
+  function segSetting(key, name, options, noteFn) {
+    const seg = el('div', 'seg');
+    const buttons = options.map(([value, text]) =>
+      button(text, null, () => {
+        window.dk64settings.set(key, value);
+        refresh();
+      }),
+    );
+    seg.append(...buttons);
+    const { box, now, note } = settingBox(name, seg, []);
+    function refresh() {
+      const cur = window.dk64settings.get(key);
+      const sel = key === 'msaa' && cur === 1 ? 0 : cur;
+      const max = key === 'msaa' ? window.dk64settings.maxSamples() : 0;
+      options.forEach(([value, text], i) => {
+        buttons[i].classList.toggle('sel', value === sel);
+        if (key === 'msaa') buttons[i].disabled = value > max;
+        if (value === sel) now.textContent = text;
+      });
+      note.textContent = noteFn();
+    }
+    return { box, refresh };
+  }
+
+  const SETTINGS = [
+    rangeSetting('drawdist', 'Draw distance', 1, 16, ['1× N64', '16×'], (v) => `${v}×`,
+      'Objects & enemies spawn further out'),
+    rangeSetting('scale', 'Render scale', 0, 8, ['Auto', '8×'], (v) => (v === 0 ? 'Auto' : `${v}×`),
+      'Auto follows the window height'),
+    segSetting('msaa', 'Anti-aliasing', [[0, 'Off'], [2, '2×'], [4, '4×'], [8, '8×']], () => {
+      const m = window.dk64settings.maxSamples();
+      return m >= 2 ? `MSAA; your GPU supports up to ${m}×` : 'MSAA is not supported by this GPU';
+    }),
+    segSetting('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
+      () => 'Auto: shown on touch screens without a gamepad'),
+    segSetting('audio3d', '3D sound', [[0, 'Off'], [1, 'Headphones']],
+      () => 'Positional effects come from their direction, front and back included'),
+    segSetting('audiorate', 'Audio quality', [[22050, '22 kHz (N64)'], [44100, '44 kHz']], () => {
+      const running = window.dk64settings.audioRate();
+      return running && running !== window.dk64settings.get('audiorate')
+        ? `Applies when the game is reloaded (running at ${running / 1000} kHz)`
+        : 'Sample rate of the sound mix';
+    }),
+  ];
+  settingsEl.append(...SETTINGS.map((s) => s.box));
 
   let isStarted = false;
   let isOpen = false;
@@ -228,6 +365,7 @@
     } catch (err) {
       showMessage(err.message);
     }
+    for (const s of SETTINGS) s.refresh();
     backdrop.classList.add('on');
     isOpen = true;
   }

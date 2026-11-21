@@ -1,4 +1,4 @@
-"""tools/serve.py: the EEPROM save API that web/saves.js relies on."""
+"""tools/serve.py: the EEPROM save API that web/saves.js relies on and the mounted ROM web/main.js loads."""
 import contextlib
 import functools
 import hashlib
@@ -81,6 +81,55 @@ class SaveServerTest(unittest.TestCase):
         self.request("PUT", SAVE_A, 3000)
         with contextlib.closing(sqlite3.connect(self.db)) as conn:
             self.assertEqual(conn.execute("select count(*) from eeprom").fetchone()[0], 1)
+
+
+class RomServerTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.rom_dir = self.tmp / "rom"
+        self.rom_dir.mkdir()
+        self.server = None
+
+    def tearDown(self):
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
+        self._tmp.cleanup()
+
+    def get_rom(self, rom_path):
+        class QuietHandler(serve.Handler):
+            db_path = self.tmp / "saves.sqlite3"
+
+            def log_message(self, *args):
+                pass
+
+        QuietHandler.rom_path = rom_path
+        self.server = serve.Server(("::1", 0), functools.partial(QuietHandler, directory=str(self.tmp)))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        conn = http.client.HTTPConnection("::1", self.server.server_address[1], timeout=5)
+        conn.request("GET", serve.ROM_PATH)
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        return resp, data
+
+    def test_directory_serves_first_rom_by_name(self):
+        (self.rom_dir / "b.z64").write_bytes(b"B" * 64)
+        (self.rom_dir / "a.v64").write_bytes(b"A" * 32)
+        (self.rom_dir / "0-notes.txt").write_bytes(b"not a rom")
+        resp, data = self.get_rom(self.rom_dir)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(data, b"A" * 32)
+        self.assertEqual(resp.getheader("Cache-Control"), "no-store")
+
+    def test_empty_directory_is_404(self):
+        resp, _ = self.get_rom(self.rom_dir)
+        self.assertEqual(resp.status, 404)
+
+    def test_no_rom_option_is_404(self):
+        resp, _ = self.get_rom(None)
+        self.assertEqual(resp.status, 404)
 
 
 if __name__ == "__main__":

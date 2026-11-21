@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Fri, 20 Nov 2026 18:28:01 -0700
+Subject: [PATCH] port: kong name placeholder in dialogue
+
+
+diff --git a/src/global/112080.c b/src/global/112080.c
+index d082627..337d069 100644
+--- a/src/global/112080.c
++++ b/src/global/112080.c
+@@ -457,7 +457,7 @@ ResParsedList *resNodeGetOrLoad(u16 id, s32 kind) {
+     return node->parsed;
+ }
+ 
+-extern void *D_8074E778[];
++extern const char *D_8074E780[]; // player names by actorType - 2 (DONKEY .. ENGUARDE), 7CA80.c
+ 
+ void textLayoutAppendRows(ResQueueActorState *state, u8 *textBytes, u16 length) {
+     s32 pad;
+@@ -529,7 +529,9 @@ void textLayoutAppendRows(ResQueueActorState *state, u8 *textBytes, u16 length)
+             character = 0;
+             switch (textBytes[i]) {
+             case '~':
+-                _sprintf(textBuffer, "%s", D_8074E778[gActivePlayerActor->actorType]);
++                /* PORT: the N64 indexes the word 8 bytes before the table (D_8074E778) by actorType, relying on
++                 * the data layout; separate globals don't keep it, and '~' printed a stray pointer's bytes */
++                _sprintf(textBuffer, "%s", D_8074E780[gActivePlayerActor->actorType - 2]);
+                 break;
+             case '@':
+                 _sprintf(textBuffer, "%d", gTextNumberArg);
+diff --git a/src/global/7CA80.c b/src/global/7CA80.c
+index 5dcdb56..1635f3d 100644
+--- a/src/global/7CA80.c
++++ b/src/global/7CA80.c
+@@ -459,8 +459,6 @@ u16 *D_8074E218[344] = {
+     D_8074E1F0, D_8074E1F4, D_8074E1FC, D_8074E200, D_8074E204, D_8074E20C,
+     D_8074E210, D_8074E214,
+ };
+-// 112080 indexes the name table through this word by actorType (2..9).
+-s32 D_8074E778 = 0;
+ u8 gPlayerCharacterId[4] = { 0, 0, 2, 3 };
+ extern const char D_80759260[];
+ extern const char D_80759268[];
