@@ -21,7 +21,7 @@ git submodule update --init
 python -m venv tools/.venv
 tools/.venv/bin/pip install -r decomp/requirements.txt
 tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps
-tools/.venv/bin/pip install -r tools/requirements-server.txt
+tools/.venv/bin/pip install -r tools/requirements-server.txt   # only to run with WEBBY_AUTH=1
 ```
 
 The order matters: the decomp's requirements install a `clang` package, and the second command then reinstalls

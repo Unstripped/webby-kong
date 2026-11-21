@@ -53,7 +53,9 @@ docker run -p 8080:8080 -e WEBBY_AUTH=1 -e WEBBY_EXTERNAL_URL=https://kong.examp
   -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
 ```
 
-- Sign-in is WebAuthn (passkey) only, no passwords. Browsers refuse passkeys on plain `http://` LAN addresses, so
+- Sign-in is WebAuthn (passkey) only, no passwords; the Docker image ships the one extra dependency
+  (`py_webauthn`), and with the gate off it is never imported, so a bare `python tools/serve.py` still needs nothing
+  beyond the standard library. Browsers refuse passkeys on plain `http://` LAN addresses, so
   serve it over TLS or use `http://localhost`. `WEBBY_EXTERNAL_URL` must be the URL people actually open: it is the
   WebAuthn origin, the source of the RP ID (its host) and the base of invite links.
 - Fresh install (no users yet): the first visitor picks a username, registers a passkey and becomes the owner.

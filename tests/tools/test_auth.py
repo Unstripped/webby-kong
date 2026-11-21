@@ -8,10 +8,14 @@ import contextlib
 import functools
 import http.client
 import json
+import os
+import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -500,6 +504,66 @@ class AuthDisabledTest(unittest.TestCase):
         with contextlib.closing(self.app.db()) as conn:
             names = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         self.assertEqual(names, {"eeprom"})
+
+
+class ServeScriptTest(unittest.TestCase):
+    """`python tools/serve.py` itself: a bare interpreter must work with the gate off, and must say what to
+    install when the gate is on and py_webauthn is missing (a real subprocess with `import webauthn` poisoned)."""
+
+    BOOTSTRAP = ("import runpy, sys\n"
+                 "sys.modules['webauthn'] = None\n"
+                 "sys.path.insert(0, 'tools')  # what `python tools/serve.py` does for you\n"
+                 "runpy.run_path('tools/serve.py', run_name='__main__')\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        (self.dir / "index.html").write_text("<!doctype html><title>game</title>")
+        self.db_path = self.dir / "saves.sqlite3"
+
+    def command(self):
+        return [sys.executable, "-c", self.BOOTSTRAP, "--dir", str(self.dir), "--bind", "127.0.0.1",
+                "--db", str(self.db_path)]
+
+    def env(self, **overrides):
+        base = dict(os.environ, WEBBY_AUTH="", WEBBY_EXTERNAL_URL="http://localhost:8080")
+        base.update(overrides)
+        return base
+
+    @staticmethod
+    def free_port():
+        with contextlib.closing(socket.socket()) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+
+    def test_auth_off_serves_without_py_webauthn(self):
+        port = self.free_port()
+        proc = subprocess.Popen(self.command() + ["--port", str(port)], cwd=ROOT, env=self.env(),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.addCleanup(lambda: (proc.terminate(), proc.communicate(timeout=10)))
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                conn.request("GET", "/")
+                resp = conn.getresponse()
+                body = resp.read()
+                conn.close()
+                break
+            except OSError:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    self.fail(f"serve.py did not start:\n{proc.communicate()[0].decode(errors='replace')}")
+                time.sleep(0.1)
+        self.assertEqual(resp.status, 200)
+        self.assertIn(b"<title>game", body)
+        self.assertIsNone(proc.poll(), "serve.py exited with the gate off")
+
+    def test_auth_on_without_py_webauthn_fails_loudly(self):
+        done = subprocess.run(self.command() + ["--port", str(self.free_port())], cwd=ROOT,
+                              env=self.env(WEBBY_AUTH="1"), capture_output=True, timeout=60, text=True)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("requirements-server.txt", done.stdout + done.stderr)
 
 
 if __name__ == "__main__":
