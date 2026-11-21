@@ -1,7 +1,7 @@
 """SQLite schema and the queries the auth routes need.
 
 The tables live in the same database file as the save history (tools/serve.py --db), so one bind-mount of /data
-persists both. They are created only when WEBBY_AUTH is on, which keeps an auth-less deployment byte-identical to
+persists both. They are created only when WEBBY_KONG_AUTH is on, which keeps an auth-less deployment byte-identical to
 what it was before this feature.
 
 Timestamps are the same UTC ISO-8601 text the saves table uses (strftime('%Y-%m-%dT%H:%M:%fZ','now')), so they sort

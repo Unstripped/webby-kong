@@ -1,13 +1,13 @@
 """Optional passkey sign-in for tools/serve.py.
 
-`WEBBY_AUTH=1` turns the game's static server into an invite-only one: a splash page with a single sign-in button,
+`WEBBY_KONG_AUTH=1` turns the game's static server into an invite-only one: a splash page with a single sign-in button,
 WebAuthn passkeys as the only credential, a dashboard after login, owner-only user management and invite links.
 With the variable unset (the default) nothing in this package is reached, every URL behaves exactly as before and
 py_webauthn is never imported (so a bare `python tools/serve.py` needs no extra packages).
 
 tools/serve.py uses:
 
-    configure(path, environ=None) -> Config   # read the environment, create the auth tables in the saves DB
+    configure(path, environ=None, config=None) -> Config   # read (or take) the settings, create the auth tables
     enabled() -> bool
     handle(handler) -> bool                   # answered /auth/api/* or /api/{me,users,invites,settings}
     gate(handler) -> bool                     # False = denied, a redirect or 401 was already sent
@@ -22,13 +22,14 @@ _config = None
 _db_path = None
 _routes = None
 
-MISSING_DEPENDENCY = ("WEBBY_AUTH needs the sign-in requirements (py_webauthn): run "
+MISSING_DEPENDENCY = ("WEBBY_KONG_AUTH needs the sign-in requirements (py_webauthn): run "
                       "`pip install -r tools/requirements-server.txt` (or use the Docker image).")
 
 
-def configure(path, environ=None):
+def configure(path, environ=None, config=None):
+    """Read the sign-in settings (`config`, already read by the caller, or `environ`) and open the auth tables."""
     global _config, _db_path, _routes
-    _config = _config_module.from_env(environ)
+    _config = config if config is not None else _config_module.from_env(environ)
     _db_path = Path(path)
     _routes = None
     if not _config.enabled:

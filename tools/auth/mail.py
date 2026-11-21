@@ -142,7 +142,7 @@ def build_invite(config, to, url, max_uses=None, expires_at=None):
 
 def deliver(config, message):
     if not config.smtp.configured:
-        raise SmtpNotConfigured("WEBBY_SMTP_HOST is not set")
+        raise SmtpNotConfigured("WEBBY_KONG_SMTP_HOST is not set")
     if config.smtp.tls == "ssl":
         with smtplib.SMTP_SSL(config.smtp.host, config.smtp.port, timeout=config.smtp.timeout,
                               context=ssl.create_default_context()) as smtp:

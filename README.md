@@ -43,29 +43,61 @@ docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-save
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
 asks for the ROM.
 
-## Optional sign-in (passkeys)
+## Configuration
 
-`WEBBY_AUTH=1` puts a passkey gate in front of everything: splash page at `/auth/`, dashboard at `/`, the game at
-`/play`. Left unset (the default) every URL behaves exactly as before.
+The server reads everything from `WEBBY_KONG_*` environment variables, and a command-line flag (`--dir`, `--port`,
+`--bind`, `--db`, `--rom`) overrides one. The same `.env` file configures both ways to run it, so a checkout and the
+image take the same settings (the image's own layout below is only a default that the file can override):
 
 ```sh
-docker run -p 8080:8080 -e WEBBY_AUTH=1 -e WEBBY_EXTERNAL_URL=https://kong.example.com \
+mise run serve                        # local: build/web on port 8080, saves in ~/.local/share/webby-kong
+cp .env.example .env                  # optional: your settings (gitignored; every variable is in the file)
+docker run -p 8080:8080 --env-file .env \
   -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
 ```
 
-- Sign-in is WebAuthn (passkey) only, no passwords; the Docker image ships the one extra dependency
-  (`py_webauthn`), and with the gate off it is never imported, so a bare `python tools/serve.py` still needs nothing
-  beyond the standard library. Browsers refuse passkeys on plain `http://` LAN addresses, so
-  serve it over TLS or use `http://localhost`. `WEBBY_EXTERNAL_URL` must be the URL people actually open: it is the
-  WebAuthn origin, the source of the RP ID (its host) and the base of invite links.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WEBBY_KONG_DIR` | `build/web` (`/srv/web` in the image) | directory to serve |
+| `WEBBY_KONG_BIND` | `::` (`0.0.0.0` in the image) | address to listen on |
+| `WEBBY_KONG_PORT` | `8080` | port to listen on |
+| `WEBBY_KONG_DB` | `~/.local/share/webby-kong/saves.sqlite3` (`/data/saves.sqlite3` in the image) | SQLite file: saves, and with sign-in on users, passkeys, sessions and invites |
+| `WEBBY_KONG_ROM` | none (`/rom` in the image) | ROM file, or a directory holding one `*.z64`/`*.n64`/`*.v64`, served at `/api/rom` |
+| `WEBBY_KONG_AUTH` | off | `1` puts the passkey gate in front of every URL (see below) |
+| `WEBBY_KONG_EXTERNAL_URL` | `http://localhost:8080` | the URL people actually open: WebAuthn origin, RP ID host and base of invite links |
+| `WEBBY_KONG_RP_NAME` | `Webby` | name shown in the passkey prompt |
+| `WEBBY_KONG_SESSION_DAYS` | `30` | session cookie lifetime in days |
+| `WEBBY_KONG_REGISTRATION_OPEN` | `1` | seed of the owner's registration toggle (the database wins afterwards) |
+| `WEBBY_KONG_SMTP_HOST` | none | invite email SMTP host (unset: the dashboard offers the link to copy instead) |
+| `WEBBY_KONG_SMTP_PORT` | `587` | SMTP port |
+| `WEBBY_KONG_SMTP_USERNAME` | none | SMTP user |
+| `WEBBY_KONG_SMTP_PASSWORD` | none | SMTP password |
+| `WEBBY_KONG_SMTP_FROM` | `WEBBY_KONG_SMTP_USERNAME` | envelope sender |
+| `WEBBY_KONG_SMTP_TLS` | `starttls` | `starttls`, `ssl` or `none` |
+| `WEBBY_KONG_SMTP_TIMEOUT` | `10` | SMTP socket timeout in seconds |
+
+The effective configuration is printed at startup (the SMTP password only as set or unset).
+
+## Optional sign-in (passkeys)
+
+`WEBBY_KONG_AUTH=1` puts a passkey gate in front of everything: splash page at `/auth/`, dashboard at `/`, the game at
+`/play`. Left unset (the default) every URL behaves exactly as before.
+
+```sh
+docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://kong.example.com \
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+```
+
+- Sign-in is WebAuthn (passkey) only, no passwords; the one extra dependency (`py_webauthn`) is installed by
+  `mise run serve` and shipped in the image, and with the gate off it is never imported. Browsers refuse passkeys on
+  plain `http://` LAN addresses, so serve it over TLS or use `http://localhost`.
 - Fresh install (no users yet): the first visitor picks a username, registers a passkey and becomes the owner.
 - Open registration is on by default; the owner can close it on the dashboard. Invite links (single use, reusable or
   expiring) keep working while registration is closed.
 - Users, passkeys, sessions and invites live in the same `/data` SQLite file as the saves, so the existing
   `-v ...:/data` already persists them. Saves are still shared by everyone (there are no per-user saves yet).
-- Emailed invites need `WEBBY_SMTP_HOST`, `WEBBY_SMTP_PORT`, `WEBBY_SMTP_USERNAME`, `WEBBY_SMTP_PASSWORD`,
-  `WEBBY_SMTP_FROM` and `WEBBY_SMTP_TLS` (`starttls`, `ssl` or `none`); without a host the dashboard offers the link
-  to copy instead. `WEBBY_RP_NAME` (default `Webby`) is what the passkey prompt shows.
+- Emailed invites use the `WEBBY_KONG_SMTP_*` settings in the table above; without a host the dashboard offers the
+  link to copy instead.
 
 From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 
@@ -84,12 +116,12 @@ Build and run (no ROM needed to build):
 tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
 emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/web          # dk64 (browser) and dk64_headless (node)
-tools/serve.py                   # serves build/web on port 8080
+mise run serve                   # serves build/web on port 8080 (settings: .env, see Configuration)
 ```
 
-Open `http://localhost:8080/` and pick the ROM, or start the server with `--rom /path/to/dk64.z64` to load it
-automatically. Details, the reference decomp build (maintainers, after a decomp bump) and troubleshooting:
-[docs/building.md](docs/building.md).
+Open `http://localhost:8080/` and pick the ROM, or set `WEBBY_KONG_ROM` in `.env` (or pass
+`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the reference decomp build
+(maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
 
 ## Playing
 

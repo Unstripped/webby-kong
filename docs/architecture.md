@@ -55,7 +55,7 @@ flowchart LR
 
 - Static files from `--dir` (`web/` plus the built `dk64.js`/`dk64.wasm`), as `python -m http.server` would serve them.
 - `GET`/`PUT /api/eeprom` keep every version of the 2 KB save; `GET /api/rom` hands the browser the mounted ROM.
-- `WEBBY_AUTH=1` adds the optional passkey gate (`tools/auth/`): `/auth/` splash, `/` dashboard, `/play` the game,
+- `WEBBY_KONG_AUTH=1` adds the optional passkey gate (`tools/auth/`): `/auth/` splash, `/` dashboard, `/play` the game,
   `/auth/api/*` plus `/api/{me,users,invites,settings}` JSON, and a session cookie (`HttpOnly; SameSite=Lax`) in front
   of everything else. Users, credentials, sessions, invites and settings are tables in the same database file; the
   code path for an auth-less deployment is unchanged.

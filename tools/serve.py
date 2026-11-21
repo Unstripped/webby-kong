@@ -9,9 +9,22 @@ Static files are served like `python3 -m http.server -d build/web 8080`. web/sav
   GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
                     404 if none. web/main.js starts it without the file picker (the Docker image mounts /rom)
 
-WEBBY_AUTH=1 puts an optional passkey sign-in gate in front of all of that (tools/auth/): the splash page lives at
-/auth/, the dashboard at /, the game at /play, and everything else needs a session cookie. Without the variable
+WEBBY_KONG_AUTH=1 puts an optional passkey sign-in gate in front of all of that (tools/auth/): the splash page lives
+at /auth/, the dashboard at /, the game at /play, and everything else needs a session cookie. Without the variable
 every URL behaves exactly as described above.
+
+Every setting comes from a WEBBY_KONG_* environment variable, and a command-line flag overrides it:
+
+  --dir   WEBBY_KONG_DIR    directory to serve (default build/web)
+  --port  WEBBY_KONG_PORT   port to listen on (default 8080)
+  --bind  WEBBY_KONG_BIND   address to listen on (default :: = all interfaces)
+  --db    WEBBY_KONG_DB     saves database (default ~/.local/share/webby-kong/saves.sqlite3)
+  --rom   WEBBY_KONG_ROM    ROM file or directory served at /api/rom (default none)
+
+The Docker image sets the same variables (WEBBY_KONG_DIR=/srv/web, WEBBY_KONG_BIND=0.0.0.0,
+WEBBY_KONG_DB=/data/saves.sqlite3, WEBBY_KONG_ROM=/rom), so `docker run --env-file .env` and `mise run serve` take
+one file of settings. The effective configuration (including the sign-in settings, with the SMTP password only as
+set/unset) is printed at startup.
 
 Recovery with the sqlite3 CLI (DB defaults to ~/.local/share/webby-kong/saves.sqlite3):
 
@@ -26,17 +39,26 @@ import contextlib
 import functools
 import hashlib
 import http.server
+import os
 import socket
 import sqlite3
 import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 
 import auth
+from auth import config as auth_config
 
 API_PATH = "/api/eeprom"
 ROM_PATH = "/api/rom"
 ROM_SUFFIXES = {".z64", ".n64", ".v64"}
 EEPROM_SIZE = 2048
+ENV_VARS = {"dir": "WEBBY_KONG_DIR", "port": "WEBBY_KONG_PORT", "bind": "WEBBY_KONG_BIND",
+            "db": "WEBBY_KONG_DB", "rom": "WEBBY_KONG_ROM"}
+DEFAULT_DIR = "build/web"
+DEFAULT_PORT = 8080
+DEFAULT_BIND = "::"
+DEFAULT_DB = "~/.local/share/webby-kong/saves.sqlite3"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS eeprom (
   id INTEGER PRIMARY KEY,
@@ -59,6 +81,95 @@ def find_rom(path):
         roms = sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in ROM_SUFFIXES)
         return roms[0] if roms else None
     return None
+
+
+@dataclass(frozen=True)
+class Settings:
+    """One server process's configuration: flags over WEBBY_KONG_* variables over the defaults, plus sign-in."""
+    dir: Path
+    port: int
+    bind: str
+    db: Path
+    rom: Path | None
+    auth: auth_config.Config
+
+
+def parser():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dir", metavar="PATH", help=f"directory to serve (env {ENV_VARS['dir']}, default {DEFAULT_DIR})")
+    ap.add_argument("--port", type=int, metavar="PORT",
+                    help=f"port to listen on (env {ENV_VARS['port']}, default {DEFAULT_PORT})")
+    ap.add_argument("--bind", metavar="ADDRESS",
+                    help=f"address to listen on (env {ENV_VARS['bind']}, default {DEFAULT_BIND} = all interfaces)")
+    ap.add_argument("--db", metavar="PATH", help=f"saves database (env {ENV_VARS['db']}, default {DEFAULT_DB})")
+    ap.add_argument("--rom", metavar="PATH",
+                    help="ROM file, or a directory holding one *.z64/*.n64/*.v64, served at /api/rom "
+                         f"(env {ENV_VARS['rom']}, default none)")
+    return ap
+
+
+def resolve(argv=None, environ=None):
+    """Flags over WEBBY_KONG_* over the defaults; argv=None and environ=None mean sys.argv and os.environ."""
+    env = os.environ if environ is None else environ
+    ap = parser()
+    args = ap.parse_args(argv)
+
+    def value(name):
+        chosen = getattr(args, name)
+        if chosen is None:
+            chosen = (env.get(ENV_VARS[name]) or "").strip() or None
+        return chosen
+
+    port = value("port")
+    if port is None:
+        port = DEFAULT_PORT
+    else:
+        try:
+            port = int(port)
+        except ValueError:
+            ap.error(f"{ENV_VARS['port']}: {port!r} is not a port")
+
+    rom = value("rom")
+    return Settings(
+        dir=Path(value("dir") or DEFAULT_DIR).expanduser(),
+        port=port,
+        bind=value("bind") or DEFAULT_BIND,
+        db=Path(value("db") or DEFAULT_DB).expanduser(),
+        rom=Path(rom).expanduser() if rom is not None else None,
+        auth=auth_config.from_env(env),
+    )
+
+
+def describe(settings):
+    """The effective configuration as printable lines; the SMTP password is only ever reported as set or unset."""
+    rom = find_rom(settings.rom) if settings.rom is not None else None
+    rom_line = "rom=(none)" if settings.rom is None else f"rom={settings.rom} ({rom or 'no ROM file'})"
+    lines = [
+        f"dir={settings.dir}",
+        f"bind={settings.bind}",
+        f"port={settings.port}",
+        f"db={settings.db}",
+        rom_line,
+    ]
+    auth = settings.auth
+    lines.append(f"auth={'on' if auth.enabled else 'off'}")
+    if auth.enabled:
+        smtp = auth.smtp
+        origin = auth.origin
+        if not auth.secure_cookies and auth.rp_id not in ("localhost", "127.0.0.1", "::1"):
+            origin += " (passkeys need https or localhost)"
+        lines += [
+            f"auth.origin={origin}",
+            f"auth.rp_id={auth.rp_id}",
+            f"auth.rp_name={auth.rp_name}",
+            f"auth.session_days={auth.session_days}",
+            f"auth.registration_open={'on' if auth.registration_open else 'off'}",
+            f"auth.secure_cookies={'on' if auth.secure_cookies else 'off'}",
+            (f"auth.smtp={smtp.host}:{smtp.port} tls={smtp.tls} from={smtp.sender} "
+             f"user={smtp.username or '(none)'} password={'set' if smtp.password else 'unset'}")
+            if smtp.configured else "auth.smtp=(not configured: invite links are copied instead)",
+        ]
+    return lines
 
 
 class Server(http.server.ThreadingHTTPServer):
@@ -169,34 +280,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dir", default="build/web", help="directory to serve (default build/web)")
-    ap.add_argument("--port", type=int, default=8080)
-    ap.add_argument("--bind", default="::", help="address to listen on (default :: = all interfaces)")
-    ap.add_argument("--db", type=Path, default=Path.home() / ".local/share/webby-kong/saves.sqlite3")
-    ap.add_argument("--rom", type=Path,
-                    help="ROM file, or a directory holding one *.z64/*.n64/*.v64; served at /api/rom")
-    args = ap.parse_args()
-
-    args.db.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.closing(sqlite3.connect(args.db)) as conn:
+def main(argv=None):
+    settings = resolve(argv)
+    settings.db.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.closing(sqlite3.connect(settings.db)) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
-    config = auth.configure(args.db)
+    auth.configure(settings.db, config=settings.auth)
 
-    Handler.db_path = args.db
-    Handler.rom_path = args.rom
-    if ":" not in args.bind:
+    Handler.db_path = settings.db
+    Handler.rom_path = settings.rom
+    if ":" not in settings.bind:
         Server.address_family = socket.AF_INET
-    handler = functools.partial(Handler, directory=args.dir)
-    with Server((args.bind, args.port), handler) as httpd:
-        print(f"serving {args.dir} on [{args.bind}]:{args.port}, saves in {args.db}", flush=True)
-        if config.enabled:
-            print(f"sign-in: enabled, origin {config.origin} (passkeys need https or localhost)", flush=True)
-        if args.rom is not None:
-            rom = find_rom(args.rom)
-            print(f"rom: {rom}" if rom else f"rom: none in {args.rom}", flush=True)
+    handler = functools.partial(Handler, directory=str(settings.dir))
+    with Server((settings.bind, settings.port), handler) as httpd:
+        for line in describe(settings):
+            print(f"config: {line}", flush=True)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

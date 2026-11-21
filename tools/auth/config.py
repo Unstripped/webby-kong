@@ -29,7 +29,7 @@ def _int(value, default):
 
 
 def _origin_and_rp_id(external_url):
-    """WEBBY_EXTERNAL_URL -> (origin, rp_id). The origin is used verbatim (scheme://host[:port]) and is the only
+    """WEBBY_KONG_EXTERNAL_URL -> (origin, rp_id). The origin is used verbatim (scheme://host[:port]) and is the only
     origin the API accepts; the host without its port is the WebAuthn RP ID, which the spec requires to be a
     registrable domain suffix of that origin's host."""
     raw = (external_url or "").strip() or DEFAULT_EXTERNAL_URL
@@ -84,25 +84,25 @@ class Config:
 
 def from_env(environ=None):
     env = os.environ if environ is None else environ
-    origin, rp_id = _origin_and_rp_id(env.get("WEBBY_EXTERNAL_URL"))
+    origin, rp_id = _origin_and_rp_id(env.get("WEBBY_KONG_EXTERNAL_URL"))
     scheme = origin.split("://", 1)[0]
-    username = (env.get("WEBBY_SMTP_USERNAME") or "").strip() or None
-    tls = (env.get("WEBBY_SMTP_TLS") or "starttls").strip().lower()
+    username = (env.get("WEBBY_KONG_SMTP_USERNAME") or "").strip() or None
+    tls = (env.get("WEBBY_KONG_SMTP_TLS") or "starttls").strip().lower()
     return Config(
-        enabled=_bool(env.get("WEBBY_AUTH")),
+        enabled=_bool(env.get("WEBBY_KONG_AUTH")),
         origin=origin,
         rp_id=rp_id,
-        rp_name=(env.get("WEBBY_RP_NAME") or "").strip() or DEFAULT_RP_NAME,
-        session_days=max(1, _int(env.get("WEBBY_SESSION_DAYS"), DEFAULT_SESSION_DAYS)),
-        registration_open=_bool(env.get("WEBBY_REGISTRATION_OPEN"), default=True),
+        rp_name=(env.get("WEBBY_KONG_RP_NAME") or "").strip() or DEFAULT_RP_NAME,
+        session_days=max(1, _int(env.get("WEBBY_KONG_SESSION_DAYS"), DEFAULT_SESSION_DAYS)),
+        registration_open=_bool(env.get("WEBBY_KONG_REGISTRATION_OPEN"), default=True),
         secure_cookies=scheme == "https",
         smtp=SmtpConfig(
-            host=(env.get("WEBBY_SMTP_HOST") or "").strip() or None,
-            port=_int(env.get("WEBBY_SMTP_PORT"), DEFAULT_SMTP_PORT),
+            host=(env.get("WEBBY_KONG_SMTP_HOST") or "").strip() or None,
+            port=_int(env.get("WEBBY_KONG_SMTP_PORT"), DEFAULT_SMTP_PORT),
             username=username,
-            password=env.get("WEBBY_SMTP_PASSWORD") or None,
-            sender=(env.get("WEBBY_SMTP_FROM") or "").strip() or username,
+            password=env.get("WEBBY_KONG_SMTP_PASSWORD") or None,
+            sender=(env.get("WEBBY_KONG_SMTP_FROM") or "").strip() or username,
             tls=tls if tls in TLS_MODES else "starttls",
-            timeout=float(_int(env.get("WEBBY_SMTP_TIMEOUT"), 10)),
+            timeout=float(_int(env.get("WEBBY_KONG_SMTP_TIMEOUT"), 10)),
         ),
     )

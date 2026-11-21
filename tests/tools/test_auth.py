@@ -93,7 +93,7 @@ def fake_verified_registration(credential_id=b"credential-1", sign_count=0):
 
 class AuthEnabledTest(unittest.TestCase):
     def setUp(self):
-        self.app = AuthServer({"WEBBY_AUTH": "1", "WEBBY_EXTERNAL_URL": ORIGIN})
+        self.app = AuthServer({"WEBBY_KONG_AUTH": "1", "WEBBY_KONG_EXTERNAL_URL": ORIGIN})
         self.addCleanup(self.app.close)
         self.addCleanup(auth.reset)
         self.registrations = []
@@ -247,7 +247,8 @@ class AuthEnabledTest(unittest.TestCase):
         self.assertNotIn("Secure", cookie)
 
     def test_secure_cookie_and_origin_follow_the_external_url(self):
-        auth.configure(self.app.db_path, {"WEBBY_AUTH": "1", "WEBBY_EXTERNAL_URL": "https://kong.example.com"})
+        auth.configure(self.app.db_path, {"WEBBY_KONG_AUTH": "1",
+                                          "WEBBY_KONG_EXTERNAL_URL": "https://kong.example.com"})
         resp, payload = self.post("/auth/api/register/options", {"username": "alice"})
         self.assertEqual(resp.status, 403)  # the http://localhost:8080 Origin no longer matches
         resp, payload = self.post("/auth/api/register/options", {"username": "alice"},
@@ -603,7 +604,7 @@ class ServeScriptTest(unittest.TestCase):
                 "--db", str(self.db_path)]
 
     def env(self, **overrides):
-        base = dict(os.environ, WEBBY_AUTH="", WEBBY_EXTERNAL_URL="http://localhost:8080")
+        base = dict(os.environ, WEBBY_KONG_AUTH="", WEBBY_KONG_EXTERNAL_URL="http://localhost:8080")
         base.update(overrides)
         return base
 
@@ -637,7 +638,7 @@ class ServeScriptTest(unittest.TestCase):
 
     def test_auth_on_without_py_webauthn_fails_loudly(self):
         done = subprocess.run(self.command() + ["--port", str(self.free_port())], cwd=ROOT,
-                              env=self.env(WEBBY_AUTH="1"), capture_output=True, timeout=60, text=True)
+                              env=self.env(WEBBY_KONG_AUTH="1"), capture_output=True, timeout=60, text=True)
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("requirements-server.txt", done.stdout + done.stderr)
 

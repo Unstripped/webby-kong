@@ -3,6 +3,7 @@ import contextlib
 import functools
 import hashlib
 import http.client
+import io
 import sqlite3
 import sys
 import tempfile
@@ -130,6 +131,75 @@ class RomServerTest(unittest.TestCase):
     def test_no_rom_option_is_404(self):
         resp, _ = self.get_rom(None)
         self.assertEqual(resp.status, 404)
+
+
+class ConfigTest(unittest.TestCase):
+    """serve.resolve(): a flag overrides WEBBY_KONG_*, which overrides the default; describe() hides secrets."""
+
+    def test_defaults(self):
+        settings = serve.resolve([], {})
+        self.assertEqual(settings.dir, Path("build/web"))
+        self.assertEqual(settings.port, 8080)
+        self.assertEqual(settings.bind, "::")
+        self.assertEqual(settings.db, Path.home() / ".local/share/webby-kong/saves.sqlite3")
+        self.assertIsNone(settings.rom)
+        self.assertFalse(settings.auth.enabled)
+
+    def test_environment_is_used(self):
+        settings = serve.resolve([], {"WEBBY_KONG_DIR": "/srv/web", "WEBBY_KONG_PORT": "9000",
+                                      "WEBBY_KONG_BIND": "0.0.0.0", "WEBBY_KONG_DB": "/data/saves.sqlite3",
+                                      "WEBBY_KONG_ROM": "/rom"})
+        self.assertEqual((settings.dir, settings.port, settings.bind, settings.db, settings.rom),
+                         (Path("/srv/web"), 9000, "0.0.0.0", Path("/data/saves.sqlite3"), Path("/rom")))
+
+    def test_flag_overrides_environment(self):
+        settings = serve.resolve(["--dir", "build/web", "--port", "8081", "--bind", "127.0.0.1",
+                                  "--db", "local.sqlite3", "--rom", "dk64.z64"],
+                                 {"WEBBY_KONG_DIR": "/srv/web", "WEBBY_KONG_PORT": "9000",
+                                  "WEBBY_KONG_BIND": "0.0.0.0", "WEBBY_KONG_DB": "/data/saves.sqlite3",
+                                  "WEBBY_KONG_ROM": "/rom"})
+        self.assertEqual((settings.dir, settings.port, settings.bind, settings.db, settings.rom),
+                         (Path("build/web"), 8081, "127.0.0.1", Path("local.sqlite3"), Path("dk64.z64")))
+
+    def test_empty_variables_are_the_defaults(self):
+        settings = serve.resolve([], {"WEBBY_KONG_DIR": "", "WEBBY_KONG_PORT": "", "WEBBY_KONG_BIND": " ",
+                                      "WEBBY_KONG_DB": "", "WEBBY_KONG_ROM": ""})
+        self.assertEqual((settings.dir, settings.port, settings.bind),
+                         (Path("build/web"), 8080, "::"))
+        self.assertIsNone(settings.rom)
+
+    def test_home_in_a_variable_is_expanded(self):
+        self.assertEqual(serve.resolve([], {"WEBBY_KONG_DB": "~/saves.sqlite3"}).db,
+                         Path.home() / "saves.sqlite3")
+
+    def test_a_bad_port_names_the_variable(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            serve.resolve([], {"WEBBY_KONG_PORT": "http"})
+        self.assertIn("WEBBY_KONG_PORT", stderr.getvalue())
+
+    def test_sign_in_settings_come_from_the_same_environment(self):
+        settings = serve.resolve([], {"WEBBY_KONG_AUTH": "1",
+                                      "WEBBY_KONG_EXTERNAL_URL": "https://kong.example.com"})
+        self.assertTrue(settings.auth.enabled)
+        self.assertEqual(settings.auth.origin, "https://kong.example.com")
+        self.assertEqual(settings.auth.rp_id, "kong.example.com")
+
+    def test_describe_prints_every_setting_but_the_smtp_password(self):
+        settings = serve.resolve([], {"WEBBY_KONG_AUTH": "1", "WEBBY_KONG_SMTP_HOST": "smtp.example.com",
+                                      "WEBBY_KONG_SMTP_USERNAME": "kong", "WEBBY_KONG_SMTP_PASSWORD": "hunter2"})
+        text = "\n".join(serve.describe(settings))
+        self.assertIn("dir=build/web", text)
+        self.assertIn("port=8080", text)
+        self.assertIn("auth=on", text)
+        self.assertIn("password=set", text)
+        self.assertNotIn("hunter2", text)
+
+    def test_describe_with_the_gate_off(self):
+        lines = serve.describe(serve.resolve([], {}))
+        self.assertIn("rom=(none)", lines)
+        self.assertIn("auth=off", lines)
+        self.assertEqual([line for line in lines if line.startswith("auth.")], [])
 
 
 if __name__ == "__main__":
