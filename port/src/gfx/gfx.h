@@ -50,6 +50,8 @@ void gfxTmemLoadTile(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, i
 void gfxTmemLoadTlut(const GfxState *st, u32 timg, int tile, u32 count);
 /* decode tile `t` into an RGBA8 image (pointer valid until next decode); returns 0 if empty */
 int gfxTmemDecode(const GfxState *st, int t, GfxTexImage *out);
+/* the size and key gfxTmemDecode would return, without decoding (rgba NULL); 0 if empty */
+int gfxTmemKey(const GfxState *st, int t, GfxTexImage *out);
 u32 gfxTileWidth(const GfxTile *t);
 u32 gfxTileHeight(const GfxTile *t);
 
@@ -66,6 +68,14 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
 void gfxBackendPresent(u32 fb, int black);
 void gfxBackendCpuWrote(u32 addr, u32 len);
 void gfxBackendSyncRdram(u32 addr, u32 len);
+/* frame interpolation (gfx.c): the backend draws a VI-image task's second, matrix-blended pass into the in-between
+ * image (offscreen images and RDRAM are left alone) and presents it on request. The null backend has none. */
+int gfxBackendInterpEnabled(void);
+void gfxBackendInterpBegin(void);
+void gfxBackendInterpEnd(void);
+int gfxBackendPresentInterp(void);
+void gfxInterpReset(void);
+int gfxInterpQsRanges(QsRange *out);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);

@@ -44,6 +44,7 @@ static void runAll(void) {
 
 static void viTick(void) {
     u64 end = portTimeNow() + PORT_CYCLES_PER_VI;
+    portGfxRunDeferred(); /* last VI's in-between image, before the game runs on */
     gPortStatVi++;
     portAudioPeakTick();
     portViTick();
@@ -86,6 +87,8 @@ void port_frame_step(double elapsedMs) {
         gPortViSwapped = 0;
         gPortStatFrames++;
         portGfxPresent(gPortViCurrentFb, gPortViBlack);
+    } else if (!gPortViBlack && portGfxPresentInterp()) {
+        gPortStatFrames++; /* the in-between image on the VI before the next game frame's swap */
     }
     portSaveFlushIfDue(emscripten_get_now());
 }

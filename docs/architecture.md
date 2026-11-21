@@ -54,6 +54,10 @@ flowchart LR
 - Memory model: wasm addresses 0–8 MB are N64 RDRAM 1:1; every game-visible static and stack lives below
   16 MB, so F3DEX2 segment math works on host pointers.
 - `-sGLOBAL_BASE=8MB`: emcc rejects a hex value for this setting.
+- Asyncify instruments every function that can reach a fiber switch, and indirect calls (printf, SDL) pull in
+  most of the renderer. `gfx/` and `audio/naudio.c` never switch fibers, so both builds list their functions in
+  `ASYNCIFY_REMOVE` (`tools/asyncify_remove.py`, from the `dk64_rsp`/`dk64_gl` objects). Code in those files must
+  not call anything that blocks on a message queue; asyncify's asserts (ASSERTIONS) trap if it does.
 - wasm clang ignores `#pragma clang section`, so overlay data is bracketed by link-order marker objects
   (`build/web/ovl_markers/`) instead; loading an overlay restores its pristine data and zeroes its bss.
 - libultra's VI mode tables are compiled from the decomp (`vitbl.c`, `vimodes/`); `port/src/boot.c` replaces
@@ -66,7 +70,19 @@ flowchart LR
 - Textures in `data_inc.us.txt` blobs stay in N64 byte order (the RDP reads them so); C data is native, so a reader
   of another width than the definition needs a patch (or a fix of the decomp's type: they must match).
 - Pacing: the scheduler freezes the RDP after a framebuffer swap and thaws it on the retrace that shows it; the
-  port holds the next gfx task while frozen, which is what limits the game to its 30 Hz frame rate.
+  port holds the next gfx task while frozen, which is what limits the game to its 30 Hz frame rate. Game logic
+  stays at that rate: most of it counts frames (cutscenes, actor timers), so running it every VI doubles its speed.
+- 60 fps by interpolation (`gfx.c`, "frame interpolation"): after a task that draws the VI image, the renderer
+  runs its display list again at the start of the next VI with every matrix halfway between this frame's and the
+  previous frame's, into a twin of the VI image with its own depth buffer; `port_frame_step` presents it on the
+  VI between the two swaps, so the game frames keep their VIs and no latency is added. Matrices pair up by load
+  kind, the vertex address they first transform and occurrence; unmatched or jumping matrices (cuts, spawns, CPU
+  built sprites) keep the frame's value. The replay repeats the first pass's `G_BRANCH_Z`/`G_CULLDL` outcomes and
+  leaves RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build.
+- Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
+  one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
+  z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied
+  to host memory before the replay is queued, so those reads no longer wait for the GPU; each copies just its pixel.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the

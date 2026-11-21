@@ -25,11 +25,21 @@ static u32 swapUnit(u32 siz) {
     return siz == G_IM_SIZ_32b ? 8 : 4;
 }
 
+/* fixed-size copies: these compile to plain loads and stores, a variable `unit` would call memmove per group */
 static void swapHalves(u8 *p, u32 unit) {
-    u8 tmp[8];
-    memcpy(tmp, p, unit);
-    memmove(p, p + unit, unit);
-    memcpy(p + unit, tmp, unit);
+    if (unit == 4) {
+        u32 a, b;
+        memcpy(&a, p, 4);
+        memcpy(&b, p + 4, 4);
+        memcpy(p, &b, 4);
+        memcpy(p + 4, &a, 4);
+    } else {
+        u64 a, b;
+        memcpy(&a, p, 8);
+        memcpy(&b, p + 8, 8);
+        memcpy(p, &b, 8);
+        memcpy(p + 8, &a, 8);
+    }
 }
 
 /* copies n bytes from RDRAM to TMEM at dst, rounded up to whole swap groups and clipped to TMEM; returns the
@@ -56,8 +66,9 @@ void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, 
     u32 dst = (u32)t->tmem * 8;
     u32 i;
     bytes = tmemCopy(dst, src, bytes, group);
-    /* the dxt counter advances once per 64-bit RDRAM word; its integer part is the TMEM line */
-    for (i = 0; i + group <= bytes; i += group) {
+    /* the dxt counter advances once per 64-bit RDRAM word; its integer part is the TMEM line. dxt 0 (model
+     * textures stored pre-swizzled) never leaves line 0. */
+    for (i = 0; dxt != 0 && i + group <= bytes; i += group) {
         if ((((i / 8) * dxt) >> 11) & 1) {
             swapHalves(&gGfxTmem[dst + i], unit);
         }
@@ -130,10 +141,36 @@ u32 gfxTileHeight(const GfxTile *t) {
     return tileDim(t->ult, t->lrt, t->maskt, t->cmt);
 }
 
-static u64 fnv(u64 h, const u8 *p, u32 n) {
-    u32 i;
-    for (i = 0; i < n; i++) {
-        h = (h ^ p[i]) * 1099511628211ull;
+/* FNV-1a style over 64-bit words (tail bytewise): the key covers up to all of TMEM on every textured draw. Four
+ * lanes with distinct seeds take 32 bytes per step, so their multiply chains overlap. */
+static u64 hashBytes(u64 h, const u8 *p, u32 n) {
+    const u64 prime = 1099511628211ull;
+    u32 i = 0;
+    if (n >= 32) {
+        u64 a = h, b = h ^ 0x9E3779B97F4A7C15ull, c = h ^ 0xC2B2AE3D27D4EB4Full, d = h ^ 0x165667B19E3779F9ull;
+        for (; i + 32 <= n; i += 32) {
+            u64 w[4];
+            memcpy(w, p + i, 32);
+            a = (a ^ w[0]) * prime;
+            b = (b ^ w[1]) * prime;
+            c = (c ^ w[2]) * prime;
+            d = (d ^ w[3]) * prime;
+            a ^= a >> 32;
+            b ^= b >> 32;
+            c ^= c >> 32;
+            d ^= d >> 32;
+        }
+        h = (((((a * prime) ^ b) * prime ^ c) * prime) ^ d) * prime;
+        h ^= h >> 32;
+    }
+    for (; i + 8 <= n; i += 8) {
+        u64 w;
+        memcpy(&w, p + i, 8);
+        h = (h ^ w) * prime;
+        h ^= h >> 32;
+    }
+    for (; i < n; i++) {
+        h = (h ^ p[i]) * prime;
     }
     return h;
 }
@@ -156,45 +193,77 @@ static void tlutColor(u32 tt, u32 index, u8 *o) {
     }
 }
 
-int gfxTmemDecode(const GfxState *st, int ti, GfxTexImage *out) {
+/* tile `ti` as decoded by gfxTmemDecode: size, TMEM layout and the cache key of its texels and parameters */
+typedef struct {
+    u32 w, h, base, stride, tt;
+} TileLayout;
+
+static int tileLayout(const GfxState *st, int ti, TileLayout *l, u64 *key) {
     const GfxTile *t = &st->tiles[ti];
-    u32 w = gfxTileWidth(t), h = gfxTileHeight(t);
-    u32 base = (u32)t->tmem * 8;
-    u32 stride = (u32)t->line * 8;
-    u32 tt = st->otherH & (3u << G_MDSFT_TEXTLUT);
-    u32 x, y;
-    u64 key = 1469598103934665603ull;
     u32 span;
-    if (w == 0 || h == 0 || w > 1024 || h > 1024) {
+    u64 k = 1469598103934665603ull;
+    l->w = gfxTileWidth(t);
+    l->h = gfxTileHeight(t);
+    l->base = (u32)t->tmem * 8;
+    l->stride = (u32)t->line * 8;
+    l->tt = st->otherH & (3u << G_MDSFT_TEXTLUT);
+    if (l->w == 0 || l->h == 0 || l->w > 1024 || l->h > 1024) {
         return 0;
     }
     if (t->siz == G_IM_SIZ_32b) {
-        stride *= 2;
+        l->stride *= 2;
     }
-    if (stride == 0) {
-        stride = (w * texelBytesX2(t->siz) + 1) / 2;
+    if (l->stride == 0) {
+        l->stride = (l->w * texelBytesX2(t->siz) + 1) / 2;
     }
     /* sampling wraps at the end of TMEM (TMEM_AT below), so the key covers the wrapped span */
-    span = stride * h;
+    span = l->stride * l->h;
     if (span > sizeof gGfxTmem) {
         span = sizeof gGfxTmem;
     }
-    if (base + span > sizeof gGfxTmem) {
-        key = fnv(key, &gGfxTmem[base], sizeof gGfxTmem - base);
-        key = fnv(key, gGfxTmem, base + span - sizeof gGfxTmem);
+    if (l->base + span > sizeof gGfxTmem) {
+        k = hashBytes(k, &gGfxTmem[l->base], sizeof gGfxTmem - l->base);
+        k = hashBytes(k, gGfxTmem, l->base + span - sizeof gGfxTmem);
     } else {
-        key = fnv(key, &gGfxTmem[base], span);
+        k = hashBytes(k, &gGfxTmem[l->base], span);
     }
     {
-        u32 params[6] = { t->fmt, t->siz, w, h, stride, t->palette | (tt << 8) };
-        key = fnv(key, (const u8 *)params, sizeof params);
+        u32 params[6] = { t->fmt, t->siz, l->w, l->h, l->stride, t->palette | (l->tt << 8) };
+        k = hashBytes(k, (const u8 *)params, sizeof params);
     }
     if (t->fmt == G_IM_FMT_CI) {
-        key = fnv(key, &gGfxTmem[0x800], 0x200);
+        k = hashBytes(k, &gGfxTmem[0x800], 0x200);
     }
+    *key = k;
+    return 1;
+}
+
+/* size and key only (rgba NULL): backends look the key up before paying for gfxTmemDecode */
+int gfxTmemKey(const GfxState *st, int ti, GfxTexImage *out) {
+    TileLayout l;
+    if (!tileLayout(st, ti, &l, &out->key)) {
+        return 0;
+    }
+    out->width = l.w;
+    out->height = l.h;
+    out->rgba = NULL;
+    return 1;
+}
+
+int gfxTmemDecode(const GfxState *st, int ti, GfxTexImage *out) {
+    const GfxTile *t = &st->tiles[ti];
+    TileLayout l;
+    u32 w, h, base, stride, tt, x, y;
+    if (!tileLayout(st, ti, &l, &out->key)) {
+        return 0;
+    }
+    w = l.w;
+    h = l.h;
+    base = l.base;
+    stride = l.stride;
+    tt = l.tt;
     out->width = w;
     out->height = h;
-    out->key = key;
     if (sDecoded == NULL) {
         sDecoded = malloc(1024 * 1024 * 4);
     }

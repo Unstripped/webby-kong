@@ -20,6 +20,7 @@ start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kon
 
 ## Features
 
+- 60 fps: an interpolated in-between frame on every other refresh; game logic runs at the N64's 30 Hz.
 - Widescreen (Hor+) at the browser window's resolution.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.

@@ -102,13 +102,22 @@ static void spDma(int toRdram, u32 memAddr, u32 dramAddr, u32 lenReg) {
     }
     for (r = 0; r < rows; r++) {
         u8 *host = (u8 *)(uintptr_t)(dram & 0xFFFFFF);
-        for (i = 0; i < len; i++) {
+        if (mem + len <= 0x1000) { /* no DMEM wrap: one block */
             if (toRdram) {
-                host[i] = sDmem[mem];
+                memcpy(host, &sDmem[mem], len);
             } else {
-                sDmem[mem] = host[i];
+                memcpy(&sDmem[mem], host, len);
             }
-            mem = (mem + 1) & 0xFFF;
+            mem = (mem + len) & 0xFFF;
+        } else {
+            for (i = 0; i < len; i++) {
+                if (toRdram) {
+                    host[i] = sDmem[mem];
+                } else {
+                    sDmem[mem] = host[i];
+                }
+                mem = (mem + 1) & 0xFFF;
+            }
         }
         dram += len + skip;
     }
@@ -242,12 +251,25 @@ static void vsar(int vd, int e) {
 
 enum { L_AND, L_XOR };
 
-static void vlogic(int kind, int vd, int vs, int vt, int e) {
-    s16 out[8];
+/* vt with the element selector applied: one branch per instruction instead of el()'s per lane */
+static inline void vtLanes(int vt, int e, s16 *t) {
     int i;
+    if (e < 2) {
+        memcpy(t, sV[vt], 16);
+        return;
+    }
+    for (i = 0; i < 8; i++) {
+        t[i] = sV[vt][el(e, i)];
+    }
+}
+
+static void vlogic(int kind, int vd, int vs, int vt, int e) {
+    s16 out[8], tv[8];
+    int i;
+    vtLanes(vt, e, tv);
     for (i = 0; i < 8; i++) {
         u16 s = (u16)sV[vs][i];
-        u16 t = (u16)sV[vt][el(e, i)];
+        u16 t = (u16)tv[i];
         out[i] = (s16)(kind == L_AND ? (s & t) : (s ^ t));
         setAccLow(i, (u16)out[i]);
     }
@@ -258,10 +280,11 @@ static void vlogic(int kind, int vd, int vs, int vt, int e) {
 #define vxor(d, s, t, e) vlogic(L_XOR, d, s, t, e)
 
 static void vadd(int vd, int vs, int vt, int e) {
-    s16 out[8];
+    s16 out[8], tv[8];
     int i;
+    vtLanes(vt, e, tv);
     for (i = 0; i < 8; i++) {
-        s32 r = sV[vs][i] + sV[vt][el(e, i)] + ((sVcoC >> i) & 1);
+        s32 r = sV[vs][i] + tv[i] + ((sVcoC >> i) & 1);
         setAccLow(i, (u16)r);
         out[i] = clampS16(r);
     }
@@ -270,10 +293,11 @@ static void vadd(int vd, int vs, int vt, int e) {
 }
 
 static void vsub(int vd, int vs, int vt, int e) {
-    s16 out[8];
+    s16 out[8], tv[8];
     int i;
+    vtLanes(vt, e, tv);
     for (i = 0; i < 8; i++) {
-        s32 r = sV[vs][i] - sV[vt][el(e, i)] - ((sVcoC >> i) & 1);
+        s32 r = sV[vs][i] - tv[i] - ((sVcoC >> i) & 1);
         setAccLow(i, (u16)r);
         out[i] = clampS16(r);
     }
@@ -282,11 +306,12 @@ static void vsub(int vd, int vs, int vt, int e) {
 }
 
 static void vaddc(int vd, int vs, int vt, int e) {
-    s16 out[8];
+    s16 out[8], tv[8];
     u8 carry = 0;
     int i;
+    vtLanes(vt, e, tv);
     for (i = 0; i < 8; i++) {
-        u32 r = (u32)(u16)sV[vs][i] + (u16)sV[vt][el(e, i)];
+        u32 r = (u32)(u16)sV[vs][i] + (u16)tv[i];
         carry |= (u8)((r >> 16) << i);
         setAccLow(i, (u16)r);
         out[i] = (s16)(u16)r;
@@ -298,11 +323,12 @@ static void vaddc(int vd, int vs, int vt, int e) {
 
 /* VGE (ge = 1) / VLT (ge = 0). */
 static void vcmp(int ge, int vd, int vs, int vt, int e) {
-    s16 out[8];
+    s16 out[8], tv[8];
     int i;
+    vtLanes(vt, e, tv);
     for (i = 0; i < 8; i++) {
         s16 s = sV[vs][i];
-        s16 t = sV[vt][el(e, i)];
+        s16 t = tv[i];
         int both = ((sVcoC >> i) & 1) && ((sVcoNe >> i) & 1);
         int pick = ge ? (s > t || (s == t && !both)) : (s < t || (s == t && both));
         out[i] = pick ? s : t;
@@ -325,11 +351,29 @@ static inline void vSetByte(int r, int k, u8 b) {
     *h = (k & 1) ? (u16)((*h & 0xFF00) | b) : (u16)((*h & 0x00FF) | (b << 8));
 }
 
+/* DMEM keeps hardware halfwords native (hwByte's ^1), so with an even element offset and an even address a
+ * vector load/store is whole halfword moves instead of byte merges */
+static inline s16 dmHalf(u32 a) {
+    u16 h;
+    memcpy(&h, &sDmem[a & 0xFFE], 2);
+    return (s16)h;
+}
+
+static inline void dmSetHalf(u32 a, s16 v) {
+    memcpy(&sDmem[a & 0xFFE], &v, 2);
+}
+
 /* Vector loads/stores: `e` is the element byte offset, `a` the final DMEM address. */
 static void lqv(int vt, int e, u32 a) {
     int k, end = e + 16 - (int)(a & 15);
     if (end > 16) {
         end = 16;
+    }
+    if (((e | (int)a) & 1) == 0) {
+        for (k = e; k < end; k += 2, a += 2) {
+            sV[vt][k >> 1] = dmHalf(a);
+        }
+        return;
     }
     for (k = e; k < end; k++) {
         vSetByte(vt, k, hwByte(a++));
@@ -339,6 +383,12 @@ static void lqv(int vt, int e, u32 a) {
 static void lrv(int vt, int e, u32 a) {
     int k = 16 - (int)((a & 15) - e);
     a &= ~15u;
+    if ((k & 1) == 0) {
+        for (; k < 16; k += 2, a += 2) {
+            sV[vt][k >> 1] = dmHalf(a);
+        }
+        return;
+    }
     for (; k < 16; k++) {
         vSetByte(vt, k, hwByte(a++));
     }
@@ -346,6 +396,12 @@ static void lrv(int vt, int e, u32 a) {
 
 static void ldv(int vt, int e, u32 a) {
     int k;
+    if (((e | (int)a) & 1) == 0) {
+        for (k = e; k < e + 8; k += 2, a += 2) {
+            sV[vt][(k & 15) >> 1] = dmHalf(a);
+        }
+        return;
+    }
     for (k = e; k < e + 8; k++) {
         vSetByte(vt, k & 15, hwByte(a++));
     }
@@ -366,6 +422,12 @@ static void lsv(int vt, int e, u32 a) {
 
 static void sqv(int vt, int e, u32 a) {
     int k, end = e + 16 - (int)(a & 15);
+    if (((e | (int)a) & 1) == 0) {
+        for (k = e; k < end; k += 2, a += 2) {
+            dmSetHalf(a, sV[vt][(k & 15) >> 1]);
+        }
+        return;
+    }
     for (k = e; k < end; k++) {
         hwSetByte(a++, vByte(vt, k & 15));
     }
@@ -373,6 +435,12 @@ static void sqv(int vt, int e, u32 a) {
 
 static void sdv(int vt, int e, u32 a) {
     int k;
+    if (((e | (int)a) & 1) == 0) {
+        for (k = e; k < e + 8; k += 2, a += 2) {
+            dmSetHalf(a, sV[vt][(k & 15) >> 1]);
+        }
+        return;
+    }
     for (k = e; k < e + 8; k++) {
         hwSetByte(a++, vByte(vt, k & 15));
     }
@@ -752,9 +820,9 @@ static void opResample(u32 w0, u32 w1) {
     sqv(22, 0, 0xFB0);
     vmadn(20, 31, 21, ES(3));
     sqv(20, 0, 0xFC0);
-    for (i = 0; i < 8; i++) {
-        addr[i] = (u32)dmRd16(0xFB0 + 2 * i);
-        coef[i] = (u32)dmRd16(0xFC0 + 2 * i);
+    for (i = 0; i < 8; i++) { /* the ucode's lh of what sqv just stored */
+        addr[i] = (u32)(s32)sV[22][i];
+        coef[i] = (u32)(s32)sV[20][i];
     }
     for (;;) {
         /* 0x1900 */
@@ -789,8 +857,8 @@ static void opResample(u32 w0, u32 w1) {
         vmulf(9, 15, 14, EW);
         sqv(20, 0, 0xFC0);
         for (i = 0; i < 8; i++) {
-            addr[i] = (u32)dmRd16(0xFB0 + 2 * i);
-            coef[i] = (u32)dmRd16(0xFC0 + 2 * i);
+            addr[i] = (u32)(s32)sV[22][i];
+            coef[i] = (u32)(s32)sV[20][i];
         }
         vmulf(8, 13, 12, EW);
         vadd(11, 11, 11, EQ(1));
