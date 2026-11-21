@@ -185,16 +185,23 @@ target_link_options(dk64 PRIVATE ${LINK_COMMON}
   -sENVIRONMENT=web -sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_NAME=createDk64 -sINVOKE_RUN=0 ${WEB_DEBUG_FLAGS})
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 asyncify_remove_list(dk64 dk64_rsp dk64_gl)
-# web files are their own outputs, so JS-only edits reach build/web without relinking dk64
+# Everything under web/ is its own output, so a JS-only edit reaches build/web without relinking dk64. The tree is
+# globbed (CONFIGURE_DEPENDS re-runs the glob at build time) instead of listed by hand, so a new page, stylesheet,
+# script or asset -- web/auth/, web/dashboard/, ... -- ships without an edit here. Dotfiles (.DS_Store, editor swap
+# files) are local noise, never part of the site, and are skipped.
+file(GLOB_RECURSE WEB_SRC CONFIGURE_DEPENDS LIST_DIRECTORIES false ${CMAKE_SOURCE_DIR}/web/*)
+list(SORT WEB_SRC)
 set(WEB_OUT)
-foreach(f index.html main.js settings.js saves.js debug.js quicksave.js nipplejs.js touch.js menu.js report.js
-    menu/wood.jpg menu/gb.png menu/banana-dk.png menu/banana-diddy.png menu/banana-lanky.png menu/banana-tiny.png
-    menu/banana-chunky.png menu/medal.png menu/blueprint.png menu/fairy.png menu/crown.png menu/key.png)
+foreach(src ${WEB_SRC})
+  file(RELATIVE_PATH f ${CMAKE_SOURCE_DIR}/web ${src})
+  if(f MATCHES "(^|/)[.]")
+    continue()
+  endif()
   get_filename_component(d ${CMAKE_BINARY_DIR}/${f} DIRECTORY)
   add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/${f}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${d}
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/web/${f} ${CMAKE_BINARY_DIR}/${f}
-    DEPENDS ${CMAKE_SOURCE_DIR}/web/${f})
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${src} ${CMAKE_BINARY_DIR}/${f}
+    DEPENDS ${src})
   list(APPEND WEB_OUT ${CMAKE_BINARY_DIR}/${f})
 endforeach()
 add_custom_target(dk64_web_files ALL DEPENDS ${WEB_OUT})

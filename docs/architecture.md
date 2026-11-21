@@ -49,6 +49,18 @@ flowchart LR
 - `overlay.c` — all overlays are linked in; "loading" one restores its pristine data and zeroes its bss.
 - `qs.c` — quicksave snapshots.
 
+## HTTP surface (`tools/serve.py`)
+
+`tools/serve.py` is the whole server: `ThreadingHTTPServer` over `SimpleHTTPRequestHandler`, one SQLite file.
+
+- Static files from `--dir` (`web/` plus the built `dk64.js`/`dk64.wasm`), as `python -m http.server` would serve them.
+- `GET`/`PUT /api/eeprom` keep every version of the 2 KB save; `GET /api/rom` hands the browser the mounted ROM.
+- `WEBBY_KONG_AUTH=1` adds the optional passkey gate (`tools/auth/`): `/auth/` splash, `/` dashboard, `/play` the game,
+  `/auth/api/*` plus `/api/{me,users,invites,settings}` JSON, and a session cookie (`HttpOnly; SameSite=Lax`) in front
+  of everything else. Users, credentials, sessions, invites and settings are tables in the same database file; the
+  code path for an auth-less deployment is unchanged.
+- Invite email is `tools/auth/mail.py` (SMTP, HTML + text), sent on demand from the dashboard, never from a queue.
+
 ## Notes on the port
 
 - Memory model: wasm addresses 0–8 MB are N64 RDRAM 1:1; every game-visible static and stack lives below
