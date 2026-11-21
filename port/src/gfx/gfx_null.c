@@ -57,6 +57,26 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)len;
 }
 
+void gfxBackendBlankSides(const GfxState *st) {
+    (void)st;
+}
+
+int gfxBackendInterpEnabled(void) {
+    return 0;
+}
+
+int gfxBackendSetInterp(int on) {
+    (void)on;
+    return 0;
+}
+
+void gfxBackendInterpBegin(void) {}
+void gfxBackendInterpEnd(void) {}
+
+int gfxBackendPresentInterp(void) {
+    return 0;
+}
+
 int portGfxWideSpanX(f32 *left, f32 *right) {
     (void)left;
     (void)right;

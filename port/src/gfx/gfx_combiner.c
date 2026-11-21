@@ -1,5 +1,6 @@
 /* RDP colour combiner -> GLSL ES 3.00: (a - b) * c + d per channel group, one or two cycles. */
 #include "gfx/gfx_gl.h"
+#include <math.h>
 #include <stdio.h>
 
 #define MAX_PROGRAMS 512
@@ -11,11 +12,19 @@ typedef struct {
 
 static ProgramEntry sPrograms[MAX_PROGRAMS];
 static int sProgramCount;
+/* compiled vertex shaders by source: every combiner program shares one */
+static struct {
+    const char *src;
+    GLuint shader;
+} sVertexShaders[4];
+static int sVertexShaderCount;
 
 int gfxCombinerQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sPrograms);
     out[1] = QS_RANGE(sProgramCount);
-    return 2;
+    out[2] = QS_RANGE(sVertexShaders);
+    out[3] = QS_RANGE(sVertexShaderCount);
+    return 4;
 }
 
 static const char *kVertex =
@@ -27,35 +36,51 @@ static const char *kVertex =
     "out vec2 vSt;\n"
     "void main() { gl_Position = aPos; vShade = aColor; vSt = aSt; }\n";
 
+/* status is not queried here: each query is a synchronous round trip to the GPU process (a build stalls the frame
+ * it happens in), so only a failed link fetches the compile logs */
 static GLuint compile(GLenum type, const char *src) {
     GLuint s = glCreateShader(type);
-    GLint ok = 0;
     glShaderSource(s, 1, &src, NULL);
     glCompileShader(s);
-    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[1024];
-        glGetShaderInfoLog(s, sizeof log, NULL, log);
-        portAbort("PORT: shader compile failed: %s\n%s", log, src);
-    }
     return s;
+}
+
+static GLuint vertexShader(const char *src) {
+    int i;
+    for (i = 0; i < sVertexShaderCount; i++) {
+        if (sVertexShaders[i].src == src) {
+            return sVertexShaders[i].shader;
+        }
+    }
+    if (sVertexShaderCount == (int)(sizeof sVertexShaders / sizeof sVertexShaders[0])) {
+        portAbort("PORT: more than %d vertex shaders", sVertexShaderCount);
+    }
+    sVertexShaders[sVertexShaderCount].src = src;
+    sVertexShaders[sVertexShaderCount].shader = compile(GL_VERTEX_SHADER, src);
+    return sVertexShaders[sVertexShaderCount++].shader;
 }
 
 GLuint gfxCompileProgram(const char *vs, const char *fs) {
     GLuint p = glCreateProgram();
+    GLuint v = vertexShader(vs), f = compile(GL_FRAGMENT_SHADER, fs);
     GLint ok = 0;
-    glAttachShader(p, compile(GL_VERTEX_SHADER, vs));
-    glAttachShader(p, compile(GL_FRAGMENT_SHADER, fs));
+    glAttachShader(p, v);
+    glAttachShader(p, f);
     glBindAttribLocation(p, 0, "aPos");
     glBindAttribLocation(p, 1, "aColor");
     glBindAttribLocation(p, 2, "aSt");
     glLinkProgram(p);
     glGetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) {
-        char log[1024];
-        glGetProgramInfoLog(p, sizeof log, NULL, log);
-        portAbort("PORT: shader link failed: %s", log);
+        char vlog[1024], flog[1024], plog[1024];
+        glGetShaderInfoLog(v, sizeof vlog, NULL, vlog);
+        glGetShaderInfoLog(f, sizeof flog, NULL, flog);
+        glGetProgramInfoLog(p, sizeof plog, NULL, plog);
+        portAbort("PORT: shader link failed: %s\nvertex: %s\nfragment: %s\n%s", plog, vlog, flog, fs);
     }
+    glDetachShader(p, v);
+    glDetachShader(p, f);
+    glDeleteShader(f);
     return p;
 }
 
@@ -136,6 +161,12 @@ static void emitCycle(char *out, size_t cap, int cycle, u32 hi, u32 lo, u8 *tex)
              colorIn(0, a, tex), colorIn(1, b, tex), colorIn(2, c, tex), colorIn(3, d, tex),
              alphaIn(0, aa, tex), alphaIn(1, ab, tex), alphaIn(2, ac, tex), alphaIn(3, ad, tex));
     strncat(out, buf, cap - strlen(out) - 1);
+}
+
+static void nanFill(float *c, int n) {
+    while (n-- > 0) {
+        *c++ = NAN;
+    }
 }
 
 static GfxProgram build(const GfxProgramKey *k) {
@@ -230,16 +261,38 @@ static GfxProgram build(const GfxProgramKey *k) {
     p.uMipSize = glGetUniformLocation(p.prog, "uMipSize");
     p.usesTex0 = tex[0];
     p.usesTex1 = tex[1];
+    /* uniform shadows start unknown: NaN compares unequal to every value */
+    nanFill(p.cPrim, 4);
+    nanFill(p.cEnv, 4);
+    nanFill(p.cFog, 4);
+    nanFill(p.cBlend, 4);
+    nanFill(p.cTile0, 4);
+    nanFill(p.cTile1, 4);
+    nanFill(p.cSize0, 2);
+    nanFill(p.cSize1, 2);
+    nanFill(&p.cPrimLod, 1);
+    nanFill(&p.cAlphaRef, 1);
+    nanFill(&p.cPrimDepth, 1);
+    nanFill(&p.cLodScale, 1);
+    nanFill(&p.cMaxLevel, 1);
     glUseProgram(p.prog);
     glUniform1i(p.uTex0, 0);
     glUniform1i(p.uTex1, 1);
+    gGfxProgramBuilt = 1;
     return p;
 }
 
-const GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
+int gGfxProgramBuilt;
+
+GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
+    static int last = -1;
     int i;
+    if (last >= 0 && last < sProgramCount && memcmp(&sPrograms[last].key, key, sizeof *key) == 0) {
+        return &sPrograms[last].prog;
+    }
     for (i = 0; i < sProgramCount; i++) {
         if (memcmp(&sPrograms[i].key, key, sizeof *key) == 0) {
+            last = i;
             return &sPrograms[i].prog;
         }
     }
@@ -248,5 +301,6 @@ const GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
     }
     sPrograms[sProgramCount].key = *key;
     sPrograms[sProgramCount].prog = build(key);
+    last = sProgramCount;
     return &sPrograms[sProgramCount++].prog;
 }

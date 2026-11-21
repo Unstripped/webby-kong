@@ -94,9 +94,8 @@ set(PORT_INCLUDES ${CMAKE_SOURCE_DIR}/port/include ${CMAKE_SOURCE_DIR}/port/src 
 
 file(GLOB PORT_COMMON_SRC CONFIGURE_DEPENDS
   ${CMAKE_SOURCE_DIR}/port/src/ultra/*.c ${CMAKE_SOURCE_DIR}/port/src/asm/*.c
-  ${CMAKE_SOURCE_DIR}/port/src/endian/*.c ${CMAKE_SOURCE_DIR}/port/src/audio/*.c
-  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_tmem.c)
-list(REMOVE_ITEM PORT_COMMON_SRC ${CMAKE_SOURCE_DIR}/port/src/ultra/ai.c)
+  ${CMAKE_SOURCE_DIR}/port/src/endian/*.c ${CMAKE_SOURCE_DIR}/port/src/audio/*.c)
+list(REMOVE_ITEM PORT_COMMON_SRC ${CMAKE_SOURCE_DIR}/port/src/ultra/ai.c ${CMAKE_SOURCE_DIR}/port/src/audio/naudio.c)
 list(APPEND PORT_COMMON_SRC
   ${CMAKE_SOURCE_DIR}/port/src/mem.c ${CMAKE_SOURCE_DIR}/port/src/boot.c ${CMAKE_SOURCE_DIR}/port/src/overlay.c
   ${CMAKE_SOURCE_DIR}/port/src/debug.c ${CMAKE_SOURCE_DIR}/port/src/qs.c ${CMAKE_SOURCE_DIR}/port/src/progress.c
@@ -105,6 +104,15 @@ list(APPEND PORT_COMMON_SRC
 add_library(dk64_port OBJECT ${PORT_COMMON_SRC})
 target_compile_options(dk64_port PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_port PRIVATE ${PORT_INCLUDES})
+# RSP task HLE (display lists, audio) shared by both frontends, and the WebGL backend: kept out of asyncify
+add_library(dk64_rsp OBJECT ${CMAKE_SOURCE_DIR}/port/src/audio/naudio.c
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_tmem.c)
+target_compile_options(dk64_rsp PRIVATE ${PORT_C_FLAGS})
+target_include_directories(dk64_rsp PRIVATE ${PORT_INCLUDES})
+add_library(dk64_gl OBJECT ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_gl.c
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c)
+target_compile_options(dk64_gl PRIVATE ${PORT_C_FLAGS} -sUSE_SDL=2)
+target_include_directories(dk64_gl PRIVATE ${PORT_INCLUDES})
 
 # per-frontend port sources (#ifdef PORT_HEADLESS)
 set(PORT_FRONTEND_SRC
@@ -120,10 +128,31 @@ set(LINK_COMMON
 # fail the link on wasm-ld function signature mismatches
 set(LINK_CHECK ${CMAKE_SOURCE_DIR}/tools/link_check.sh)
 
+# RSP task HLE and the WebGL backend never reach a fiber switch: keep asyncify's instrumentation out of them
+# (tools/asyncify_remove.py lists every function their objects define; ASSERTIONS makes asyncify trap if a listed
+# function is ever on a switching stack). The headless build uses it too, so its long regression runs exercise the
+# list under those asserts.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_program(LLVM_NM llvm-nm HINTS ${EMSCRIPTEN_ROOT_PATH}/../bin NO_DEFAULT_PATH REQUIRED)
+function(asyncify_remove_list target)
+  set(objs)
+  foreach(lib ${ARGN})
+    list(APPEND objs $<TARGET_OBJECTS:${lib}>)
+  endforeach()
+  set(out ${CMAKE_BINARY_DIR}/${target}_asyncify_remove.txt)
+  add_custom_command(OUTPUT ${out}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/asyncify_remove.py ${LLVM_NM} ${out} ${objs}
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/asyncify_remove.py ${ARGN} ${objs} VERBATIM COMMAND_EXPAND_LISTS)
+  add_custom_target(${target}_asyncify_remove DEPENDS ${out})
+  add_dependencies(${target} ${target}_asyncify_remove)
+  target_link_options(${target} PRIVATE -sASYNCIFY_REMOVE=@${out})
+  set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${out})
+endfunction()
+
 # ---------------------------------------------------------------- headless (node)
 add_executable(dk64_headless $<TARGET_OBJECTS:dk64_qs_begin>
   ${PORT_FRONTEND_SRC} ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_null.c
-  $<TARGET_OBJECTS:dk64_port> ${GAME_OBJECTS} ${CMAKE_BINARY_DIR}/qs_markers/qs_end.c)
+  $<TARGET_OBJECTS:dk64_port> $<TARGET_OBJECTS:dk64_rsp> ${GAME_OBJECTS} ${CMAKE_BINARY_DIR}/qs_markers/qs_end.c)
 target_compile_definitions(dk64_headless PRIVATE PORT_HEADLESS=1)
 target_compile_options(dk64_headless PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_headless PRIVATE ${PORT_INCLUDES})
@@ -136,23 +165,26 @@ target_link_options(dk64_headless PRIVATE ${LINK_COMMON} -sENVIRONMENT=node -sNO
   -sEXPORTED_FUNCTIONS=_main,_port_debug_stats -sASSERTIONS=1 -Wl,-Map=${CMAKE_BINARY_DIR}/dk64_headless.map
   ${HEADLESS_DEBUG_FLAGS})
 set_target_properties(dk64_headless PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
+asyncify_remove_list(dk64_headless dk64_rsp)
 
 # ---------------------------------------------------------------- browser (WebGL2 + SDL2 audio/input)
 add_executable(dk64 $<TARGET_OBJECTS:dk64_qs_begin> ${PORT_FRONTEND_SRC}
-  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_gl.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c
-  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c
-  $<TARGET_OBJECTS:dk64_port> ${GAME_OBJECTS} ${CMAKE_BINARY_DIR}/qs_markers/qs_end.c)
+  $<TARGET_OBJECTS:dk64_port> $<TARGET_OBJECTS:dk64_rsp> $<TARGET_OBJECTS:dk64_gl> ${GAME_OBJECTS}
+  ${CMAKE_BINARY_DIR}/qs_markers/qs_end.c)
 target_compile_options(dk64 PRIVATE ${PORT_C_FLAGS} -sUSE_SDL=2)
 target_include_directories(dk64 PRIVATE ${PORT_INCLUDES})
-set(WEB_DEBUG_FLAGS)
+# DWARF (-g, RelWithDebInfo) limits binaryen to a few post-link passes; outside Debug the browser build keeps only
+# the name section (-g2: function names for wasm_funcs.py and stack traces) so wasm-opt optimises fully
+set(WEB_DEBUG_FLAGS -g2)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(WEB_DEBUG_FLAGS -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2)
 endif()
 target_link_options(dk64 PRIVATE ${LINK_COMMON}
   -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -lidbfs.js
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture,_port_touch_pad,_port_level_progress,_port_set_paused,_port_set_drawdist,_port_set_scale,_port_set_msaa,_port_gfx_max_samples,_port_set_audio_hrtf,_port_audio_rate
+  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture,_port_touch_pad,_port_level_progress,_port_set_paused,_port_set_drawdist,_port_set_scale,_port_set_msaa,_port_gfx_max_samples,_port_set_audio_hrtf,_port_audio_rate,_port_set_interp,_port_frame_step
   -sENVIRONMENT=web -sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_NAME=createDk64 -sINVOKE_RUN=0 ${WEB_DEBUG_FLAGS})
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
+asyncify_remove_list(dk64 dk64_rsp dk64_gl)
 # Everything under web/ is its own output, so a JS-only edit reaches build/web without relinking dk64. The tree is
 # globbed (CONFIGURE_DEPENDS re-runs the glob at build time) instead of listed by hand, so a new page, stylesheet,
 # script or asset -- web/auth/, web/dashboard/, ... -- ships without an edit here. Dotfiles (.DS_Store, editor swap

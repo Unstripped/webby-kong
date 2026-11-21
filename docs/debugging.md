@@ -44,6 +44,10 @@ included: it is ROM-derived.
 wasm function, for DevTools logpoints. The `dk64-live-debug` skill
 (`.omp/skills/dk64-live-debug/SKILL.md`) documents attaching to a running tab, trace categories and wasm logpoints.
 
+Outside `Debug`, the browser build links with `-g2`: the name section stays, DWARF does not, so wasm-opt optimises
+fully and inlines small functions (about half of them disappear from `dk64.wasm`). To set a logpoint in one that was
+inlined, use a `-DCMAKE_BUILD_TYPE=Debug` build directory (DWARF, no post-link optimisation).
+
 ## Memory errors
 
 Configure a separate build directory with `-DPORT_SAFE_HEAP=ON` to make the headless build trap wild accesses:

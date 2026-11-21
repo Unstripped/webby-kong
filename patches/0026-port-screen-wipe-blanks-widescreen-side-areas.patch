@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Sat, 21 Nov 2026 07:58:23 -0700
+Subject: [PATCH] port: screen wipe blanks widescreen side areas
+
+
+diff --git a/src/global/2DE90.c b/src/global/2DE90.c
+index 2804464..645208f 100644
+--- a/src/global/2DE90.c
++++ b/src/global/2DE90.c
+@@ -212,6 +212,9 @@ Gfx *screenWipeDraw(Gfx *glist) {
+                 }
+                 break;
+         }
++        /* PORT: the captured screen is 4:3 and its tiles reach past the scissor; widescreen opens the side areas
++         * and the overscan border, so black everything outside the scissor, as the N64 shows it */
++        gDPNoOpTag(glist++, PORT_GFX_BLANK_SIDES);
+         gDPPipeSync(glist++);
+         gDPSetColorDither(glist++, G_CD_MAGICSQ);
+         gDPSetTextureFilter(glist++, G_TF_BILERP);

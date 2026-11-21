@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dk64 frame-time bench</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #000; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1"></canvas>
+<script src="/dk64.js"></script>
+<script>
+'use strict';
+// Frame-time bench (tools/bench/run.mjs): boots straight into one map through the resume point, steps the game one
+// VI per requestAnimationFrame with a fixed VI period (deterministic game state), and times each step plus
+// gl.finish (CPU + GPU work of that browser frame).
+(async () => {
+  const VI_MS = 16.6834;
+  const q = new URLSearchParams(location.search);
+  const map = parseInt(q.get('map'), 0);
+  const warm = parseInt(q.get('warm') || '600', 10);
+  const measure = parseInt(q.get('measure') || '480', 10);
+  const log = [];
+  try {
+    // Deterministic input and timing: no audio device (with one, osAiGetLength follows the real-time SDL queue, so
+    // the audio thread and through sound status cutscene timing depend on how fast this machine steps) and no
+    // gamepads (a controller connected to this machine would steer DK).
+    window.AudioContext = undefined;
+    window.webkitAudioContext = undefined;
+    navigator.getGamepads = () => [];
+    const rom = new Uint8Array(await (await fetch('/rom.z64')).arrayBuffer());
+    const canvas = document.getElementById('canvas');
+    const m = await createDk64({
+      canvas,
+      preRun: [(mod) => mod.FS.mkdir('/saves')],
+      print: (t) => log.push(t),
+      printErr: (t) => log.push(t),
+    });
+    m.portRom = rom;
+    m.callMain(['--drawdist', '4', '--scale', '0', '--msaa', '4']);
+    m._port_set_paused(1); // the emscripten main loop idles; this page steps the game itself
+    const gl = canvas.getContext('webgl2'); // the context SDL created
+    if (!gl) throw new Error('no WebGL2 context');
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    m._port_resume_request(0, 0, map, 0, 0, 0, 0, 0, 0);
+    const stats = () => JSON.parse(m.ccall('port_debug_stats', 'string', [], []));
+    const tWarm0 = performance.now();
+    for (let i = 0; i < warm; i++) {
+      m._port_frame_step(VI_MS);
+      if ((i & 63) === 63) gl.finish();
+    }
+    const warmMs = performance.now() - tWarm0;
+    gl.finish();
+    const before = stats();
+    const cpu = new Float64Array(measure), total = new Float64Array(measure);
+    await new Promise((resolve) => {
+      let i = 0;
+      const tick = () => {
+        // DK stands still (walking can leave the map); C-left taps every 40 VIs turn the camera so the view changes
+        m._port_touch_pad(i % 40 < 4 ? 0x0002 : 0, 0, 0);
+        const t0 = performance.now();
+        m._port_frame_step(VI_MS);
+        const t1 = performance.now();
+        gl.finish();
+        const t2 = performance.now();
+        cpu[i] = t1 - t0;
+        total[i] = t2 - t0;
+        if (++i < measure) requestAnimationFrame(tick); else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+    m._port_touch_pad(0, 0, 0);
+    const after = stats();
+    // the next presented image (stepping VIs until one is presented), downsampled to TW x TH RGB
+    const captureNext = (TW, TH) => {
+      const seq0 = m._port_debug_capture_seq();
+      m._port_debug_capture_request();
+      for (let i = 0; i < 8 && m._port_debug_capture_seq() === seq0; i++) m._port_frame_step(VI_MS);
+      if (m._port_debug_capture_seq() === seq0) return null;
+      const w = m._port_debug_capture_width(), h = m._port_debug_capture_height();
+      const px = m.HEAPU8.subarray(m._port_debug_capture_pixels(), m._port_debug_capture_pixels() + w * h * 4);
+      const out = [];
+      for (let ty = 0; ty < TH; ty++) {
+        for (let tx = 0; tx < TW; tx++) {
+          const x0 = Math.floor(tx * w / TW), x1 = Math.floor((tx + 1) * w / TW);
+          const y0 = Math.floor(ty * h / TH), y1 = Math.floor((ty + 1) * h / TH);
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let y = y0; y < y1; y += 2) {
+            for (let x = x0; x < x1; x += 2) {
+              const o = (y * w + x) * 4;
+              r += px[o]; g += px[o + 1]; b += px[o + 2]; n++;
+            }
+          }
+          out.push(Math.round(r / n), Math.round(g / n), Math.round(b / n));
+        }
+      }
+      return out;
+    };
+    // render check: the next two presented images (an in-between frame may come before the game frame)
+    const thumbs = [captureNext(64, 36), captureNext(64, 36)];
+    // speed probe: real-time movement must not depend on the game frame rate (delta timing). Hold the stick
+    // forward for 60 VIs (1 s) and report the horizontal distance DK covered.
+    const p0 = stats().player;
+    m._port_touch_pad(0, 0, 80);
+    for (let i = 0; i < 60; i++) m._port_frame_step(VI_MS);
+    m._port_touch_pad(0, 0, 0);
+    const p1 = stats().player;
+    const motion = p0 && p1 ? Math.hypot(p1.x - p0.x, p1.z - p0.z) : null;
+    // smoothness: consecutive presented images while the camera turns (run.mjs fails on repeated images)
+    m._port_touch_pad(0x0002, 0, 0);
+    for (let i = 0; i < 4; i++) m._port_frame_step(VI_MS);
+    m._port_touch_pad(0, 0, 0);
+    const seqVi0 = stats().vi;
+    const smooth = [];
+    for (let i = 0; i < 7; i++) smooth.push(captureNext(96, 54));
+    const smoothVis = stats().vi - seqVi0;
+    window.benchResult = {
+      ok: true, renderer, map, before, after, cpu: Array.from(cpu), total: Array.from(total), thumbs, motion,
+      smooth, smoothVis,
+      drawable: [canvas.width, canvas.height], warmMs, isolated: self.crossOriginIsolated, log: log.slice(-40),
+    };
+  } catch (err) {
+    window.benchResult = { ok: false, error: String(err && err.stack || err), log: log.slice(-40) };
+  }
+})();
+</script>
+</body>
+</html>
