@@ -357,6 +357,8 @@
       const m = window.dk64settings.maxSamples();
       return m >= 2 ? `MSAA; your GPU supports up to ${m}×` : 'MSAA is not supported by this GPU';
     }),
+    segSetting('interp', 'Frame rate', [[0, '30 fps (N64)'], [1, '60 fps']],
+      () => 'Game logic stays at 30; 60 adds an interpolated frame between each pair'),
     segSetting('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
       () => 'Auto: shown on touch screens without a gamepad'),
     segSetting('audio3d', '3D sound', [[0, 'Off'], [1, 'Headphones']],

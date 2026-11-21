@@ -51,6 +51,7 @@ int portGfxMaxSamples(void);    /* GL_MAX_SAMPLES, 0 before gfxFbInit */
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image of the last game frame, if pending; 1 when presented */
 void portGfxRunDeferred(void);  /* draws a pending in-between image (gfx.c frame interpolation) */
+int portGfxSetInterp(int on);   /* 0 = 30 fps, 1 = 60 by interpolation; returns the value in effect */
 
 /* audio output (ai.c) */
 void portAudioOutInit(void);

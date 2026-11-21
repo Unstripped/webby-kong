@@ -151,14 +151,14 @@ static size_t sCaptureCap;
 
 /* frame interpolation (gfx.c): during the second pass VI images draw into the in-between image and offscreen
  * images are skipped; the image then waits for the VI between the game frame's swaps (portGfxPresentInterp) */
+static int sInterpOn = 1; /* player setting (?interp, Esc menu): outside the quicksave, a quickload keeps it */
 static struct {
-    int enabled;
     int pass;    /* the second pass is drawing */
     int drawn;   /* it drew a VI image this pass */
     int ready;   /* an in-between image waits to be presented */
     u32 fbAddr;  /* the VI image it precedes: presenting that game frame drops it */
     u32 readyVi; /* gPortStatVi it was drawn on */
-} sInterpGl = { 1, 0, 0, 0, 0, 0 };
+} sInterpGl;
 
 int gfxBackendQsRanges(QsRange *out) {
     int n = 0;
@@ -748,7 +748,15 @@ void gfxBackendPresent(u32 fb, int black) {
 }
 
 int gfxBackendInterpEnabled(void) {
-    return sInterpGl.enabled;
+    return sInterpOn;
+}
+
+int gfxBackendSetInterp(int on) {
+    sInterpOn = on != 0;
+    if (!sInterpOn) {
+        sInterpGl.ready = 0;
+    }
+    return sInterpOn;
 }
 
 void gfxBackendInterpBegin(void) {

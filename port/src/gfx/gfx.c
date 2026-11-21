@@ -1223,6 +1223,12 @@ int portGfxPresentInterp(void) {
     return gfxBackendPresentInterp();
 }
 
+/* 30 fps (0) or 60 by interpolation (1); either way the next in-between image pairs this frame with the next one */
+int portGfxSetInterp(int on) {
+    gfxInterpReset();
+    return gfxBackendSetInterp(on);
+}
+
 void portGfxCpuWrote(const void *p, u32 len) {
     gfxBackendCpuWrote(portHostAddr((u32)p), len);
 }

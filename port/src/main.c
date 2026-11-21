@@ -333,6 +333,7 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); 
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
+EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
 
 static void port_frame(void) {
     double now, dt;
@@ -358,6 +359,8 @@ int main(int argc, char **argv) {
             setAudioRate(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--hrtf") == 0) {
             setAudioHrtf(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--interp") == 0) {
+            portGfxSetInterp(atoi(argv[++a]));
         }
     }
     if (portRomSize() == 0) {

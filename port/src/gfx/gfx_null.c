@@ -61,6 +61,11 @@ int gfxBackendInterpEnabled(void) {
     return 0;
 }
 
+int gfxBackendSetInterp(int on) {
+    (void)on;
+    return 0;
+}
+
 void gfxBackendInterpBegin(void) {}
 void gfxBackendInterpEnd(void) {}
 

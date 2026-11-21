@@ -78,7 +78,9 @@ flowchart LR
   VI between the two swaps, so the game frames keep their VIs and no latency is added. Matrices pair up by load
   kind, the vertex address they first transform and occurrence; unmatched or jumping matrices (cuts, spawns, CPU
   built sprites) keep the frame's value. The replay repeats the first pass's `G_BRANCH_Z`/`G_CULLDL` outcomes and
-  leaves RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build.
+  leaves RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build. Player
+  setting (`--interp`, `?interp=`, Esc menu "Frame rate", `port_set_interp`): off drops the pending replay and any
+  waiting in-between image; switching back pairs matrices from the next two game frames, never a stale one.
 - Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
   one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
   z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied

@@ -14,7 +14,7 @@
   const MAX_URL = 7500;
   const PREFIX = 'DK64R1.';
   const SAVE_PATH = '/saves/dk64.eep';
-  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'audio3d', 'audiorate'];
+  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate'];
   const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
   const LOG_MAX = 60;
   const HIT_RE = /^#\d+ dl=/m;
@@ -134,6 +134,7 @@
     if (s.drawdist != null) parts.push(`draw distance ${s.drawdist}×`);
     if (s.scale != null) parts.push(`render scale ${s.scale === 0 ? 'auto' : s.scale + '×'}`);
     if (s.msaa != null) parts.push(`MSAA ${s.msaa > 1 ? s.msaa + '×' : 'off'}`);
+    if (s.interp != null) parts.push(s.interp ? '60 fps' : '30 fps');
     if (s.audio3d != null) parts.push(`3D sound ${s.audio3d ? 'on' : 'off'}`);
     if (s.audiorate != null) parts.push(`audio ${s.audiorate / 1000} kHz`);
     if (s.touch != null) parts.push(`touch ${s.touch}`);

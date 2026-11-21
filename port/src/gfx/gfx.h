@@ -71,6 +71,7 @@ void gfxBackendSyncRdram(u32 addr, u32 len);
 /* frame interpolation (gfx.c): the backend draws a VI-image task's second, matrix-blended pass into the in-between
  * image (offscreen images and RDRAM are left alone) and presents it on request. The null backend has none. */
 int gfxBackendInterpEnabled(void);
+int gfxBackendSetInterp(int on); /* drops a waiting in-between image when off; returns the value in effect */
 void gfxBackendInterpBegin(void);
 void gfxBackendInterpEnd(void);
 int gfxBackendPresentInterp(void);
