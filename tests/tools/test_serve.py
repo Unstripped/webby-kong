@@ -4,12 +4,14 @@ import functools
 import hashlib
 import http.client
 import io
+import os
 import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -200,6 +202,69 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("rom=(none)", lines)
         self.assertIn("auth=off", lines)
         self.assertEqual([line for line in lines if line.startswith("auth.")], [])
+
+
+class WebFilesTest(unittest.TestCase):
+    """The server refuses to start on a directory that is not a build of the page (index.html), and with the gate
+    on also on one the build never copied web/auth/ and web/dashboard/ into: otherwise every URL is a bare 404."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def pages(self, *names):
+        for name in names:
+            (self.dir / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.dir / name).write_text("")
+
+    def test_an_empty_directory_lacks_every_page_in_order(self):
+        self.assertEqual(serve.missing_web_files(self.dir, False), ["index.html"])
+        self.assertEqual(serve.missing_web_files(self.dir, True),
+                         ["index.html", "auth/index.html", "dashboard/index.html"])
+
+    def test_a_present_page_is_not_missing(self):
+        self.pages("index.html", "auth/index.html")
+        self.assertEqual(serve.missing_web_files(self.dir, True), ["dashboard/index.html"])
+        self.pages("dashboard/index.html")
+        self.assertEqual(serve.missing_web_files(self.dir, True), [])
+
+    def test_gate_off_refuses_a_missing_directory(self):
+        missing = self.dir / "web"
+        with self.assertRaises(SystemExit) as caught:
+            serve.require_web_files(missing, False)
+        message = str(caught.exception)
+        self.assertIn(str(missing.resolve()), message)
+        self.assertIn("does not exist", message)
+        self.assertIn("cmake --build build/web", message)
+        self.assertIn("WEBBY_KONG_DIR", message)
+
+    def test_gate_off_passes_with_index_html(self):
+        self.pages("index.html")
+        serve.require_web_files(self.dir, False)
+
+    def test_gate_on_requires_the_sign_in_pages(self):
+        self.pages("index.html")
+        with self.assertRaises(SystemExit) as caught:
+            serve.require_web_files(self.dir, True)
+        message = str(caught.exception)
+        self.assertIn("auth/index.html", message)
+        self.assertIn("dashboard/index.html", message)
+        self.assertNotIn("has no index.html", message)
+        self.pages("auth/index.html", "dashboard/index.html")
+        serve.require_web_files(self.dir, True)
+
+    def test_main_refuses_before_touching_the_database(self):
+        db = self.dir / "saves.sqlite3"
+        for environ in ({"WEBBY_KONG_AUTH": "", "WEBBY_KONG_DB": str(db)},
+                        {"WEBBY_KONG_AUTH": "1", "WEBBY_KONG_DB": str(db)}):
+            with mock.patch.dict(os.environ, environ), self.assertRaises(SystemExit) as caught:
+                serve.main(["--dir", str(self.dir)])
+            self.assertIn("index.html", str(caught.exception))
+            self.assertFalse(db.exists())
+        self.assertFalse(Path(f"{db}-wal").exists())
 
 
 if __name__ == "__main__":

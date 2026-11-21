@@ -597,6 +597,10 @@ class ServeScriptTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
         (self.dir / "index.html").write_text("<!doctype html><title>game</title>")
+        # the sign-in pages too: with the gate on, a missing one stops serve.py before it imports py_webauthn
+        for page in ("auth/index.html", "dashboard/index.html"):
+            (self.dir / page).parent.mkdir(parents=True, exist_ok=True)
+            (self.dir / page).write_text("<!doctype html>")
         self.db_path = self.dir / "saves.sqlite3"
 
     def command(self):

@@ -11,7 +11,9 @@ Static files are served like `python3 -m http.server -d build/web 8080`. web/sav
 
 WEBBY_KONG_AUTH=1 puts an optional passkey sign-in gate in front of all of that (tools/auth/): the splash page lives
 at /auth/, the dashboard at /, the game at /play, and everything else needs a session cookie. Without the variable
-every URL behaves exactly as described above.
+every URL behaves exactly as described above. web/ reaches the served directory through the build, so a missing
+directory or index.html (and, with the gate on, auth/index.html or dashboard/index.html) stops the server at startup
+instead of serving 404s.
 
 Every setting comes from a WEBBY_KONG_* environment variable, and a command-line flag overrides it:
 
@@ -69,6 +71,8 @@ CREATE TABLE IF NOT EXISTS eeprom (
 CREATE INDEX IF NOT EXISTS eeprom_mtime ON eeprom(mtime_ms);
 """
 LATEST = "SELECT mtime_ms, sha1, bytes FROM eeprom ORDER BY mtime_ms DESC, id DESC LIMIT 1"
+# the pages the gate redirects to (web/auth/, web/dashboard/): missing means the served copy predates them
+SIGN_IN_PAGES = ("auth/index.html", "dashboard/index.html")
 
 
 def find_rom(path):
@@ -81,6 +85,31 @@ def find_rom(path):
         roms = sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in ROM_SUFFIXES)
         return roms[0] if roms else None
     return None
+
+
+def missing_web_files(directory, auth_enabled):
+    """The pages the served directory lacks: index.html, plus SIGN_IN_PAGES with the gate on, in that order."""
+    required = ("index.html",) + (SIGN_IN_PAGES if auth_enabled else ())
+    return [name for name in required if not (Path(directory) / name).is_file()]
+
+
+def require_web_files(directory, auth_enabled):
+    """Stop at startup when the served directory is not a (current) build of the page.
+
+    web/ is copied into build/web by the build (docs/building.md), so an unbuilt worktree or a build made before a
+    page was added would otherwise answer every request, or /auth/, with a bare 404.
+    """
+    path = Path(directory).resolve()
+    if not path.is_dir():
+        problem = "does not exist"
+    else:
+        missing = missing_web_files(path, auth_enabled)
+        if not missing:
+            return
+        problem = f"has no {', '.join(missing)}"
+    raise SystemExit(f"serve: {path} {problem}: build the page (docs/building.md: `tools/prepare.py all`, "
+                     "`emcmake cmake -S . -B build/web -G Ninja ...`, `cmake --build build/web`) "
+                     "or point WEBBY_KONG_DIR/--dir at a built directory")
 
 
 @dataclass(frozen=True)
@@ -282,6 +311,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def main(argv=None):
     settings = resolve(argv)
+    require_web_files(settings.dir, settings.auth.enabled)
     settings.db.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.closing(sqlite3.connect(settings.db)) as conn:
         conn.execute("PRAGMA journal_mode=WAL")

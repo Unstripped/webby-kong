@@ -127,3 +127,4 @@ each release.
 | `link_check: function signature mismatch (fix the prototype by patch)` | A function is declared and defined with different types; fix the prototype in a patch. |
 | `Unsupported ROM: need Donkey Kong 64 (USA), SHA-1 …` (in the page) | Wrong ROM, region or revision. |
 | `prepare: build/tree has uncommitted changes` | `prepare.py tree`/`all` would discard work in `build/tree`: commit it there and `tools/prepare.py export`, or move it away. |
+| `serve: <dir> does not exist: build the page …` / `serve: <dir> has no index.html, …` | `mise run serve` / `tools/serve.py` points at an unbuilt or stale directory (with `WEBBY_KONG_AUTH=1` it also needs `auth/index.html` and `dashboard/index.html`): build as above (`tools/prepare.py all`, `emcmake cmake …`, `cmake --build build/web`) or set `WEBBY_KONG_DIR`/`--dir` to a built directory. |
