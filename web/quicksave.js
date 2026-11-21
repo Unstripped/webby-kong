@@ -3,6 +3,7 @@
 //   (Module.portBuildId = SHA-1 of the wasm main.js instantiated). Kept in IndexedDB, so it survives a reload.
 // - Resume point: save slot, kong, map, exit, position. After a reload of any build the game boots straight
 //   into it once the EEPROM is read (src/global/450.c), skipping logos, title and file select.
+// - captureBytes() / restoreBytes(bytes): the raw snapshot, also how web/net.js ships the game to co-op joiners.
 (function () {
   'use strict';
 
@@ -100,24 +101,30 @@
     return !!on;
   }
 
-  async function save() {
+  // the snapshot bytes of the running game (web/net.js ships them to co-op joiners)
+  function captureBytes() {
     const m = mod();
-    const res = JSON.parse(m.ccall('port_resume_capture', 'string'));
     if (!m.ccall('port_qs_save_begin', 'number')) {
       throw new Error('not at a frame boundary');
     }
-    let bytes;
     try {
       const r = ranges(m);
-      bytes = new Uint8Array(r.reduce((a, [, n]) => a + n, 0));
+      const bytes = new Uint8Array(r.reduce((a, [, n]) => a + n, 0));
       let o = 0;
       for (const [s, n] of r) {
         bytes.set(m.HEAPU8.subarray(s, s + n), o);
         o += n;
       }
+      return bytes;
     } finally {
       m.ccall('port_qs_save_end', null);
     }
+  }
+
+  async function save() {
+    const m = mod();
+    const res = JSON.parse(m.ccall('port_resume_capture', 'string'));
+    const bytes = captureBytes();
     snap = { buildId: m.portBuildId, time: new Date().toISOString(), map: currentMap(m), bytes };
     if (res.ok) {
       localStorage.setItem(RESUME_KEY, JSON.stringify({ ...res, time: snap.time }));
@@ -132,9 +139,10 @@
     toast(`Quicksaved · map 0x${hex(snap.map)}${noResume}`);
   }
 
-  function restore(rec) {
+  // false: the load failed after memory was overwritten and the page reloads
+  function restoreBytes(bytes) {
     const m = mod();
-    if (rec.bytes.length !== m.ccall('port_qs_size', 'number') >>> 0) {
+    if (bytes.length !== m.ccall('port_qs_size', 'number') >>> 0) {
       throw new Error('snapshot size mismatch');
     }
     const stash = m.ccall('port_qs_load_begin', 'number');
@@ -143,7 +151,7 @@
     }
     let o = 0;
     for (const [s, n] of ranges(m)) {
-      m.HEAPU8.set(rec.bytes.subarray(o, o + n), s);
+      m.HEAPU8.set(bytes.subarray(o, o + n), s);
       o += n;
     }
     if (!m.ccall('port_qs_load_end', 'number', ['number'], [stash])) {
@@ -155,6 +163,10 @@
       return false;
     }
     return true;
+  }
+
+  function restore(rec) {
+    return restoreBytes(rec.bytes);
   }
 
   async function load() {
@@ -171,8 +183,9 @@
     }
   }
 
-  // main.js, right after callMain
+  // main.js, right after callMain. Co-op joiners start from the host's snapshot instead (web/net.js).
   async function started() {
+    if (window.dk64net && window.dk64net.role() === 'join') return;
     const once = sessionStorage.getItem(RESUME_ONCE) === '1';
     const skipSnapshot = sessionStorage.getItem(SKIP_SNAPSHOT) === '1';
     sessionStorage.removeItem(RESUME_ONCE);
@@ -206,5 +219,5 @@
     };
   }
 
-  window.dk64qs = { save, load, started, status, autoResume };
+  window.dk64qs = { save, load, started, status, autoResume, captureBytes, restoreBytes };
 })();

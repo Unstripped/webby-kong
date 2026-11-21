@@ -337,11 +337,19 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
   }
 
+  // a co-op session must not load or reuse snapshots outside web/net.js
+  function coopBlocks() {
+    if (!window.dk64net || !window.dk64net.active()) return false;
+    toast('Disabled in co-op');
+    return true;
+  }
+
   function quicksave() {
     if (!window.dk64qs) {
       toast('quicksave.js not loaded');
       return;
     }
+    if (coopBlocks()) return;
     window.dk64qs.save().catch((err) => toast('Quicksave failed: ' + err.message)).finally(refreshIfVisible);
   }
 
@@ -350,6 +358,7 @@
       toast('quicksave.js not loaded');
       return;
     }
+    if (coopBlocks()) return;
     window.dk64qs.load().catch((err) => toast('Quickload failed: ' + err.message)).finally(refreshIfVisible);
   }
 

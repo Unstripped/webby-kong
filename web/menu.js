@@ -1,5 +1,6 @@
 // Esc menu: freezes the game (port_set_paused) and shows the current level's collectables (port_level_progress).
-// Opened by Esc, gamepad Back/Select (Standard mapping button 8) or the touch overlay's ☰ button.
+// Opened by Esc, gamepad Back/Select (Standard mapping button 8) or the touch overlay's ☰ button. In a co-op session
+// (web/net.js) the game keeps running for everyone: the menu mutes this player's pad instead of pausing.
 (function () {
   'use strict';
 
@@ -136,6 +137,14 @@
   box-shadow: 0 2px 0 #3a1d00; }
 #dk64menu .seg button:active { transform: none; }
 #dk64menu .seg button:disabled { opacity: .35; cursor: default; }
+#dk64menu input[type=range]:disabled { opacity: .4; cursor: default; }
+#dk64menu .set.coop { grid-column: 1 / -1; }
+#dk64menu .coop .link { font: 600 11.5px/1.3 ui-monospace, monospace; color: #fff3d6; background: rgba(0,0,0,.4);
+  border-radius: 6px; padding: 5px 7px; margin-bottom: 7px; user-select: all; word-break: break-all; }
+#dk64menu .coop .roster { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px;
+  font: 900 12px/1.2 ${CHUNKY}; color: #fff3d6; text-shadow: 0 1px 0 #000; }
+#dk64menu .coop .roster .you { color: #b6ff6a; }
+#dk64menu .coop button { padding: 7px 16px; font-size: 13px; }
 @media (max-width: 520px) {
   #dk64menu .title { font-size: 24px; }
   #dk64menu .settings { grid-template-columns: 1fr; }
@@ -246,6 +255,10 @@
       input.value = String(v);
       input.style.setProperty('--p', ((v - min) / (max - min)) * 100 + '%');
       now.textContent = fmt(v);
+      // the session's draw distance is the host's: it feeds the simulation every player runs
+      const locked = key === 'drawdist' && !!window.dk64net && window.dk64net.active();
+      input.disabled = locked;
+      note.textContent = locked ? 'Fixed by the host during co-op' : noteText;
     }
     input.addEventListener('input', () => {
       window.dk64settings.set(key, Number(input.value));
@@ -300,8 +313,65 @@
   ];
   settingsEl.append(...SETTINGS.map((s) => s.box));
 
+  // Co-op (web/net.js): host a session, the join link and roster, stop hosting / leave
+  const coopEl = el('div');
+  const coop = settingBox('Co-op', coopEl, []);
+  coop.box.classList.add('coop');
+  if (window.dk64net) settingsEl.append(coop.box);
+
+  let coopShown = ''; // the status the box shows: rebuilt only on change, so a click never hits a replaced button
+  function refreshCoop() {
+    const net = window.dk64net;
+    if (!net) return;
+    const s = net.status();
+    const key = JSON.stringify(s);
+    if (key === coopShown) return;
+    coopShown = key;
+    const roster = el('div', 'roster');
+    for (const p of s.roster) roster.append(el('span', p.you ? 'you' : null, `P${p.slot + 1} ${p.kong}${p.you ? ' (you)' : ''}`));
+    if (s.role === 'host') {
+      coop.now.textContent = s.connected ? `${s.roster.length} player${s.roster.length === 1 ? '' : 's'}` : 'Connecting…';
+      const link = el('div', 'link', s.joinUrl);
+      link.title = 'Friends open this link (with this computer\'s address) to join';
+      coopEl.replaceChildren(link, roster, button('Stop hosting', null, () => net.stop()));
+      coop.note.textContent = s.frozen || 'Each joiner plays a free unlocked kong; Esc here does not pause the others';
+    } else if (s.role === 'join') {
+      coop.now.textContent = s.ended ? 'Ended' : s.connected ? 'Joined' : 'Joining…';
+      coopEl.replaceChildren(roster, button('Leave', null, () => net.leave()));
+      coop.note.textContent = s.ended ? `Session ended: ${s.ended}` : s.frozen || 'Leave reloads this page on its own';
+    } else {
+      coop.now.textContent = 'Off';
+      coopEl.replaceChildren(button('Host co-op', null, () => net.host()));
+      coop.note.textContent = 'Friends open the join link on this server and each plays a free unlocked kong';
+    }
+  }
+
   let isStarted = false;
   let isOpen = false;
+  let paused = false; // this menu paused the game (port_set_paused)
+  let muted = false; // this menu muted the local pad in a co-op session (dk64net.setMuted)
+
+  // co-op keeps the simulation running for everyone (joiners always: their game is the host's)
+  function netMode() {
+    const net = window.dk64net;
+    return !!net && (net.active() || net.role() === 'join');
+  }
+
+  // pause or mute while open, whichever the session state calls for; hosting can start or stop with the menu open
+  function syncHold() {
+    const m = window.Module;
+    if (netMode()) {
+      if (paused) m.ccall('port_set_paused', null, ['number'], [0]);
+      paused = false;
+      if (!muted) window.dk64net.setMuted(true);
+      muted = true;
+    } else {
+      if (muted) window.dk64net.setMuted(false);
+      muted = false;
+      if (!paused) m.ccall('port_set_paused', null, ['number'], [1]);
+      paused = true;
+    }
+  }
 
   function showMessage(reason) {
     label.textContent = 'Progress';
@@ -357,15 +427,16 @@
   function open() {
     if (!isStarted || isOpen) return;
     const m = window.Module;
-    m.ccall('port_set_paused', null, ['number'], [1]);
+    syncHold();
     if (window.dk64touch) window.dk64touch.releaseAll();
     try {
-      // one snapshot per open: the game is frozen until close()
+      // one snapshot per open: the game is frozen until close() (outside co-op)
       render(JSON.parse(m.ccall('port_level_progress', 'string')));
     } catch (err) {
       showMessage(err.message);
     }
     for (const s of SETTINGS) s.refresh();
+    refreshCoop();
     backdrop.classList.add('on');
     isOpen = true;
   }
@@ -373,10 +444,25 @@
   function close() {
     if (!isOpen) return;
     backdrop.classList.remove('on');
-    window.Module.ccall('port_set_paused', null, ['number'], [0]);
+    if (paused) window.Module.ccall('port_set_paused', null, ['number'], [0]);
+    if (muted) window.dk64net.setMuted(false);
+    paused = false;
+    muted = false;
     isOpen = false;
     document.getElementById('canvas').focus();
   }
+
+  // web/net.js: session started, roster changed or ended
+  window.addEventListener('dk64net', () => {
+    if (!isOpen) return;
+    syncHold();
+    for (const s of SETTINGS) s.refresh();
+    refreshCoop();
+  });
+  // the roster changes inside the simulation (joins apply a few reads after they are announced)
+  setInterval(() => {
+    if (isOpen) refreshCoop();
+  }, 1000);
 
   function toggle() {
     if (isOpen) close();
