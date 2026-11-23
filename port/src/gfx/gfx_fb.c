@@ -31,12 +31,16 @@ static struct PresentedImage {
     int winW, winH, vx, vy, vw, vh;
     u32 physW, physH, ox, scale;
 } sPresented;
-/* the in-between image (frame interpolation): the VI image's twin with its own depth buffer, so the second pass
- * leaves every colour image, the shared depth and RDRAM as the game frame left them */
+/* the in-between image (frame interpolation): the VI image's twin with its own depth buffer, so the replays leave
+ * every colour image, the shared depth and RDRAM as the game frame left them. Each replay's result is copied
+ * (resolved) into a slot, single-sampled at the same size, until it is presented. */
+#define INTERP_SLOTS 7 /* in-between images per game frame at 240 fps */
 static struct {
     GfxFb fb;
     GLuint depth;  /* depth renderbuffer, multisampled like the colour images */
     int samples;   /* sSamples the storage was made for */
+    GLuint slotTex[INTERP_SLOTS], slotFbo[INTERP_SLOTS];
+    u32 slotW[INTERP_SLOTS], slotH[INTERP_SLOTS]; /* storage size, 0 none */
 } sInterpImg;
 /* Depth prefetch: the depth image read into a pixel-pack buffer at the end of every task that drew depth, so the
  * game's read on a later VI (sun/flare occlusion, every frame) copies finished data instead of stalling on the GPU
@@ -583,8 +587,8 @@ void gfxFbInterpClearDepth(void) {
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
-/* letterboxed blit of `fb` (NULL: black) to the canvas */
-static void presentImage(GfxFb *fb, int winW, int winH) {
+/* letterboxed blit of an image shaped like `fb` (NULL: black), read from `readFbo`, to the canvas */
+static void presentImage(const GfxFb *fb, GLuint readFbo, int winW, int winH) {
     int vw, vh, vx, vy;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
@@ -613,7 +617,7 @@ static void presentImage(GfxFb *fb, int winW, int winH) {
     sPresented.physH = fb->physH;
     sPresented.ox = fb->ox;
     sPresented.scale = fb->scale;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->resolveFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 }
 
@@ -629,12 +633,45 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH) {
         }
         gfxFbResolve(fb);
     }
-    presentImage(fb, winW, winH);
+    presentImage(fb, fb != NULL ? fb->resolveFbo : 0, winW, winH);
 }
 
-void gfxFbPresentInterp(int winW, int winH) {
-    gfxFbResolve(&sInterpImg.fb);
-    presentImage(&sInterpImg.fb, winW, winH);
+/* the replay just drawn into the in-between image, resolved into `slot` */
+void gfxFbInterpStore(int slot) {
+    GfxFb *fb = &sInterpImg.fb;
+    if (slot < 0 || slot >= INTERP_SLOTS || fb->fbo == 0) {
+        return;
+    }
+    if (sInterpImg.slotFbo[slot] == 0) {
+        glGenFramebuffers(1, &sInterpImg.slotFbo[slot]);
+        glGenTextures(1, &sInterpImg.slotTex[slot]);
+    }
+    if (sInterpImg.slotW[slot] != fb->physW || sInterpImg.slotH[slot] != fb->physH) {
+        sInterpImg.slotW[slot] = fb->physW;
+        sInterpImg.slotH[slot] = fb->physH;
+        glBindTexture(GL_TEXTURE_2D, sInterpImg.slotTex[slot]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fb->physW, fb->physH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, sInterpImg.slotFbo[slot]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sInterpImg.slotTex[slot], 0);
+        checkComplete(sInterpImg.slotFbo[slot], fb->physW, fb->physH);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sInterpImg.slotFbo[slot]);
+    glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, fb->physW, fb->physH, 0, 0, fb->physW, fb->physH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+}
+
+/* 0 when the slot holds no image of the in-between image's current shape */
+int gfxFbPresentInterp(int slot, int winW, int winH) {
+    const GfxFb *fb = &sInterpImg.fb;
+    if (slot < 0 || slot >= INTERP_SLOTS || sInterpImg.slotW[slot] != fb->physW || sInterpImg.slotH[slot] != fb->physH ||
+        fb->physW == 0) {
+        return 0;
+    }
+    presentImage(fb, sInterpImg.slotFbo[slot], winW, winH);
+    return 1;
 }
 
 int gfxFbPresentedToN64(float fx, float fy, float *x, float *y) {

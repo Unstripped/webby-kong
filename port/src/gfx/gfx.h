@@ -70,13 +70,14 @@ void gfxBackendBlankSides(const GfxState *st);
 void gfxBackendPresent(u32 fb, int black);
 void gfxBackendCpuWrote(u32 addr, u32 len);
 void gfxBackendSyncRdram(u32 addr, u32 len);
-/* frame interpolation (gfx.c): the backend draws a VI-image task's second, matrix-blended pass into the in-between
- * image (offscreen images and RDRAM are left alone) and presents it on request. The null backend has none. */
-int gfxBackendInterpEnabled(void);
-int gfxBackendSetInterp(int on); /* drops a waiting in-between image when off; returns the value in effect */
+/* frame interpolation (gfx.c): the backend draws a VI-image task's matrix-blended replays into the in-between image
+ * (offscreen images and RDRAM are left alone), keeps each in a slot and presents a slot on request. The null
+ * backend has none. */
+int gfxBackendInterpLevel(void); /* the player setting: 0 = 30 fps; 1, 2, 3 = up to 60, 120, 240 */
+int gfxBackendSetInterp(int level); /* returns the value in effect */
 void gfxBackendInterpBegin(void);
-void gfxBackendInterpEnd(void);
-int gfxBackendPresentInterp(void);
+int gfxBackendInterpEnd(int slot); /* 1 when the replay drew the VI image, now kept in `slot` */
+int gfxBackendPresentInterp(int slot);
 void gfxInterpReset(void);
 int gfxInterpQsRanges(QsRange *out);
 

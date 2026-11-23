@@ -61,19 +61,24 @@ void gfxBackendBlankSides(const GfxState *st) {
     (void)st;
 }
 
-int gfxBackendInterpEnabled(void) {
+int gfxBackendInterpLevel(void) {
     return 0;
 }
 
-int gfxBackendSetInterp(int on) {
-    (void)on;
+int gfxBackendSetInterp(int level) {
+    (void)level;
     return 0;
 }
 
 void gfxBackendInterpBegin(void) {}
-void gfxBackendInterpEnd(void) {}
 
-int gfxBackendPresentInterp(void) {
+int gfxBackendInterpEnd(int slot) {
+    (void)slot;
+    return 0;
+}
+
+int gfxBackendPresentInterp(int slot) {
+    (void)slot;
     return 0;
 }
 

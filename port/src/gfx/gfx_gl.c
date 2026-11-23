@@ -149,15 +149,12 @@ static u32 sCaptureSeq;
 static u8 *sCapturePx;
 static size_t sCaptureCap;
 
-/* frame interpolation (gfx.c): during the second pass VI images draw into the in-between image and offscreen
- * images are skipped; the image then waits for the VI between the game frame's swaps (portGfxPresentInterp) */
-static int sInterpOn = 1; /* player setting (?interp, Esc menu): a keep range, so a quickload leaves it as set */
+/* frame interpolation (gfx.c): during a replay VI images draw into the in-between image and offscreen images are
+ * skipped; each replay's image is then kept in a slot until gfx.c presents it */
+static int sInterpLevel = 1; /* player setting (?interp, Esc menu): a keep range, so a quickload leaves it as set */
 static struct {
-    int pass;    /* the second pass is drawing */
-    int drawn;   /* it drew a VI image this pass */
-    int ready;   /* an in-between image waits to be presented */
-    u32 fbAddr;  /* the VI image it precedes: presenting that game frame drops it */
-    u32 readyVi; /* gPortStatVi it was drawn on */
+    int pass;  /* a replay is drawing */
+    int drawn; /* it drew a VI image */
 } sInterpGl;
 
 int gfxBackendQsRanges(QsRange *out) {
@@ -181,7 +178,7 @@ int gfxBackendQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sMipChain);
     out[n++] = QS_RANGE(sMipChainCap);
     out[n++] = QS_RANGE(sInterpGl);
-    out[n++] = QS_RANGE(sInterpOn);
+    out[n++] = QS_RANGE(sInterpLevel);
     n += gfxInterpQsRanges(out + n);
     n += gfxFbQsRanges(out + n);
     n += gfxCombinerQsRanges(out + n);
@@ -204,7 +201,6 @@ void gfxBackendQsRestored(void) {
     sTarget = NULL;
     glsReset();
     sTargetIsDepth = 0;
-    sInterpGl.ready = 0;
     gfxInterpReset();
     gfxFbQsRestored();
 }
@@ -290,7 +286,6 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
             return;
         }
         sInterpGl.drawn = 1;
-        sInterpGl.fbAddr = addr;
     } else {
         sTarget = gfxFbFor(addr, width);
     }
@@ -762,24 +757,20 @@ static void captureIfRequested(int w, int h) {
 
 void gfxBackendPresent(u32 fb, int black) {
     int w, h;
-    if (black || fb == sInterpGl.fbAddr) {
-        sInterpGl.ready = 0; /* blanked, or its game frame is up: the in-between image must not show */
-    }
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
     gfxFbPresent(fb, black, w, h);
     captureIfRequested(w, h);
 }
 
-int gfxBackendInterpEnabled(void) {
-    return sInterpOn;
+int gfxBackendInterpLevel(void) {
+    return sInterpLevel;
 }
 
-int gfxBackendSetInterp(int on) {
-    sInterpOn = on != 0;
-    if (!sInterpOn) {
-        sInterpGl.ready = 0;
+int gfxBackendSetInterp(int level) {
+    if (level >= 0 && level <= 3) {
+        sInterpLevel = level;
     }
-    return sInterpOn;
+    return sInterpLevel;
 }
 
 void gfxBackendInterpBegin(void) {
@@ -792,24 +783,25 @@ void gfxBackendInterpBegin(void) {
     gGfxTargetWide = 1.0f;
 }
 
-void gfxBackendInterpEnd(void) {
+int gfxBackendInterpEnd(int slot) {
     sInterpGl.pass = 0;
-    sInterpGl.ready = sInterpGl.drawn;
-    sInterpGl.readyVi = gPortStatVi;
+    if (sInterpGl.drawn) {
+        gfxFbInterpStore(slot);
+    }
     sTarget = NULL;
     sTargetIsDepth = 0;
     gGfxTargetWide = 1.0f;
+    glsReset(); /* the slot copy changed framebuffer bindings and scissor */
     glBindVertexArray(sVao);
+    return sInterpGl.drawn;
 }
 
-int gfxBackendPresentInterp(void) {
+int gfxBackendPresentInterp(int slot) {
     int w, h;
-    if (!sInterpGl.ready || gPortStatVi == sInterpGl.readyVi) {
-        return 0; /* none, or its VI has not come yet (it shows on a VI after the one its game frame was drawn on) */
-    }
-    sInterpGl.ready = 0;
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
-    gfxFbPresentInterp(w, h);
+    if (!gfxFbPresentInterp(slot, w, h)) {
+        return 0;
+    }
     captureIfRequested(w, h);
     return 1;
 }

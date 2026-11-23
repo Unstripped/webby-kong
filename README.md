@@ -20,8 +20,8 @@ start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kon
 
 ## Features
 
-- 60 fps: an interpolated in-between frame on every other refresh; game logic runs at the N64's 30 Hz. Esc menu
-  "Frame rate" (or `?interp=0`) switches back to the game's own 30 fps.
+- 60, 120 or 240 fps: interpolated in-between frames up to the display's refresh rate; game logic runs at the
+  N64's 30 Hz. Esc menu "Frame rate" (or `?interp=`) picks the rate; 30 is the game's own.
 - Widescreen (Hor+) at the browser window's resolution.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
@@ -156,7 +156,7 @@ stored setting for that page load):
 | `drawdist=1..16` | Draw/spawn distance factor; 1 = N64 distances, default 4 |
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
-| `interp=1` / `interp=0` | 60 fps by interpolated in-between frames, or the game's own 30 fps; default 60 |
+| `interp=0..3` | Frame rate: 0 = the game's own 30 fps; 1, 2, 3 = up to 60, 120, 240 fps by interpolated in-between frames (limited by the display's refresh rate); default 1 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
 | `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |
 | `audiorate=22050\|44100` | Sound mix sample rate; 22050 = N64, default 44100; applies at load |
