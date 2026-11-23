@@ -289,6 +289,7 @@ def _put_eeprom(ctx, match):
     conn = ctx.conn
     conn.execute("BEGIN IMMEDIATE")
     try:
+        _save(conn, row["id"], ctx.user_id)  # again under the write lock: a DELETE may have run while the body arrived
         latest = conn.execute("SELECT sha1 FROM eeprom WHERE save_id = ? ORDER BY mtime_ms DESC, id DESC LIMIT 1",
                               (row["id"],)).fetchone()
         seen = conn.execute("SELECT 1 FROM eeprom WHERE save_id = ? AND sha1 = ? AND mtime_ms = ?",

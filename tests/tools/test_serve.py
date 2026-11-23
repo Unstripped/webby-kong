@@ -7,10 +7,12 @@ import http.client
 import io
 import json
 import os
+import socket
 import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -175,6 +177,19 @@ class SaveServerTest(unittest.TestCase):
         newest = self.create()["id"]
         self.assertEqual(self.call("DELETE", f"{saves.API}/{newest}")[0].status, 204)
         self.assertGreater(self.create()["id"], newest)
+
+    def test_an_upload_held_while_its_save_is_deleted_stores_nothing(self):
+        sock = socket.create_connection(("::1", self.port), timeout=5)
+        with contextlib.closing(sock):
+            sock.sendall(f"PUT {saves.API}/{self.save}/eeprom HTTP/1.1\r\nHost: x\r\nX-Save-Mtime: 1000\r\n"
+                         f"Content-Length: {len(SAVE_A)}\r\n\r\n".encode() + SAVE_A[:1000])
+            time.sleep(0.3)  # the handler has checked the save and waits for the rest of the body
+            self.assertEqual(self.call("DELETE", f"{saves.API}/{self.save}")[0].status, 204)
+            sock.sendall(SAVE_A[1000:])
+            status = sock.makefile("rb").readline()
+        self.assertIn(b" 404 ", status)
+        with contextlib.closing(sqlite3.connect(self.db)) as conn:
+            self.assertEqual(conn.execute("select count(*) from eeprom").fetchone()[0], 0)
 
     def test_json_endpoints_take_json_only(self):
         resp, data = self.call("POST", saves.API, b'{"name": "x"}', {"Content-Type": "text/plain"})
