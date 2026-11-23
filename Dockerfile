@@ -27,6 +27,7 @@ ARG VERSION=dev
 ARG REVISION=unknown
 RUN printf '{"version":"%s","revision":"%s"}\n' "$VERSION" "$REVISION" > /srv/web/version.json
 COPY tools/serve.py /app/serve.py
+COPY tools/saves.py /app/saves.py
 COPY tools/auth /app/auth
 # The server reads everything from WEBBY_KONG_* environment variables (the table is in README "Configuration"), so
 # `docker run --env-file .env` takes the same file a local `mise run serve` does, and a value there overrides the

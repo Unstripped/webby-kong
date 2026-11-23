@@ -22,6 +22,8 @@ body { background: radial-gradient(1100px 500px at 80% -10%, #2a0f4d66, transpar
 .panel h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--neon2); }
 .panel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; }
 .tile { border-radius: 14px; border: 1px solid var(--line); background: var(--card2); padding: 14px; }
+.tile h3 { margin: 0 0 4px; font-size: 16px; word-break: break-word; }
+.stats { margin: 2px 0 8px; font-size: 13px; color: var(--ink); }
 .play { width: 100%; padding: 26px 18px; font-size: clamp(22px, 5vw, 34px); font-weight: 800; letter-spacing: .06em; border: 0; border-radius: 14px; cursor: pointer; color: #12031f;
   background: linear-gradient(90deg, var(--neon1), var(--neon2), var(--neon3)); background-size: 200% 100%; box-shadow: 0 0 30px #ff2bd677; animation: db-hue 6s linear infinite; }
 .play:hover { filter: brightness(1.1); }

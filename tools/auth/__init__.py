@@ -9,8 +9,9 @@ tools/serve.py uses:
 
     configure(path, environ=None, config=None) -> Config   # read (or take) the settings, create the auth tables
     enabled() -> bool
-    handle(handler) -> bool                   # answered /auth/api/* or /api/{me,users,invites,settings}
+    handle(handler) -> bool                   # answered /auth/api/* or /api/{me,users,invites,settings,players}
     gate(handler) -> bool                     # False = denied, a redirect or 401 was already sent
+    user_id(handler) -> int | None            # the signed-in user (None with the gate off): tools/saves.py's owner
     rewrite(path) -> str | None               # "/" -> dashboard, "/play" -> the game, "/invite/<t>" -> splash
 """
 from pathlib import Path
@@ -67,6 +68,10 @@ def handle(handler):
 
 def gate(handler):
     return _routes is None or _routes.gate(handler, _db_path)
+
+
+def user_id(handler):
+    return None if _routes is None else _routes.user_id(handler, _db_path)
 
 
 def rewrite(path):

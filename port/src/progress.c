@@ -1,4 +1,5 @@
-/* Current level's collectables as JSON for the web menu (web/menu.js); the game fills PortLevelProgress. */
+/* Current level's collectables as JSON for the web menu (web/menu.js), and the save's headline numbers for the
+ * dashboard (web/saves.js upload); the game fills PortLevelProgress and PortSaveSummary. */
 #include "port_internal.h"
 #include <emscripten.h>
 #include <stdio.h>
@@ -37,5 +38,23 @@ EMSCRIPTEN_KEEPALIVE const char *port_level_progress(void) {
     snprintf(o, end - o,
              "],\"fairies\":%d,\"fairiesTotal\":%d,\"crowns\":%d,\"crownsTotal\":%d,\"keys\":%d,\"keysTotal\":%d}",
              (int)p.fairies, (int)p.fairiesTotal, (int)p.crowns, (int)p.crownsTotal, (int)p.keys, (int)p.keysTotal);
+    return buf;
+}
+
+/* JSON object of tools/saves.py SUMMARY_KEYS, or "" outside a single-player adventure (the upload then keeps the
+ * save's previous summary) */
+const char *port_save_summary(void) {
+    static char buf[256];
+    PortSaveSummary s;
+    const char *reason = "";
+    if (!mapCaptureSaveSummary(&s, &reason)) {
+        buf[0] = 0;
+        return buf;
+    }
+    snprintf(buf, sizeof buf,
+             "{\"slot\":%d,\"percent\":%d,\"goldenBananas\":%d,\"keys\":%d,\"crowns\":%d,\"medals\":%d,"
+             "\"fairies\":%d,\"blueprints\":%d,\"kongs\":%d,\"playSeconds\":%d}",
+             (int)s.slot, (int)s.percent, (int)s.goldenBananas, (int)s.keys, (int)s.crowns, (int)s.medals,
+             (int)s.fairies, (int)s.blueprints, (int)s.kongs, (int)s.playSeconds);
     return buf;
 }

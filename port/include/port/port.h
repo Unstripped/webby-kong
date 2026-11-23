@@ -118,6 +118,14 @@ typedef struct {
 } PortLevelProgress;
 s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason); /* src/global/3C10.c */
 
+/* ---- dashboard save (port/src/save.c, progress.c; filled and driven by game code) ---- */
+typedef struct {
+    s32 slot, percent, goldenBananas, keys, crowns, medals, fairies, blueprints, kongs, playSeconds;
+} PortSaveSummary;
+s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/global/3C10.c */
+extern s32 gPortSaveRequest;  /* web/menu.js exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
+extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
+
 /* ---- audio output rate and 3D sound (port/src/audio/spatial.c, hrtf.c; --audio-rate, --hrtf, web settings) ---- */
 extern s32 gPortAudioRate; /* synthesizer and AI rate: 22050 (N64) or 44100; fixed at boot, restored by a quickload */
 extern s32 gPortAudioHrtf; /* 1: positional sound effects are rendered binaurally (headphones); switchable live */

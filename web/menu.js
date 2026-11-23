@@ -4,6 +4,10 @@
 // (web/report.js): a bug report shows a screenshot of the frozen frame, where a click marks the broken spot and
 // probes the renderer there. A crash (wasm trap or abort, detected by report.js) opens the same view as "UH OH!",
 // which cannot be closed.
+// Exit to dashboard (sign-in gate on, web/saves.js dashboard()): records where the player stands
+// (port_resume_capture), runs the pause menu's in-game save (port_save_request; the game runs for the ~1 s the
+// EEPROM thread needs, port_save_busy), waits for the upload, stores the resume point on the server and goes to /.
+// When something fails it says so and offers "Exit anyway".
 (function () {
   'use strict';
 
@@ -98,7 +102,8 @@
 #dk64menu .msg span { display: block; font: 600 11px/1.4 system-ui, sans-serif; color: rgba(255,243,214,.7);
   -webkit-text-stroke: 0; text-shadow: none; }
 #dk64menu .actions { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
-#dk64menu .hint { font: 600 11px system-ui, sans-serif; color: rgba(255,243,214,.75); }
+#dk64menu .actions.main { flex-direction: column-reverse; align-items: stretch; justify-content: flex-start; gap: 8px; }
+#dk64menu .hint { font: 600 11px system-ui, sans-serif; color: rgba(255,243,214,.75); text-align: center; }
 #dk64menu button { font: 900 15px/1 ${CHUNKY}; letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
   padding: 10px 22px; border-radius: 12px; color: #3a1d00; background: linear-gradient(#ffe36a, #f5b400);
   border: 3px solid #3a1d00; box-shadow: 0 4px 0 #3a1d00; }
@@ -140,7 +145,8 @@
   box-shadow: 0 2px 0 #3a1d00; }
 #dk64menu .seg button:active { transform: none; }
 #dk64menu .seg button:disabled { opacity: .35; cursor: default; }
-#dk64menu .btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+#dk64menu .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#dk64menu .btns button { width: 100%; }
 #dk64menu button.alt { padding: 10px 14px; font-size: 13px; background: linear-gradient(#f1c27d, #d39a4f); }
 #dk64menu button.alt:hover { background: linear-gradient(#f8d59c, #e0ad66); }
 #dk64menu button:disabled { opacity: .6; cursor: default; }
@@ -220,17 +226,24 @@
   const setLabel = el('div', 'lbl sec', 'Settings');
   const settingsEl = el('div', 'settings');
   const foot = el('div', 'foot', 'Changes apply immediately and are remembered on this device');
-  const actions = el('div', 'actions');
+  const actions = el('div', 'actions main');
   const btns = el('div', 'btns');
+  const exitBtn = button('Exit to dashboard', 'alt', () => exitToDashboard());
+  const resumeBtn = button('Resume', null, () => close());
   btns.append(
     button('Suggest an idea', 'alt', () => showReport('idea')),
     button('Report a bug', 'alt', () => showReport('bug')),
-    button('Resume', null, () => close()),
+    exitBtn,
+    resumeBtn,
   );
   actions.append(el('span', 'hint', 'Esc · Back to resume'), btns);
+  const exitNote = el('p', 'msg');
+  exitNote.style.display = 'none';
+  let exiting = false;
+  let exitForce = false;
   const titleEl = el('div', 'title', 'PAUSED');
   const mainView = el('div');
-  mainView.append(label, cards, wide, msg, setLabel, settingsEl, foot, actions);
+  mainView.append(label, cards, wide, msg, setLabel, settingsEl, foot, actions, exitNote);
 
   // report view (bug, idea, crash): see showReport()
   const reportView = el('div');
@@ -680,17 +693,83 @@
       showMessage(err.message);
     }
     for (const s of SETTINGS) s.refresh();
+    const shown = !!(window.dk64saves && window.dk64saves.dashboard());
+    exitBtn.style.display = shown ? '' : 'none';
+    resumeBtn.style.gridColumn = shown ? '' : '1 / -1'; // gate off: Resume alone spans the bottom row
+    exitForce = false;
+    exitBtn.textContent = 'Exit to dashboard';
+    exitBtn.disabled = false;
+    exitNote.style.display = 'none';
     backdrop.classList.add('on');
     isOpen = true;
   }
 
   function close() {
-    if (!isOpen || crashMode) return;
+    if (!isOpen || crashMode || exiting) return;
     showMain();
     backdrop.classList.remove('on');
     window.Module.ccall('port_set_paused', null, ['number'], [0]);
     isOpen = false;
     document.getElementById('canvas').focus();
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // the game saves itself (pause menu Save) while unpaused behind the open menu; resolves to a problem or null
+  async function inGameSave(m) {
+    m.ccall('port_save_request', null, ['number'], [1]);
+    m.ccall('port_set_paused', null, ['number'], [0]);
+    const deadline = performance.now() + 8000;
+    let busy = true;
+    while (busy && performance.now() < deadline) {
+      await sleep(50);
+      busy = m.ccall('port_save_busy', 'number') !== 0;
+    }
+    m.ccall('port_set_paused', null, ['number'], [1]);
+    if (!busy) return null;
+    m.ccall('port_save_request', null, ['number'], [0]);
+    return "The game couldn't save right now. Try again in a moment, or exit with your last save.";
+  }
+
+  async function exitToDashboard() {
+    if (exiting) return;
+    exiting = true;
+    exitBtn.disabled = true;
+    exitNote.textContent = 'Saving…';
+    exitNote.style.display = '';
+    const m = window.Module;
+    let problem = null;
+    let resume = { ok: false };
+    try {
+      resume = JSON.parse(m.ccall('port_resume_capture', 'string')); // where the player stands, while frozen
+      if (resume.ok && !exitForce) problem = await inGameSave(m);
+    } catch (err) {
+      problem = "The game couldn't save (" + err.message + ').';
+    }
+    if (!problem) {
+      try {
+        m.ccall('port_save_flush_now', null);
+        const ok = await window.dk64saves.settle();
+        await window.dk64saves.putResume(resume.ok ? resume : null);
+        if (!ok) {
+          problem =
+            "The save server didn't take the upload: your progress stays in this browser and uploads the next time you play this save.";
+        }
+      } catch (err) {
+        problem = "Couldn't reach the save server (" + err.message + ').';
+      }
+    }
+    if (problem && !exitForce) {
+      exitNote.textContent = problem;
+      exitBtn.textContent = 'Exit anyway';
+      exitBtn.disabled = false;
+      exitForce = true;
+      exiting = false;
+      return;
+    }
+    location.assign('/');
   }
 
   function toggle() {

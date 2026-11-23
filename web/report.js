@@ -13,7 +13,6 @@
   const REPO = 'https://github.com/Unstripped/webby-kong';
   const MAX_URL = 7500;
   const PREFIX = 'DK64R1.';
-  const SAVE_PATH = '/saves/dk64.eep';
   const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate'];
   const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
   const LOG_MAX = 60;
@@ -173,7 +172,8 @@
       }
     };
     if (!crash) attempt(() => m.ccall('port_save_flush_now', null));
-    const save = attempt(() => (m.FS.analyzePath(SAVE_PATH).exists ? toHex(m.FS.readFile(SAVE_PATH)) : null));
+    const savePath = window.dk64saves.path();
+    const save = attempt(() => (m.FS.analyzePath(savePath).exists ? toHex(m.FS.readFile(savePath)) : null));
     let resumeReason = null;
     const resume = attempt(() => {
       const r = JSON.parse(m.ccall('port_resume_capture', 'string'));
@@ -418,9 +418,10 @@
     m.ccall('port_set_paused', null, ['number'], [1]);
     m.ccall('port_save_flush_now', null);
     if (r.save) {
-      m.FS.writeFile(SAVE_PATH, fromHex(r.save));
+      const savePath = window.dk64saves.path();
+      m.FS.writeFile(savePath, fromHex(r.save));
       const t = Date.now();
-      m.FS.utime(SAVE_PATH, t, t); // newest mtime: saves.js boot uploads and keeps this copy
+      m.FS.utime(savePath, t, t); // newest mtime: saves.js boot uploads and keeps this copy
       await new Promise((resolve, reject) => m.FS.syncfs(false, (err) => (err ? reject(err) : resolve())));
     } else {
       window.dk64dbg.toast('Report has no save file; loading its location only');

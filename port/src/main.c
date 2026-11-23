@@ -358,6 +358,7 @@ int main(int argc, char **argv) {
     }
     if (progress) {
         printf("progress %s\n", port_level_progress());
+        printf("summary %s\n", port_save_summary());
         fflush(stdout);
     }
     return 0;
@@ -431,6 +432,8 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--interp") == 0) {
             portGfxSetInterp(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--save-file") == 0) {
+            portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }
     }
     if (portRomSize() == 0) {

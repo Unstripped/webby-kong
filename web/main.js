@@ -42,6 +42,13 @@ async function start(romBytes) {
   }
   started = true;
   setStatus('Starting…');
+  // saves.js: which save game this page plays (?save=<id>); its EEPROM file is passed as --save-file below
+  try {
+    await window.dk64saves.select();
+  } catch (err) {
+    setStatus(err.message);
+    return;
+  }
   let module;
   try {
     // the build id names the exact wasm this page runs: the same bytes are instantiated (quicksave.js)
@@ -90,6 +97,7 @@ async function start(romBytes) {
   window.Module = module;
   if (window.dk64dbg) window.dk64dbg.moduleReady(); // before callMain: applies the saved trace mask from boot
   const args = window.dk64settings.args();
+  args.push('--save-file', window.dk64saves.path());
   module.callMain(args);
   window.dk64settings.started();
   if (window.dk64qs) window.dk64qs.started().catch((err) => console.warn('quicksave resume failed', err));
