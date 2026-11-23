@@ -56,6 +56,7 @@ buttons `a b z start l r dup ddown dleft dright cup cdown cleft cright`; at most
 | New game intro | `--frames 21000 --input tests/new_game_intro.txt` | Ends in the Treehouse: `"map":171,"mode":0` |
 | Snapshot determinism | the intro run plus `--qs-save 11000 --qs-load 12500 --trace 3` | Trace events after the load match the plain run with `--trace 3` |
 | Kong swap barrel | `--frames 1500 --input tests/kong_swap_barrel.txt --resume 0,0,7,0,1,1642,330,1519,0` | No abort; ends on `"map":7` |
+| D-pad kong swap | `--frames 1500 --input tests/kong_swap_dpad.txt --resume 0,0,0xb0,1,1,941,60,736,3752` | No abort; presses are refused (no other kong is unlocked on a fresh save); ends on `"map":176` with player `"type":2` |
 
 The intro's map changes run on wall-clock cues, and patch 0012 keeps checking them after a camera path ends early
 (the port runs a steady 30 fps, so frame-counted paths finish sooner than on hardware). The kong swap barrel run
