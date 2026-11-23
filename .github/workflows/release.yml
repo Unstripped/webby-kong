@@ -49,3 +49,20 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ needs.release.outputs.tag }}
+  # after docker: the chart's default image tag must already exist
+  chart:
+    needs: [release, docker]
+    if: needs.release.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - env:
+          TAG: ${{ needs.release.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm package charts/webby-kong --version "${TAG#v}" --app-version "$TAG"
+          helm push "webby-kong-${TAG#v}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"
