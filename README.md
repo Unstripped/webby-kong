@@ -45,6 +45,14 @@ docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-save
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
 asks for the ROM.
 
+On Kubernetes, the Helm chart in `charts/webby-kong` runs the same image with a persistent `/data` volume; mount the
+ROM from any volume source with `rom.volume` (see the comments in `values.yaml` for ROM, sign-in, SMTP and Ingress):
+
+```sh
+helm install webby-kong oci://ghcr.io/unstripped/charts/webby-kong \
+  --set rom.volume.persistentVolumeClaim.claimName=dk64-rom
+```
+
 ## Configuration
 
 The server reads everything from `WEBBY_KONG_*` environment variables, and a command-line flag (`--dir`, `--port`,
@@ -177,8 +185,9 @@ stored setting for that page load):
 - `port/` — runtime: fibers for N64 threads, libultra shims, ROM/asset byte-order swappers, renderer, audio.
 - `web/` — page and loader.
 - `tests/` — headless input scripts (`*.txt`) and `tests/tools/` unit tests for the tooling.
-- `.github/workflows/` — CI, releases and the Docker image.
+- `.github/workflows/` — CI, releases, the Docker image and the Helm chart.
 - `Dockerfile` — ROM-free image build: the page, `dk64.wasm` and `tools/serve.py`.
+- `charts/webby-kong/` — Helm chart for the image (one replica, `/data` PVC, optional ROM volume and sign-in).
 - `docs/` — building, testing, debugging and architecture guides.
 - `decomp/` — the decomp submodule; never edited here.
 
@@ -194,8 +203,9 @@ stored setting for that page load):
 
 Every push to `main` publishes a GitHub Release after CI passes. The first is `v0.1.0`; each later one bumps the
 patch version, or the minor / major version when a commit message since the last release contains `#minor` /
-`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/unstripped/webby-kong:<version>`;
-every push to `development` publishes `:latest`. Neither contains ROM data.
+`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/unstripped/webby-kong:<version>`
+and the Helm chart `oci://ghcr.io/unstripped/charts/webby-kong` (chart version = release version without the `v`,
+defaulting to that release's image); every push to `development` publishes `:latest`. Neither contains ROM data.
 
 ## License
 

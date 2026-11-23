@@ -42,3 +42,9 @@ jobs:
         run: pip install -r tools/requirements-server.txt
       - name: Unit tests
         run: python -m unittest discover -s tests/tools -v
+      - name: Helm chart
+        run: |
+          helm lint --strict charts/webby-kong
+          helm lint --strict charts/webby-kong --set auth.enabled=true --set auth.externalUrl=https://kong.example.com \
+            --set smtp.host=smtp.example.com --set smtp.password=x --set ingress.enabled=true \
+            --set rom.volume.hostPath.path=/roms --set rom.subPath=dk64.z64

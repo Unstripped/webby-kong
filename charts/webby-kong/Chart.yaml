@@ -1,0 +1,9 @@
+apiVersion: v2
+name: webby-kong
+description: Donkey Kong 64 decomp ported to WebAssembly, served with its save server
+type: application
+version: 0.2.0
+appVersion: "v0.2.0"
+home: https://github.com/Unstripped/webby-kong
+sources:
+  - https://github.com/Unstripped/webby-kong
