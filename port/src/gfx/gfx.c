@@ -585,13 +585,14 @@ static void moveWord(u32 w0, u32 w1) {
 }
 
 /* ---------------------------------------------------------------- frame interpolation
- * The game draws 30 frames/s. After a task that draws the VI image, its display list runs a second time with every
- * matrix halfway between this frame's and the previous frame's value, into an in-between image that main.c presents
- * on the VI between the two swaps (the game frames themselves keep their VIs). A matrix pairs with the previous
- * frame's matrix of the same load kind and vertex data in the same draw position, or a clearly nearer one of those
- * (interpFindPrev); unmatched matrices and ones that jump (cuts, teleports) keep this frame's value. The second pass
- * replays the first pass's G_BRANCH_Z / G_CULLDL outcomes, so it walks exactly the same commands and its n-th
- * matrix is the first pass's n-th. */
+ * The game draws 30 frames/s. After a task that draws the VI image, its display list runs again for each in-between
+ * image (one at 60 fps, three at 120, seven at 240), every matrix blended from the previous frame's value toward
+ * this frame's by the image's fraction (1/2; 1/4, 2/4, 3/4; ...); main.c presents them on the refreshes between
+ * the two swaps (the game frames themselves keep their VIs). A matrix pairs with the previous frame's matrix of the
+ * same load kind and vertex data in the same draw position, or a clearly nearer one of those (interpFindPrev);
+ * unmatched matrices and ones that jump (cuts, teleports) keep this frame's value. The replays repeat the first
+ * pass's G_BRANCH_Z / G_CULLDL outcomes, so they walk exactly the same commands and their n-th matrix is the first
+ * pass's n-th. */
 typedef struct {
     u32 kind; /* G_MTX parameter bits */
     u32 sig;  /* host address of the first vertices loaded after this matrix, 0 if none */
@@ -613,17 +614,26 @@ static struct {
     int pass;            /* INTERP_* */
     int drewVi;          /* the recording task set a VI-sized colour image */
     u32 pendingSig;      /* records from here on wait for the vertices that give their sig */
-    float (*blend)[4][4]; /* the replay's matrices, in first-pass order */
-    u32 blendCap, blendCount;
+    float (*from)[4][4]; /* per first-pass matrix: the previous frame's partner (this frame's value if none) */
+    float (*to)[4][4];   /* and this frame's value */
+    u32 fromCap, toCap, pairCount;
+    float fraction;      /* of the way from `from` to `to`, for the replay being drawn */
     u32 *table;          /* open-addressing index of the previous frame by (kind, sig): record index + 1, 0 empty */
     u32 *curTable;       /* the same for this frame: its latest record of each (kind, sig) */
     u32 tableCap, curTableCap, tableMask;
     u8 *branch;          /* recorded G_BRANCH_Z / G_CULLDL outcomes */
     u32 branchCount, branchCap, branchNext;
     u32 mtxNext;
-    /* the replay waits for the next VI (portGfxRunDeferred) so the game frame's VI carries only the first pass;
-     * nothing touches the display list's inputs until then */
-    int replayPending;
+    /* replays draw at the latest before the next VI's game code runs (portGfxRunDeferred), so nothing has touched
+     * the display list's inputs since the first pass; earlier ones are drawn on the refresh that shows them */
+    int images;          /* images per game frame (2 at 60 fps), 0 when no in-between image is pending */
+    u32 rendered;        /* bit m: in-between image m (1 .. images - 1) is drawn */
+    u32 drawn;           /* bit m: and that replay drew the VI image (its slot holds it) */
+    u32 viImage;         /* the VI image the pair's first pass drew: presenting it ends the in-between images */
+    u32 recordViImage;   /* the one the recording pass draws */
+    int shown;           /* the last in-between image presented, 0 none */
+    int ticks;           /* refreshes (a VI each when unlocked) since the first pass */
+    int ticksPerImage;
     u32 replayDl;
     GfxState start;      /* RDP state and TMEM the task started with */
     u8 tmemStart[sizeof gGfxTmem];
@@ -637,7 +647,7 @@ int gfxInterpQsRanges(QsRange *out) {
 /* quickload: the previous frame's matrices belong to another timeline */
 void gfxInterpReset(void) {
     sInterp.prevValid = 0;
-    sInterp.replayPending = 0;
+    sInterp.images = 0;
 }
 
 static void *growArray(void *p, u32 *cap, u32 need, size_t elem) {
@@ -667,10 +677,15 @@ static void interpRecordMatrix(u32 kind, float m[4][4]) {
     memcpy(r->m, m, sizeof r->m);
 }
 
+/* projection matrices (the camera: perspective, then the view multiplied on) keep sig 0 and pair by draw order:
+ * the vertices that follow them often sit in a buffer the CPU alternates every frame, which left the camera
+ * unpaired, so in-between images moved objects but not the view */
 static void interpRecordVertices(u32 host) {
     MtxFrame *f = &sInterp.frame[sInterp.cur];
     for (; sInterp.pendingSig < f->count; sInterp.pendingSig++) {
-        f->rec[sInterp.pendingSig].sig = host;
+        if (!(f->rec[sInterp.pendingSig].kind & G_MTX_PROJECTION)) {
+            f->rec[sInterp.pendingSig].sig = host;
+        }
     }
 }
 
@@ -820,30 +835,31 @@ static int interpJumps(const float a[4][4], const float b[4][4]) {
     return rot > 1.4f * scale || dt > 0.35f * mag + 100.0f;
 }
 
-static void interpBuildBlend(void) {
+static void interpBuildPairs(void) {
     MtxFrame *cur = &sInterp.frame[sInterp.cur];
     u32 i;
-    int k;
-    sInterp.blend = growArray(sInterp.blend, &sInterp.blendCap, cur->count + 1, sizeof *sInterp.blend);
-    sInterp.blendCount = cur->count;
+    sInterp.from = growArray(sInterp.from, &sInterp.fromCap, cur->count + 1, sizeof *sInterp.from);
+    sInterp.to = growArray(sInterp.to, &sInterp.toCap, cur->count + 1, sizeof *sInterp.to);
+    sInterp.pairCount = cur->count;
     for (i = 0; i < cur->count; i++) {
         const MtxRec *r = &cur->rec[i];
         const MtxRec *p = interpFindPrev(r);
-        if (p == NULL || interpJumps(p->m, r->m)) {
-            memcpy(sInterp.blend[i], r->m, sizeof r->m);
-            continue;
-        }
-        for (k = 0; k < 16; k++) {
-            (&sInterp.blend[i][0][0])[k] = 0.5f * ((&p->m[0][0])[k] + (&r->m[0][0])[k]);
-        }
+        memcpy(sInterp.from[i], p == NULL || interpJumps(p->m, r->m) ? r->m : p->m, sizeof r->m);
+        memcpy(sInterp.to[i], r->m, sizeof r->m);
     }
 }
 
 static void matrix(u32 w0, u32 w1) {
     u32 p = (w0 & 0xFF) ^ G_MTX_PUSH;
     float m[4][4];
-    if (sInterp.pass == INTERP_REPLAY && sInterp.mtxNext < sInterp.blendCount) {
-        memcpy(m, sInterp.blend[sInterp.mtxNext++], sizeof m);
+    if (sInterp.pass == INTERP_REPLAY && sInterp.mtxNext < sInterp.pairCount) {
+        const float *a = &sInterp.from[sInterp.mtxNext][0][0], *b = &sInterp.to[sInterp.mtxNext][0][0];
+        float t = sInterp.fraction;
+        int k;
+        for (k = 0; k < 16; k++) {
+            (&m[0][0])[k] = a[k] + t * (b[k] - a[k]);
+        }
+        sInterp.mtxNext++;
     } else {
         mtxLoad(m, gfxHost(w1));
         if (sInterp.pass == INTERP_RECORD) {
@@ -903,6 +919,7 @@ static void setColorImage(u32 w0, u32 w1) {
     gGfx.cimgSiz = (w0 >> 19) & 3;
     if (sInterp.pass == INTERP_RECORD && gGfx.cimgWidth == gPortViWidth && gGfx.cimg != gGfx.zimg) {
         sInterp.drewVi = 1;
+        sInterp.recordViImage = gGfx.cimg;
     }
     gfxBackendSetColorImage(gGfx.cimg, gGfx.cimgWidth, gGfx.cimgSiz);
 }
@@ -1216,34 +1233,57 @@ static void resetRsp(void) {
     gGfx.texOn = 0;
 }
 
-/* the in-between image: the pending task's list again from the RDP state and TMEM it started with, matrices
- * blended; afterwards the state is what it was before */
-void portGfxRunDeferred(void) {
+/* in-between image m: the pending task's list again from the RDP state and TMEM it started with, every matrix
+ * m / images of the way from the previous frame's value; afterwards the state is what it was before */
+static void interpRender(int m) {
     static u8 tmemEnd[sizeof gGfxTmem];
     GfxState end;
-    if (!sInterp.replayPending) {
-        return;
-    }
-    sInterp.replayPending = 0;
     end = gGfx;
     memcpy(tmemEnd, gGfxTmem, sizeof tmemEnd);
     gGfx = sInterp.start;
     memcpy(gGfxTmem, sInterp.tmemStart, sizeof tmemEnd);
     resetRsp();
     sInterp.pass = INTERP_REPLAY;
+    sInterp.fraction = (float)m / (float)sInterp.images;
     sInterp.mtxNext = 0;
     sInterp.branchNext = 0;
     gfxBackendInterpBegin();
     runDl(sInterp.replayDl, 0);
     flush();
-    gfxBackendInterpEnd();
+    if (gfxBackendInterpEnd(m - 1)) {
+        sInterp.drawn |= 1u << m;
+    }
+    sInterp.rendered |= 1u << m;
     sInterp.pass = INTERP_OFF;
     gGfx = end;
     memcpy(gGfxTmem, tmemEnd, sizeof tmemEnd);
 }
 
+/* game code is about to run (a VI, the next task) and may change the display list's inputs: draw every in-between
+ * image still to come now */
+void portGfxRunDeferred(void) {
+    int m;
+    for (m = sInterp.shown + 1; m < sInterp.images; m++) {
+        if (!(sInterp.rendered & (1u << m))) {
+            interpRender(m);
+        }
+    }
+}
+
+/* images per game frame: the most that divide the refreshes of a game frame (two VIs) evenly, up to the setting's
+ * 2 << (level - 1); a display that is not phase-locked counts one refresh per VI (60 fps) */
+static int interpImagesFor(int level) {
+    int cap = 1 << level, span = 2 * portPaceRefreshesPerVi(), m;
+    for (m = cap; m > 2; m--) {
+        if (span % m == 0) {
+            return m;
+        }
+    }
+    return 2;
+}
+
 void portGfxRunTask(OSTask *task) {
-    int interp = gfxBackendInterpEnabled();
+    int interp = gfxBackendInterpLevel();
     portGfxRunDeferred(); /* draws before this task's recording replaces its inputs */
     if (interp) {
         sInterp.start = gGfx;
@@ -1274,27 +1314,58 @@ void portGfxRunTask(OSTask *task) {
     }
     interpIndex(); /* occ is needed when this frame is the previous one, too */
     if (sInterp.prevValid) {
-        interpBuildBlend();
+        interpBuildPairs();
         sInterp.replayDl = (u32)task->t.data_ptr;
-        sInterp.replayPending = 1;
+        sInterp.viImage = sInterp.recordViImage;
+        sInterp.images = interpImagesFor(interp);
+        sInterp.ticksPerImage = 2 * portPaceRefreshesPerVi() / sInterp.images;
+        sInterp.rendered = 0;
+        sInterp.drawn = 0;
+        sInterp.shown = 0;
+        sInterp.ticks = 0;
     }
     sInterp.cur ^= 1;
     sInterp.prevValid = 1;
 }
 
+/* the game frame the pending in-between images lead up to is on screen (or the screen is blanked): they are done */
 void portGfxPresent(void *fb, int black) {
+    if (black || (u32)fb == sInterp.viImage) {
+        sInterp.images = 0;
+    }
     gfxBackendPresent((u32)fb, black);
 }
 
-/* the in-between image of the last task, if one is waiting for its VI; 1 when presented */
-int portGfxPresentInterp(void) {
-    return gfxBackendPresentInterp();
+/* the refreshes of this animation frame (one per VI on a display that is not phase-locked); before its VIs run */
+void portGfxInterpTick(int ticks) {
+    sInterp.ticks += ticks;
 }
 
-/* 30 fps (0) or 60 by interpolation (1); either way the next in-between image pairs this frame with the next one */
-int portGfxSetInterp(int on) {
+/* the in-between image due on this refresh, if it is a new one; 1 when presented */
+int portGfxPresentInterp(void) {
+    int m;
+    if (sInterp.images == 0) {
+        return 0;
+    }
+    m = sInterp.ticks / sInterp.ticksPerImage;
+    if (m >= sInterp.images) {
+        m = sInterp.images - 1; /* a late game frame: the last in-between image stays up */
+    }
+    if (m <= sInterp.shown) {
+        return 0;
+    }
+    if (!(sInterp.rendered & (1u << m))) {
+        interpRender(m); /* no VI since the first pass, so no game code ran: its inputs are as they were */
+    }
+    sInterp.shown = m;
+    return (sInterp.drawn & (1u << m)) ? gfxBackendPresentInterp(m - 1) : 0;
+}
+
+/* 0 = 30 fps; 1, 2, 3 = up to 60, 120, 240 by interpolation; the next in-between images pair this frame with the
+ * next one */
+int portGfxSetInterp(int level) {
     gfxInterpReset();
-    return gfxBackendSetInterp(on);
+    return gfxBackendSetInterp(level);
 }
 
 void portGfxCpuWrote(const void *p, u32 len) {

@@ -134,7 +134,7 @@
     if (s.drawdist != null) parts.push(`draw distance ${s.drawdist}×`);
     if (s.scale != null) parts.push(`render scale ${s.scale === 0 ? 'auto' : s.scale + '×'}`);
     if (s.msaa != null) parts.push(`MSAA ${s.msaa > 1 ? s.msaa + '×' : 'off'}`);
-    if (s.interp != null) parts.push(s.interp ? '60 fps' : '30 fps');
+    if (s.interp != null) parts.push(`${30 << s.interp} fps`);
     if (s.audio3d != null) parts.push(`3D sound ${s.audio3d ? 'on' : 'off'}`);
     if (s.audiorate != null) parts.push(`audio ${s.audiorate / 1000} kHz`);
     if (s.touch != null) parts.push(`touch ${s.touch}`);

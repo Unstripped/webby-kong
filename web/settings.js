@@ -10,7 +10,7 @@
     drawdist: { def: 4, valid: (v) => Number.isFinite(v) && v >= 1 && v <= 16, parse: num, fn: 'port_set_drawdist' },
     scale: { def: 0, valid: (v) => Number.isInteger(v) && v >= 0 && v <= 8, parse: num, fn: 'port_set_scale' },
     msaa: { def: 4, valid: (v) => [0, 1, 2, 4, 8].includes(v), parse: num, fn: 'port_set_msaa' },
-    interp: { def: 1, valid: (v) => v === 0 || v === 1, parse: num, fn: 'port_set_interp' },
+    interp: { def: 1, valid: (v) => [0, 1, 2, 3].includes(v), parse: num, fn: 'port_set_interp' },
     touch: {
       def: 'auto',
       valid: (v) => v === 'auto' || v === 'on' || v === 'off',

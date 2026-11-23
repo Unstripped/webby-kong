@@ -67,7 +67,8 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH);
 /* frame interpolation: the in-between image, shaped like the VI image `real`, with its own depth */
 GfxFb *gfxFbInterpFor(const GfxFb *real);
 void gfxFbInterpClearDepth(void);
-void gfxFbPresentInterp(int winW, int winH);
+void gfxFbInterpStore(int slot); /* the replay just drawn, resolved into slot 0..6 */
+int gfxFbPresentInterp(int slot, int winW, int winH); /* 0 when the slot holds no current image */
 /* a point of the drawable (fractions, top-left origin) in N64 pixels of the last presented image; 0 off-image */
 int gfxFbPresentedToN64(float fx, float fy, float *x, float *y);
 void gfxFbCpuWrote(u32 addr, u32 len);
