@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #define TEX_CACHE_SIZE 4096
+#define TEX_INDEX_SIZE (2 * TEX_CACHE_SIZE)
 #define WIN_W 960
 #define WIN_H 720
 
@@ -13,6 +14,7 @@ typedef struct {
     u64 key;
     GLuint tex;
     u32 w, h;
+    u32 sampling; /* setSampling's packed parameters last set on tex, 0 unknown */
 } TexEntry;
 
 static SDL_Window *sWindow;
@@ -20,6 +22,7 @@ static SDL_GLContext sContext;
 static GLuint sVao, sVbo;
 static TexEntry sTexCache[TEX_CACHE_SIZE];
 static int sTexCount;
+static u16 sTexIndex[TEX_INDEX_SIZE]; /* texCacheFind's hash index; a quickload's texCacheFlush clears it */
 static GLuint sWhiteTex;
 static GfxFb *sTarget;
 static int sTargetIsDepth;
@@ -27,11 +30,132 @@ static u32 sTaskSerial;
 static u8 *sMipChain; /* decoded mip levels staged for upload (bindMipTiles) */
 static size_t sMipChainCap;
 
+/* GL state shadow for the draw path: every WebGL call crosses into JS and Chrome's validation, so applyState and
+ * draw skip calls that change nothing. All-ones means unknown; glsReset() follows anything else that touches this
+ * state (gfx_fb.c helpers, presents, readbacks, task boundaries). */
+static struct {
+    GLuint prog, vao, vbo, tex[2];
+    int unit;
+    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest;
+    GLenum depthFunc;
+    GLint scissor[4];
+} sGls;
+static u32 sWhiteSampling;
+
+static void glsReset(void) {
+    memset(&sGls, 0xFF, sizeof sGls);
+    sWhiteSampling = 0;
+}
+
+static void glsUseProgram(GLuint p) {
+    if (sGls.prog != p) {
+        glUseProgram(p);
+        sGls.prog = p;
+    }
+}
+
+/* the active unit only matters to calls that act on a unit's bound texture: binds, uploads, parameters */
+static void glsUnit(int unit) {
+    if (sGls.unit != unit) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        sGls.unit = unit;
+    }
+}
+
+static void glsBindTex(int unit, GLuint tex) {
+    if (sGls.tex[unit] != tex) {
+        glsUnit(unit);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        sGls.tex[unit] = tex;
+    }
+}
+
+static void glsCap(GLenum cap, s8 *cached, int on) {
+    if (*cached != on) {
+        if (on) {
+            glEnable(cap);
+        } else {
+            glDisable(cap);
+        }
+        *cached = (s8)on;
+    }
+}
+
+static void glsDepthFunc(GLenum f) {
+    if (sGls.depthFunc != f) {
+        glDepthFunc(f);
+        sGls.depthFunc = f;
+    }
+}
+
+static void glsDepthMask(int on) {
+    if (sGls.depthMask != on) {
+        glDepthMask(on ? GL_TRUE : GL_FALSE);
+        sGls.depthMask = (s8)on;
+    }
+}
+
+static void glsScissor(GLint x, GLint y, GLint w, GLint h) {
+    glsCap(GL_SCISSOR_TEST, &sGls.scissorTest, 1);
+    if (sGls.scissor[0] != x || sGls.scissor[1] != y || sGls.scissor[2] != w || sGls.scissor[3] != h) {
+        glScissor(x, y, w, h);
+        sGls.scissor[0] = x;
+        sGls.scissor[1] = y;
+        sGls.scissor[2] = w;
+        sGls.scissor[3] = h;
+    }
+}
+
+static void glsBindGeometry(void) {
+    if (sGls.vao != sVao) {
+        glBindVertexArray(sVao);
+        sGls.vao = sVao;
+    }
+    if (sGls.vbo != sVbo) {
+        glBindBuffer(GL_ARRAY_BUFFER, sVbo);
+        sGls.vbo = sVbo;
+    }
+}
+
+/* per-program uniform shadows (GfxProgram.c*): uniforms are program state, so they survive glUseProgram */
+static void glsU4(GLint loc, float *c, float a, float b, float d, float e) {
+    if (c[0] != a || c[1] != b || c[2] != d || c[3] != e) {
+        glUniform4f(loc, a, b, d, e);
+        c[0] = a;
+        c[1] = b;
+        c[2] = d;
+        c[3] = e;
+    }
+}
+
+static void glsU2(GLint loc, float *c, const float *v) {
+    if (c[0] != v[0] || c[1] != v[1]) {
+        glUniform2fv(loc, 1, v);
+        c[0] = v[0];
+        c[1] = v[1];
+    }
+}
+
+static void glsU1(GLint loc, float *c, float v) {
+    if (*c != v) {
+        glUniform1f(loc, v);
+        *c = v;
+    }
+}
+
 /* frame grab for web/debug.js: requested from JS, filled after the next present */
 static int sCaptureReq, sCaptureW, sCaptureH;
 static u32 sCaptureSeq;
 static u8 *sCapturePx;
 static size_t sCaptureCap;
+
+/* frame interpolation (gfx.c): during a replay VI images draw into the in-between image and offscreen images are
+ * skipped; each replay's image is then kept in a slot until gfx.c presents it */
+static int sInterpLevel = 1; /* player setting (?interp, Esc menu): a keep range, so a quickload leaves it as set */
+static struct {
+    int pass;  /* a replay is drawing */
+    int drawn; /* it drew a VI image */
+} sInterpGl;
 
 int gfxBackendQsRanges(QsRange *out) {
     int n = 0;
@@ -53,6 +177,9 @@ int gfxBackendQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sCaptureCap);
     out[n++] = QS_RANGE(sMipChain);
     out[n++] = QS_RANGE(sMipChainCap);
+    out[n++] = QS_RANGE(sInterpGl);
+    out[n++] = QS_RANGE(sInterpLevel);
+    n += gfxInterpQsRanges(out + n);
     n += gfxFbQsRanges(out + n);
     n += gfxCombinerQsRanges(out + n);
     return n;
@@ -64,13 +191,17 @@ static void texCacheFlush(void) {
         glDeleteTextures(1, &sTexCache[i].tex);
     }
     sTexCount = 0;
+    memset(sTexIndex, 0, sizeof sTexIndex);
+    sGls.tex[0] = sGls.tex[1] = ~0u; /* deleted textures unbind */
 }
 
 /* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
 void gfxBackendQsRestored(void) {
     texCacheFlush();
     sTarget = NULL;
+    glsReset();
     sTargetIsDepth = 0;
+    gfxInterpReset();
     gfxFbQsRestored();
 }
 
@@ -106,6 +237,7 @@ void gfxBackendInit(void) {
     glBindTexture(GL_TEXTURE_2D, sWhiteTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
     gfxFbInit();
+    glsReset();
 }
 
 void gfxBackendBeginTask(void) {
@@ -116,10 +248,24 @@ void gfxBackendBeginTask(void) {
     sTarget = NULL;
     gGfxTargetWide = 1.0f;
     sTargetIsDepth = 0;
+    glsReset(); /* presents and readbacks since the last task changed GL state behind the shadow */
 }
 
 void gfxBackendEndTask(void) {
+    gfxFbDepthPrefetch();
     glBindVertexArray(sVao);
+}
+
+/* black over a widened target's columns outside [left, right) (physical pixels) */
+static void clearSides(GfxFb *fb, u32 left, u32 right) {
+    u32 sh = fb->physH;
+    glEnable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 1);
+    glScissor(0, 0, left, sh);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor(right, 0, fb->physW - right, sh);
+    glClear(GL_COLOR_BUFFER_BIT);
+    fb->resolveDirty = 1;
 }
 
 void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
@@ -131,22 +277,44 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
         return;
     }
     sTargetIsDepth = 0;
-    sTarget = gfxFbFor(addr, width);
+    if (sInterpGl.pass) {
+        /* VI images draw into the in-between image; offscreen images keep what the first pass drew */
+        GfxFb *real = width == gPortViWidth ? gfxFbFind(addr) : NULL;
+        sTarget = real != NULL ? gfxFbInterpFor(real) : NULL;
+        if (sTarget == NULL) {
+            gGfxTargetWide = 1.0f;
+            return;
+        }
+        sInterpGl.drawn = 1;
+    } else {
+        sTarget = gfxFbFor(addr, width);
+    }
     gfxFbBind(sTarget);
     gGfxTargetWide = sTarget->physW / (float)(sTarget->width * sTarget->scale);
     if (sTarget->ox > 0 && sTarget->sideTask != sTaskSerial) {
         /* the game only covers its 4:3 image; blank the side areas once per task so frames that draw no
          * full-width clear don't show stale pixels there */
-        u32 sh = sTarget->physH, right = sTarget->ox + sTarget->width * sTarget->scale;
         sTarget->sideTask = sTaskSerial;
-        glEnable(GL_SCISSOR_TEST);
-        glClearColor(0, 0, 0, 1);
-        glScissor(0, 0, sTarget->ox, sh);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glScissor(right, 0, sTarget->physW - right, sh);
-        glClear(GL_COLOR_BUFFER_BIT);
-        sTarget->resolveDirty = 1;
+        clearSides(sTarget, sTarget->ox, sTarget->ox + sTarget->width * sTarget->scale);
     }
+    glsReset(); /* gfxFbFor/gfxFbBind may have uploaded or copied images with their own GL state */
+}
+
+/* the widened scissor lets the screen wipe's 4:3 capture (and tiles it draws past its edge) reach the overscan
+ * border and the side areas, beside live scene: black everything left and right of the game's scissor, as the N64
+ * shows it */
+void gfxBackendBlankSides(const GfxState *st) {
+    s32 x0 = st->scissor[0], x1 = st->scissor[2], w;
+    if (sTarget == NULL || sTarget->ox == 0) {
+        return;
+    }
+    w = (s32)sTarget->width;
+    x0 = x0 < 0 ? 0 : x0 > w ? w : x0;
+    x1 = x1 < x0 ? x0 : x1 > w ? w : x1;
+    gfxFbBind(sTarget);
+    clearSides(sTarget, sTarget->ox + (u32)x0 * sTarget->scale, sTarget->ox + (u32)x1 * sTarget->scale);
+    gfxFbDrew(sTarget);
+    glsReset();
 }
 
 /* ---------------------------------------------------------------- textures */
@@ -165,35 +333,56 @@ static void tileParamsFor(const GfxTile *t, float *tileParams) {
     tileParams[3] = t->ult / 4.0f;
 }
 
-/* cached GL texture for (key, w, h), or 0 */
-static GLuint texCacheFind(u64 key, u32 w, u32 h) {
-    int i;
-    for (i = 0; i < sTexCount; i++) {
-        if (sTexCache[i].key == key && sTexCache[i].w == w && sTexCache[i].h == h) {
-            return sTexCache[i].tex;
-        }
-    }
-    return 0;
+/* texture cache lookup: open addressing over sTexCache, entry index + 1 (0 empty); rebuilt empty by a flush */
+static u32 texCacheSlot(u64 key, u32 w, u32 h) {
+    u64 x = key ^ ((u64)w << 40) ^ ((u64)h << 20);
+    x ^= x >> 31;
+    return (u32)(x * 0x9E3779B97F4A7C15ull >> 40) & (TEX_INDEX_SIZE - 1);
 }
 
-/* new cached GL texture, bound to the active unit; the caller uploads its levels */
-static GLuint texCacheAdd(u64 key, u32 w, u32 h) {
+/* cached GL texture for (key, w, h), or NULL */
+static TexEntry *texCacheFind(u64 key, u32 w, u32 h) {
+    u32 s;
+    for (s = texCacheSlot(key, w, h); sTexIndex[s] != 0; s = (s + 1) & (TEX_INDEX_SIZE - 1)) {
+        TexEntry *e = &sTexCache[sTexIndex[s] - 1];
+        if (e->key == key && e->w == w && e->h == h) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
+/* new cached GL texture, bound to `unit`; the caller uploads its levels */
+static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
+    TexEntry *e;
     GLuint tex;
+    u32 s;
     if (sTexCount == TEX_CACHE_SIZE) {
         texCacheFlush();
     }
     glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    sTexCache[sTexCount].key = key;
-    sTexCache[sTexCount].tex = tex;
-    sTexCache[sTexCount].w = w;
-    sTexCache[sTexCount].h = h;
-    sTexCount++;
-    return tex;
+    glsBindTex(unit, tex);
+    e = &sTexCache[sTexCount++];
+    e->key = key;
+    e->tex = tex;
+    e->w = w;
+    e->h = h;
+    e->sampling = 0;
+    for (s = texCacheSlot(key, w, h); sTexIndex[s] != 0; s = (s + 1) & (TEX_INDEX_SIZE - 1)) {
+    }
+    sTexIndex[s] = (u16)sTexCount;
+    return e;
 }
 
-static void setSampling(const GfxState *st, const GfxTile *t, int mipmapped) {
+/* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown) */
+static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipmapped, u32 *cache) {
     int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+    u32 packed = 1u | (u32)(t->cms & 3) << 1 | (u32)(t->cmt & 3) << 3 | (u32)linear << 5 | (u32)mipmapped << 6;
+    if (*cache == packed) {
+        return;
+    }
+    *cache = packed;
+    glsUnit(unit);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode(t->cms));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode(t->cmt));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
@@ -205,22 +394,21 @@ static void setSampling(const GfxState *st, const GfxTile *t, int mipmapped) {
 static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, float *size) {
     const GfxTile *t = &st->tiles[tile & 7];
     GfxTexImage img;
-    GLuint tex = sWhiteTex;
+    TexEntry *e = NULL;
     tileParamsFor(t, tileParams);
     size[0] = 1.0f;
     size[1] = 1.0f;
-    glActiveTexture(GL_TEXTURE0 + unit);
-    if (gfxTmemDecode(st, tile & 7, &img)) {
+    if (gfxTmemKey(st, tile & 7, &img)) {
         size[0] = (float)img.width;
         size[1] = (float)img.height;
-        tex = texCacheFind(img.key, img.width, img.height);
-        if (tex == 0) {
-            tex = texCacheAdd(img.key, img.width, img.height);
+        e = texCacheFind(img.key, img.width, img.height);
+        if (e == NULL && gfxTmemDecode(st, tile & 7, &img)) {
+            e = texCacheAdd(img.key, img.width, img.height, unit);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
         }
     }
-    glBindTexture(GL_TEXTURE_2D, tex);
-    setSampling(st, t, 0);
+    glsBindTex(unit, e != NULL ? e->tex : sWhiteTex);
+    setSampling(st, t, unit, 0, e != NULL ? &e->sampling : &sWhiteSampling);
 }
 
 /* texture LOD: tiles tile..tile + maxLevel as the GL mips of one texture on unit 0. Each level must be half the
@@ -233,10 +421,9 @@ static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileP
     u32 w0 = 0, h0 = 0, off[8], w[8], h[8];
     u64 key = 0x6C6F64636861696Eull; /* never equals a single tile's key */
     int n = -1, k;
-    GLuint tex;
+    TexEntry *e;
     for (k = 0; k <= maxLevel && k < 8; k++) {
-        size_t need;
-        if (!gfxTmemDecode(st, (tile + k) & 7, &img)) {
+        if (!gfxTmemKey(st, (tile + k) & 7, &img)) {
             break;
         }
         if (k == 0) {
@@ -250,16 +437,6 @@ static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileP
         }
         w[k] = img.width;
         h[k] = img.height;
-        need = off[k] + (size_t)w[k] * h[k] * 4;
-        if (need > sMipChainCap) {
-            u8 *p = realloc(sMipChain, need * 2);
-            if (p == NULL) {
-                break;
-            }
-            sMipChain = p;
-            sMipChainCap = need * 2;
-        }
-        memcpy(sMipChain + off[k], img.rgba, (size_t)w[k] * h[k] * 4);
         key = (key ^ img.key) * 1099511628211ull;
         n = k;
     }
@@ -267,17 +444,29 @@ static int bindMipTiles(const GfxState *st, int tile, int maxLevel, float *tileP
         return 0;
     }
     key = (key ^ (u64)n) * 1099511628211ull;
-    glActiveTexture(GL_TEXTURE0);
-    tex = texCacheFind(key, w0, h0);
-    if (tex == 0) {
-        tex = texCacheAdd(key, w0, h0);
+    e = texCacheFind(key, w0, h0);
+    if (e == NULL) {
+        size_t need = off[n] + (size_t)w[n] * h[n] * 4;
+        if (need > sMipChainCap) {
+            u8 *p = realloc(sMipChain, need * 2);
+            if (p == NULL) {
+                return 0;
+            }
+            sMipChain = p;
+            sMipChainCap = need * 2;
+        }
+        for (k = 0; k <= n; k++) {
+            gfxTmemDecode(st, (tile + k) & 7, &img);
+            memcpy(sMipChain + off[k], img.rgba, (size_t)w[k] * h[k] * 4);
+        }
+        e = texCacheAdd(key, w0, h0, 0);
         for (k = 0; k <= n; k++) {
             glTexImage2D(GL_TEXTURE_2D, k, GL_RGBA8, w[k], h[k], 0, GL_RGBA, GL_UNSIGNED_BYTE, sMipChain + off[k]);
         }
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, n);
     }
-    glBindTexture(GL_TEXTURE_2D, tex);
-    setSampling(st, &st->tiles[tile & 7], 1);
+    glsBindTex(0, e->tex);
+    setSampling(st, &st->tiles[tile & 7], 0, 1, &e->sampling);
     for (k = 0; k <= n; k++) {
         tileParamsFor(&st->tiles[(tile + k) & 7], mipTile[k]);
         mipSize[k][0] = (float)w[k];
@@ -314,13 +503,12 @@ static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
             px1 = (s32)sTarget->physW;
         }
     }
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(px0, (h - y1) * s, px1 - px0, (y1 - y0) * s);
+    glsScissor(px0, (h - y1) * s, px1 - px0, (y1 - y0) * s);
 }
 
 static void applyState(const GfxState *st, int forRect, int tile) {
     GfxProgramKey key;
-    const GfxProgram *p;
+    GfxProgram *p;
     u32 cyc = (st->otherH >> G_MDSFT_CYCLETYPE) & 3;
     u32 om = st->otherL;
     u32 blend1 = om >> 16;
@@ -349,18 +537,23 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
     key.lod = maxLevel > 0;
     p = gfxProgramGet(&key);
-    glUseProgram(p->prog);
-    glUniform4f(p->uPrim, st->prim[0] / 255.0f, st->prim[1] / 255.0f, st->prim[2] / 255.0f, st->prim[3] / 255.0f);
-    glUniform4f(p->uEnv, st->env[0] / 255.0f, st->env[1] / 255.0f, st->env[2] / 255.0f, st->env[3] / 255.0f);
-    glUniform4f(p->uFog, st->fog[0] / 255.0f, st->fog[1] / 255.0f, st->fog[2] / 255.0f, st->fog[3] / 255.0f);
-    glUniform4f(p->uBlend, st->blend[0] / 255.0f, st->blend[1] / 255.0f, st->blend[2] / 255.0f, st->blend[3] / 255.0f);
-    glUniform1f(p->uPrimLod, st->primLodFrac / 255.0f);
-    glUniform1f(p->uAlphaRef, st->blend[3] / 255.0f);
-    glUniform1f(p->uPrimDepth, (st->primDepth & 0x7FFF) / 32767.0f);
+    if (gGfxProgramBuilt) {
+        gGfxProgramBuilt = 0;
+        sGls.prog = ~0u; /* building made the new program current */
+    }
+    glsUseProgram(p->prog);
+    glsU4(p->uPrim, p->cPrim, st->prim[0] / 255.0f, st->prim[1] / 255.0f, st->prim[2] / 255.0f, st->prim[3] / 255.0f);
+    glsU4(p->uEnv, p->cEnv, st->env[0] / 255.0f, st->env[1] / 255.0f, st->env[2] / 255.0f, st->env[3] / 255.0f);
+    glsU4(p->uFog, p->cFog, st->fog[0] / 255.0f, st->fog[1] / 255.0f, st->fog[2] / 255.0f, st->fog[3] / 255.0f);
+    glsU4(p->uBlend, p->cBlend, st->blend[0] / 255.0f, st->blend[1] / 255.0f, st->blend[2] / 255.0f,
+          st->blend[3] / 255.0f);
+    glsU1(p->uPrimLod, &p->cPrimLod, st->primLodFrac / 255.0f);
+    glsU1(p->uAlphaRef, &p->cAlphaRef, st->blend[3] / 255.0f);
+    glsU1(p->uPrimDepth, &p->cPrimDepth, (st->primDepth & 0x7FFF) / 32767.0f);
     if (key.lod) {
         /* both texels come from the mip chain on unit 0; LOD counts tile0 texels per N64 pixel */
-        glUniform1f(p->uLodScale, (float)sTarget->scale);
-        glUniform1f(p->uMaxLevel, (float)maxLevel);
+        glsU1(p->uLodScale, &p->cLodScale, (float)sTarget->scale);
+        glsU1(p->uMaxLevel, &p->cMaxLevel, (float)maxLevel);
         glUniform4fv(p->uMipTile, maxLevel + 1, &mipTile[0][0]);
         glUniform2fv(p->uMipSize, maxLevel + 1, &mipSize[0][0]);
     } else if (p->usesTex0 && (st->texOn || forRect)) {
@@ -369,8 +562,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         tile0[0] = tile0[1] = 1.0f;
         tile0[2] = tile0[3] = 0.0f;
         size0[0] = size0[1] = 1.0f;
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, sWhiteTex);
+        glsBindTex(0, sWhiteTex);
     }
     if (p->usesTex1 && !key.lod && (st->texOn || forRect)) {
         bindTile(st, (t0 + 1) & 7, 1, tile1, size1);
@@ -378,25 +570,27 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         tile1[0] = tile1[1] = 1.0f;
         tile1[2] = tile1[3] = 0.0f;
         size1[0] = size1[1] = 1.0f;
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, sWhiteTex);
+        glsBindTex(1, sWhiteTex);
     }
-    glUniform4fv(p->uTile0, 1, tile0);
-    glUniform4fv(p->uTile1, 1, tile1);
-    glUniform2fv(p->uSize0, 1, size0);
-    glUniform2fv(p->uSize1, 1, size1);
+    glsU4(p->uTile0, p->cTile0, tile0[0], tile0[1], tile0[2], tile0[3]);
+    glsU4(p->uTile1, p->cTile1, tile1[0], tile1[1], tile1[2], tile1[3]);
+    glsU2(p->uSize0, p->cSize0, size0);
+    glsU2(p->uSize1, p->cSize1, size1);
 
     /* blending: IN*A_IN + MEM*(1-A) under FORCE_BL */
     if ((om & FORCE_BL) && bp == G_BL_CLR_IN && ba == G_BL_A_IN && bm == G_BL_CLR_MEM && bb == G_BL_1MA && cyc < 2) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glsCap(GL_BLEND, &sGls.blend, 1);
+        if (sGls.blendFunc != 1) {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            sGls.blendFunc = 1;
+        }
     } else {
-        glDisable(GL_BLEND);
+        glsCap(GL_BLEND, &sGls.blend, 0);
     }
     /* depth */
     if (cyc >= 2) {
-        glDisable(GL_DEPTH_TEST);
-        glDepthMask(GL_FALSE);
+        glsCap(GL_DEPTH_TEST, &sGls.depthTest, 0);
+        glsDepthMask(0);
     } else {
         int zcmp = (om & Z_CMP) && (st->geometry & G_ZBUFFER || forRect);
         int zupd = (om & Z_UPD) != 0;
@@ -404,18 +598,21 @@ static void applyState(const GfxState *st, int forRect, int tile) {
             /* RDP z compare on a fully covered pixel: opaque, interpenetrating and translucent modes pass only when
              * strictly nearer (a coplanar redraw fails: Galleon's gold stacks draw a white untextured copy of their
              * textured tops after them); decal passes on equal z (polygon offset below) */
-            glEnable(GL_DEPTH_TEST);
-            glDepthFunc(!zcmp ? GL_ALWAYS : (om & ZMODE_DEC) == ZMODE_DEC ? GL_LEQUAL : GL_LESS);
+            glsCap(GL_DEPTH_TEST, &sGls.depthTest, 1);
+            glsDepthFunc(!zcmp ? GL_ALWAYS : (om & ZMODE_DEC) == ZMODE_DEC ? GL_LEQUAL : GL_LESS);
         } else {
-            glDisable(GL_DEPTH_TEST);
+            glsCap(GL_DEPTH_TEST, &sGls.depthTest, 0);
         }
-        glDepthMask(zupd ? GL_TRUE : GL_FALSE);
+        glsDepthMask(zupd);
     }
     if ((om & ZMODE_DEC) == ZMODE_DEC) {
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(-2.0f, -2.0f);
+        /* the offset itself never changes; set with the enable */
+        if (sGls.polyOffset != 1) {
+            glPolygonOffset(-2.0f, -2.0f);
+        }
+        glsCap(GL_POLYGON_OFFSET_FILL, &sGls.polyOffset, 1);
     } else {
-        glDisable(GL_POLYGON_OFFSET_FILL);
+        glsCap(GL_POLYGON_OFFSET_FILL, &sGls.polyOffset, 0);
     }
     /* scissor (N64 pixels, y down) */
     if (sTarget != NULL) {
@@ -423,19 +620,21 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         if (x1 > x0 && y1 > y0) {
             scissorN64(x0, y0, x1, y1);
         } else {
-            glDisable(GL_SCISSOR_TEST);
+            glsCap(GL_SCISSOR_TEST, &sGls.scissorTest, 0);
         }
     }
 }
 
 static void draw(const GfxVtx *v, u32 count) {
-    glBindVertexArray(sVao);
-    glBindBuffer(GL_ARRAY_BUFFER, sVbo);
+    glsBindGeometry();
     glBufferData(GL_ARRAY_BUFFER, count * sizeof(GfxVtx), v, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, count);
     if (sTarget != NULL) {
         gfxFbDrew(sTarget);
-        gGfxDepthDirty = 1;
+        if (!sInterpGl.pass) { /* the in-between image has its own depth */
+            gGfxDepthDirty = 1;
+            gGfxDepthSerial++;
+        }
     }
 }
 
@@ -465,7 +664,12 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
     u32 cyc = (st->otherH >> G_MDSFT_CYCLETYPE) & 3;
     if (sTargetIsDepth) {
         if (cyc == 3) {
-            gfxFbClearDepth();
+            if (sInterpGl.pass) {
+                gfxFbInterpClearDepth();
+            } else {
+                gfxFbClearDepth();
+            }
+            glsReset();
         }
         return;
     }
@@ -475,6 +679,7 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
     if (cyc == 3) {
         u16 c = (u16)(st->fillColor >> 16);
         gfxFbBind(sTarget);
+        glsReset();
         scissorN64((s32)ulx, (s32)uly, (s32)lrx, (s32)lry);
         glClearColor(((c >> 11) & 0x1F) / 31.0f, ((c >> 6) & 0x1F) / 31.0f, ((c >> 1) & 0x1F) / 31.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -526,28 +731,79 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     draw(q, 6);
 }
 
+/* web/debug.js frame grab: the canvas as just presented */
+static void captureIfRequested(int w, int h) {
+    size_t need;
+    if (!sCaptureReq || w <= 0 || h <= 0) {
+        return;
+    }
+    need = (size_t)w * (size_t)h * 4;
+    if (sCaptureCap < need) {
+        u8 *px = realloc(sCapturePx, need);
+        if (px == NULL) {
+            sCaptureReq = 0;
+            return;
+        }
+        sCapturePx = px;
+        sCaptureCap = need;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sCapturePx);
+    sCaptureW = w;
+    sCaptureH = h;
+    sCaptureReq = 0;
+    sCaptureSeq++;
+}
+
 void gfxBackendPresent(u32 fb, int black) {
     int w, h;
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
     gfxFbPresent(fb, black, w, h);
-    if (sCaptureReq && w > 0 && h > 0) {
-        size_t need = (size_t)w * (size_t)h * 4;
-        if (sCaptureCap < need) {
-            u8 *px = realloc(sCapturePx, need);
-            if (px == NULL) {
-                sCaptureReq = 0;
-                return;
-            }
-            sCapturePx = px;
-            sCaptureCap = need;
-        }
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sCapturePx);
-        sCaptureW = w;
-        sCaptureH = h;
-        sCaptureReq = 0;
-        sCaptureSeq++;
+    captureIfRequested(w, h);
+}
+
+int gfxBackendInterpLevel(void) {
+    return sInterpLevel;
+}
+
+int gfxBackendSetInterp(int level) {
+    if (level >= 0 && level <= 3) {
+        sInterpLevel = level;
     }
+    return sInterpLevel;
+}
+
+void gfxBackendInterpBegin(void) {
+    gfxFbDepthCollect(); /* before the replay's commands queue up behind the readback */
+    sInterpGl.pass = 1;
+    sInterpGl.drawn = 0;
+    glsReset();
+    sTarget = NULL;
+    sTargetIsDepth = 0;
+    gGfxTargetWide = 1.0f;
+}
+
+int gfxBackendInterpEnd(int slot) {
+    sInterpGl.pass = 0;
+    if (sInterpGl.drawn) {
+        gfxFbInterpStore(slot);
+    }
+    sTarget = NULL;
+    sTargetIsDepth = 0;
+    gGfxTargetWide = 1.0f;
+    glsReset(); /* the slot copy changed framebuffer bindings and scissor */
+    glBindVertexArray(sVao);
+    return sInterpGl.drawn;
+}
+
+int gfxBackendPresentInterp(int slot) {
+    int w, h;
+    SDL_GL_GetDrawableSize(sWindow, &w, &h);
+    if (!gfxFbPresentInterp(slot, w, h)) {
+        return 0;
+    }
+    captureIfRequested(w, h);
+    return 1;
 }
 
 /* debug pixel probe at a point of the canvas (fractions of its drawable, top-left origin); 0 when the point is off

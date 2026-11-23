@@ -32,7 +32,7 @@ jobs:
           PREV: ${{ steps.version.outputs.previous }}
         run: |
           {
-            echo "Source release of webby-kong. No game data or build output is attached: build it with [docs/building.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/building.md) (no ROM needed), or run the Docker image \`ghcr.io/${GITHUB_REPOSITORY}:${TAG}\` with your own Donkey Kong 64 (USA) ROM mounted at \`/rom\`."
+            echo "Source release of webby-kong. No game data or build output is attached: build it with [docs/building.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/building.md) (no ROM needed), or run the Docker image \`ghcr.io/${GITHUB_REPOSITORY,,}:${TAG}\` with your own Donkey Kong 64 (USA) ROM mounted at \`/rom\`."
             echo
             echo "GitHub source archives omit the \`decomp/\` submodule; use \`git clone --recursive --branch $TAG https://github.com/$GITHUB_REPOSITORY.git\`."
             echo

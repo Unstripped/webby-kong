@@ -49,11 +49,27 @@ flowchart LR
 - `overlay.c` — all overlays are linked in; "loading" one restores its pristine data and zeroes its bss.
 - `qs.c` — quicksave snapshots.
 
+## HTTP surface (`tools/serve.py`)
+
+`tools/serve.py` is the whole server: `ThreadingHTTPServer` over `SimpleHTTPRequestHandler`, one SQLite file.
+
+- Static files from `--dir` (`web/` plus the built `dk64.js`/`dk64.wasm`), as `python -m http.server` would serve them.
+- `GET`/`PUT /api/eeprom` keep every version of the 2 KB save; `GET /api/rom` hands the browser the mounted ROM.
+- `WEBBY_KONG_AUTH=1` adds the optional passkey gate (`tools/auth/`): `/auth/` splash, `/` dashboard, `/play` the game,
+  `/auth/api/*` plus `/api/{me,users,invites,settings}` JSON, and a session cookie (`HttpOnly; SameSite=Lax`) in front
+  of everything else. Users, credentials, sessions, invites and settings are tables in the same database file; the
+  code path for an auth-less deployment is unchanged.
+- Invite email is `tools/auth/mail.py` (SMTP, HTML + text), sent on demand from the dashboard, never from a queue.
+
 ## Notes on the port
 
 - Memory model: wasm addresses 0–8 MB are N64 RDRAM 1:1; every game-visible static and stack lives below
   16 MB, so F3DEX2 segment math works on host pointers.
 - `-sGLOBAL_BASE=8MB`: emcc rejects a hex value for this setting.
+- Asyncify instruments every function that can reach a fiber switch, and indirect calls (printf, SDL) pull in
+  most of the renderer. `gfx/` and `audio/naudio.c` never switch fibers, so both builds list their functions in
+  `ASYNCIFY_REMOVE` (`tools/asyncify_remove.py`, from the `dk64_rsp`/`dk64_gl` objects). Code in those files must
+  not call anything that blocks on a message queue; asyncify's asserts (ASSERTIONS) trap if it does.
 - wasm clang ignores `#pragma clang section`, so overlay data is bracketed by link-order marker objects
   (`build/web/ovl_markers/`) instead; loading an overlay restores its pristine data and zeroes its bss.
 - libultra's VI mode tables are compiled from the decomp (`vitbl.c`, `vimodes/`); `port/src/boot.c` replaces
@@ -66,7 +82,41 @@ flowchart LR
 - Textures in `data_inc.us.txt` blobs stay in N64 byte order (the RDP reads them so); C data is native, so a reader
   of another width than the definition needs a patch (or a fix of the decomp's type: they must match).
 - Pacing: the scheduler freezes the RDP after a framebuffer swap and thaws it on the retrace that shows it; the
-  port holds the next gfx task while frozen, which is what limits the game to its 30 Hz frame rate.
+  port holds the next gfx task while frozen, which is what limits the game to its 30 Hz frame rate. Game logic
+  stays at that rate: most of it counts frames (cutscenes, actor timers), so running it every VI doubles its speed.
+- VI stepping (`port_frame_step`): elapsed time between animation frames comes from the frame timestamps
+  (`document.timeline`), not the callback's clock. On a display whose refresh divides the VI period (60, 120,
+  240 Hz) the VIs are phase-locked: one every k refreshes while the time owed stays within 3/4 refresh of the
+  schedule, one refresh earlier or later past it, which re-centres the phase (at 60 Hz against 59.94, once per ~1000
+  VIs). A plain accumulator flaps between early and late on every frame of timestamp jitter while its phase sits
+  on a VI boundary; replaying jittered 60/120/240 Hz traces at 12 starting phases, off-cadence VIs drop from
+  80–660 per 2 minutes to about the number of dropped display frames. Other rates (144 Hz) keep the accumulator.
+  The refresh estimate follows frame intervals within 30% of it and re-seeds after 8 in a row outside (the
+  first frame's synthetic VI period, a move to a display with another rate).
+- 60–240 fps by interpolation (`gfx.c`, "frame interpolation"): after a task that draws the VI image, the
+  renderer runs its display list again for each in-between image (1 at 60 fps, 3 at 120, 7 at 240), every matrix
+  m/M of the way from the previous frame's value to this frame's, into a twin of the VI image with its own depth
+  buffer, and resolves each into one of 7 single-sampled slots. M is the most images that divide a game frame's
+  refreshes (two VIs × refreshes per VI while phase-locked, else 2) up to the setting. `port_frame_step` counts
+  refreshes (VIs when not locked) since the first pass and presents image m on refresh m·(refreshes per game
+  frame)/M, between the two swaps, so the game frames keep their VIs and no latency is added; a late game frame
+  holds the last in-between image. Images due before the next VI are drawn on the refresh that shows them; the rest
+  are drawn when that VI starts, before any game code runs, since the display list's inputs (alternating vertex
+  buffers) may change after. A matrix pairs with the previous frame's matrix of the same load kind and
+  first-transformed vertex address in the same draw position, unless another of those is under half as far
+  (instances sharing a mesh, like trees, change draw order between frames; parts of one model can share a
+  translation). Projection matrices (the camera's perspective and view) pair by draw order alone: the vertices after
+  them often sit in a buffer the CPU alternates every frame, which left the camera unpaired. A matrix whose
+  vertices sit in such a buffer (shadows) pairs with the nearest previous one (within 100 units) whose vertices are
+  no longer loaded. Unmatched or jumping matrices (cuts, spawns; a turn of roughly 90° or more) keep the frame's
+  value. The replays repeat the first pass's `G_BRANCH_Z`/`G_CULLDL` outcomes and
+  leave RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build. Player
+  setting (`--interp`, `?interp=`, Esc menu "Frame rate", `port_set_interp`: 0 = 30, 1/2/3 = up to 60/120/240):
+  changing it drops the pending images; the next ones pair matrices from the next two game frames, never a stale one.
+- Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
+  one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
+  z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied
+  to host memory before the replay is queued, so those reads no longer wait for the GPU; each copies just its pixel.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the
@@ -76,7 +126,10 @@ flowchart LR
   menu's, end before the screen edge), with the N64 image centred at `GfxFb.ox`; 3D clip x is divided by
   `gGfxTargetWide`, so the original frustum covers the centre and the sides show more scene. 2D draws keep
   their 4:3 place; scissors and fill rects spanning the width (overscan margins up to width/16 included)
-  reach the edges, and the side areas are blanked once per gfx task. RDRAM uploads and readbacks use only the
+  reach the edges, and the side areas are blanked once per gfx task. The screen wipe (e.g. warp pads) draws a
+  4:3 capture of the screen over the new scene, with tiles reaching past its scissor; afterwards a
+  `PORT_GFX_BLANK_SIDES` `G_NOOP` tag (patch 0026) blacks everything left and right of the scissor, overscan
+  border and side areas, as the N64 shows it. RDRAM uploads and readbacks use only the
   centred region. Once the side areas open, the game's overscan border around its viewport shows scene too, so
   every cull runs against the displayed span (`portGfxWideSpanX`), not the viewport: RSP x outcodes (trivial
   rejects, `G_CULLDL`), the map frustum and portal rects (`mapWideFactor`/`mapWideExtraF`, patches 0011 and

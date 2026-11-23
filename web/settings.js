@@ -1,6 +1,6 @@
-// Player settings (draw distance, render scale, MSAA, touch controller, 3D sound, audio rate): stored in localStorage
-// `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu changes them live,
-// except the audio rate, which the game reads at boot (it applies on the next load).
+// Player settings (draw distance, render scale, MSAA, 60 fps, touch controller, 3D sound, audio rate): stored in
+// localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu changes
+// them live, except the audio rate, which the game reads at boot (it applies on the next load).
 (function () {
   'use strict';
 
@@ -10,6 +10,7 @@
     drawdist: { def: 4, valid: (v) => Number.isFinite(v) && v >= 1 && v <= 16, parse: num, fn: 'port_set_drawdist' },
     scale: { def: 0, valid: (v) => Number.isInteger(v) && v >= 0 && v <= 8, parse: num, fn: 'port_set_scale' },
     msaa: { def: 4, valid: (v) => [0, 1, 2, 4, 8].includes(v), parse: num, fn: 'port_set_msaa' },
+    interp: { def: 1, valid: (v) => [0, 1, 2, 3].includes(v), parse: num, fn: 'port_set_interp' },
     touch: {
       def: 'auto',
       valid: (v) => v === 'auto' || v === 'on' || v === 'off',
@@ -67,7 +68,7 @@
   function args() {
     return [
       '--drawdist', String(values.drawdist), '--scale', String(values.scale), '--msaa', String(values.msaa),
-      '--hrtf', String(values.audio3d), '--audio-rate', String(values.audiorate),
+      '--interp', String(values.interp), '--hrtf', String(values.audio3d), '--audio-rate', String(values.audiorate),
     ];
   }
 

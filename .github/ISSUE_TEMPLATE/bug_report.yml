@@ -1,0 +1,29 @@
+name: Bug report
+description: Something looks wrong, behaves wrong or crashes. Easiest from the game itself, Esc → Report a bug, which fills this in for you.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Reporting from inside the game (Esc → **Report a bug**) attaches your game version, settings, save and exact location so we can load your game right where you were. Glitchy graphics? Click the broken spot on the screenshot in the game's report screen."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you were doing, what went wrong (looked wrong, acted wrong, got stuck, crashed), and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Can you make it happen again?
+      description: Optional. If it happens every time, how do you get there?
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: "Reported from the game? Your screenshot is on the clipboard: click in this box and paste (Ctrl+V / ⌘V). If the game saved a file instead, drag it here."
+  - type: textarea
+    id: report
+    attributes:
+      label: Game report
+      description: Filled in by the game. Please leave it as is.

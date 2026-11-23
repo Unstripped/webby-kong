@@ -1,12 +1,16 @@
 /* Host entry and main loop: VI ticks, fiber rounds, RSP tasks, timers, present. */
 #include "port_internal.h"
 #include <emscripten.h>
+#include <math.h>
 
 void portMemCheck(void);
 void portBootStart(void);
 void portAudioOutDrain(double ms);
 
-static double sAccumMs;
+static double sAccumMs;       /* real time not yet run as VIs */
+static double sRefreshMs;     /* display refresh interval estimate; 0 until the first frame */
+static int sRefreshMisses;    /* consecutive frame intervals off that estimate */
+static int sRefreshesSinceVi; /* display refreshes since the last frame that ran a VI */
 f32 gPortDrawDistance = 4.0f;
 
 /* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64.
@@ -44,6 +48,7 @@ static void runAll(void) {
 
 static void viTick(void) {
     u64 end = portTimeNow() + PORT_CYCLES_PER_VI;
+    portGfxRunDeferred(); /* last VI's in-between image, before the game runs on */
     gPortStatVi++;
     portAudioPeakTick();
     portViTick();
@@ -67,18 +72,75 @@ void portInit(void) {
     portBootStart();
 }
 
+/* VIs to run for a frame of elapsedMs. A display whose refresh is a whole fraction of the VI period (60, 120,
+ * 240 Hz) is phase-locked: a VI every k refreshes, on cadence while the time owed stays within a band of 3/4 refresh
+ * around the schedule; past the band a VI moves one refresh earlier or later, which re-centres the phase. The
+ * display runs at 60 Hz against the VI's 59.94, so that happens once per ~1000 VIs, where a plain accumulator
+ * flaps between early and late on every frame of timestamp jitter while its phase crosses a VI boundary. Other
+ * refresh rates (144 Hz) use the plain accumulator. */
+static int sPaceRefreshesPerVi = 1; /* k while phase-locked, else 1 */
+
+int portPaceRefreshesPerVi(void) {
+    return sPaceRefreshesPerVi;
+}
+
+/* *ticks: refreshes this frame while phase-locked, else VIs (frame interpolation counts its images in them) */
+static int viCountFor(double elapsedMs, int *ticks) {
+    int n, k;
+    if (elapsedMs > 2.0 && elapsedMs < 50.0) {
+        /* a run of intervals off the estimate re-seeds it: the first frame's synthetic VI period (port_frame),
+         * or the window moving to a display with another refresh rate */
+        if (sRefreshMs != 0 && fabs(elapsedMs - sRefreshMs) < 0.3 * sRefreshMs) {
+            sRefreshMs += 0.02 * (elapsedMs - sRefreshMs);
+            sRefreshMisses = 0;
+        } else if (sRefreshMs == 0 || ++sRefreshMisses >= 8) {
+            sRefreshMs = elapsedMs;
+            sRefreshMisses = 0;
+        }
+    }
+    sAccumMs += elapsedMs;
+    k = sRefreshMs > 0 ? (int)(PORT_VI_PERIOD_MS / sRefreshMs + 0.5) : 0;
+    if (k >= 1 && k <= 8 && fabs(k * sRefreshMs - PORT_VI_PERIOD_MS) < 0.02 * PORT_VI_PERIOD_MS) {
+        double band = 0.75 * sRefreshMs;
+        int refreshes = (int)(elapsedMs / sRefreshMs + 0.5);
+        refreshes = refreshes > 1 ? refreshes : 1;
+        sRefreshesSinceVi += refreshes;
+        sPaceRefreshesPerVi = k;
+        *ticks = refreshes;
+        if (sRefreshesSinceVi >= k) {
+            n = sAccumMs - PORT_VI_PERIOD_MS >= -band; /* on cadence unless a band ahead */
+        } else {
+            /* early: what would be owed after a VI now, plus the refreshes still due before the cadence, exceeds the band */
+            n = sAccumMs - PORT_VI_PERIOD_MS + (k - sRefreshesSinceVi) * sRefreshMs > band;
+        }
+        while (n >= 1 && n < 4 && sAccumMs - (n + 1) * PORT_VI_PERIOD_MS > band) {
+            n++; /* a long frame */
+        }
+        if (n == 4 && sAccumMs - n * PORT_VI_PERIOD_MS > band) {
+            sAccumMs = n * PORT_VI_PERIOD_MS; /* further behind than 4 VIs: drop the rest */
+        }
+    } else {
+        n = (int)(sAccumMs / PORT_VI_PERIOD_MS);
+        if (n > 4) {
+            n = 4;
+            sAccumMs = n * PORT_VI_PERIOD_MS;
+        }
+        sPaceRefreshesPerVi = 1;
+        *ticks = n;
+    }
+    sAccumMs -= n * PORT_VI_PERIOD_MS;
+    if (n > 0) {
+        sRefreshesSinceVi = 0;
+    }
+    return n;
+}
+
 void port_frame_step(double elapsedMs) {
-    int n;
+    int n, ticks;
     portInputPoll();
     portAudioOutDrain(elapsedMs);
-    sAccumMs += elapsedMs;
-    n = (int)(sAccumMs / PORT_VI_PERIOD_MS);
-    if (n > 4) {
-        n = 4;
-        sAccumMs = 0;
-    } else {
-        sAccumMs -= n * PORT_VI_PERIOD_MS;
-    }
+    n = viCountFor(elapsedMs, &ticks);
+    portGfxInterpTick(ticks); /* counts toward the pending in-between images, before a VI starts new ones */
     while (n-- > 0) {
         viTick();
     }
@@ -86,6 +148,8 @@ void port_frame_step(double elapsedMs) {
         gPortViSwapped = 0;
         gPortStatFrames++;
         portGfxPresent(gPortViCurrentFb, gPortViBlack);
+    } else if (!gPortViBlack && portGfxPresentInterp()) {
+        gPortStatFrames++; /* an in-between image on a refresh before the next game frame's swap */
     }
     portSaveFlushIfDue(emscripten_get_now());
 }
@@ -330,13 +394,23 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); 
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
+EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
+
+/* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
+ * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
+ * VIs and the next none. The emscripten main loop stays: it survives the fibers' asyncify unwinds, an html5
+ * animation frame loop stops at the first one. */
+EM_JS(double, port_frame_time, (void), {
+    var t = typeof document !== 'undefined' && document.timeline ? document.timeline.currentTime : null;
+    return typeof t === 'number' ? t : performance.now();
+});
 
 static void port_frame(void) {
     double now, dt;
     if (sMenuPaused) {
         return;
     }
-    now = emscripten_get_now();
+    now = port_frame_time();
     dt = sLastMs == 0 ? PORT_VI_PERIOD_MS : now - sLastMs;
     sLastMs = now;
     port_frame_step(dt);
@@ -355,6 +429,8 @@ int main(int argc, char **argv) {
             setAudioRate(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--hrtf") == 0) {
             setAudioHrtf(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--interp") == 0) {
+            portGfxSetInterp(atoi(argv[++a]));
         }
     }
     if (portRomSize() == 0) {

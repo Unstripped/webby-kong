@@ -9,6 +9,9 @@ typedef struct {
     GLint uTex0, uTex1, uPrim, uEnv, uFog, uBlend, uPrimLod, uTile0, uTile1, uSize0, uSize1, uAlphaRef, uPrimDepth;
     GLint uLodScale, uMaxLevel, uMipTile, uMipSize;
     u8 usesTex0, usesTex1;
+    /* last values set (gfx_gl.c skips unchanged uniforms); NaN until first set */
+    float cPrim[4], cEnv[4], cFog[4], cBlend[4], cTile0[4], cTile1[4], cSize0[2], cSize1[2];
+    float cPrimLod, cAlphaRef, cPrimDepth, cLodScale, cMaxLevel;
 } GfxProgram;
 
 typedef struct {
@@ -20,7 +23,8 @@ typedef struct {
     u8 lod;        /* texture LOD: TEXEL0/TEXEL1 are per-pixel mip levels of uTex0 */
 } GfxProgramKey;
 
-const GfxProgram *gfxProgramGet(const GfxProgramKey *key);
+GfxProgram *gfxProgramGet(const GfxProgramKey *key);
+extern int gGfxProgramBuilt; /* gfxProgramGet compiled a program (left it current): set, cleared by gfx_gl.c */
 GLuint gfxCompileProgram(const char *vs, const char *fs);
 
 /* framebuffers (gfx_fb.c) */
@@ -42,6 +46,7 @@ typedef struct {
 } GfxFb;
 
 extern int gGfxDepthDirty; /* depth texture drawn since the last RDRAM depth sync */
+extern u32 gGfxDepthSerial; /* bumped by every depth write; gfxFbDepthPrefetch's data is current while unchanged */
 extern GLuint gGfxDepthTex;
 extern u32 gGfxDepthW, gGfxDepthH;
 extern u32 gGfxScale; /* GL pixels per N64 pixel for images allocated now (follows the window height) */
@@ -56,7 +61,14 @@ void gfxFbDrew(GfxFb *fb);
 void gfxFbResolve(GfxFb *fb);
 void gfxFbUploadRdram(GfxFb *fb);
 void gfxFbClearDepth(void);
+void gfxFbDepthPrefetch(void); /* end of a task: start reading the depth image back without waiting for it */
+void gfxFbDepthCollect(void);  /* copy a finished prefetch to host memory now, while nothing newer is queued */
 void gfxFbPresent(u32 addr, int black, int winW, int winH);
+/* frame interpolation: the in-between image, shaped like the VI image `real`, with its own depth */
+GfxFb *gfxFbInterpFor(const GfxFb *real);
+void gfxFbInterpClearDepth(void);
+void gfxFbInterpStore(int slot); /* the replay just drawn, resolved into slot 0..6 */
+int gfxFbPresentInterp(int slot, int winW, int winH); /* 0 when the slot holds no current image */
 /* a point of the drawable (fractions, top-left origin) in N64 pixels of the last presented image; 0 off-image */
 int gfxFbPresentedToN64(float fx, float fy, float *x, float *y);
 void gfxFbCpuWrote(u32 addr, u32 len);

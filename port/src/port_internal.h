@@ -49,6 +49,11 @@ int portGfxSetScale(int scale); /* 0 (auto) / 1..8; 0 on rejection; the next RSP
 int portGfxSetMsaa(int msaa);   /* 0/1/2/4/8 (1 = off); before gfxFbInit stores, after rebuilds; returns samples */
 int portGfxMaxSamples(void);    /* GL_MAX_SAMPLES, 0 before gfxFbInit */
 void portGfxPresent(void *fb, int black);
+int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
+void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */
+void portGfxRunDeferred(void);  /* draws the in-between images still to come (gfx.c frame interpolation) */
+int portGfxSetInterp(int level); /* 0 = 30 fps; 1, 2, 3 = up to 60, 120, 240 by interpolation; returns it */
+int portPaceRefreshesPerVi(void); /* display refreshes per VI when phase-locked (main.c), else 1 */
 
 /* audio output (ai.c) */
 void portAudioOutInit(void);

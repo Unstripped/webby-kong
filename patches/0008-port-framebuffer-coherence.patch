@@ -5,7 +5,7 @@ Subject: [PATCH] port: framebuffer coherence
 
 
 diff --git a/src/global/103AB0.c b/src/global/103AB0.c
-index 7cda21d..9d051aa 100644
+index 7cda21d..14c33d6 100644
 --- a/src/global/103AB0.c
 +++ b/src/global/103AB0.c
 @@ -276,7 +276,7 @@ u16 *sepiaCopyFramebufferTile(u16 *dst, u16 *src) {
@@ -38,7 +38,7 @@ index 7cda21d..9d051aa 100644
          return 0xFFFF;
      }
      depth += gScreenWidth * y + x;
-+    portGfxSyncRdram(gGfxDepthBuffer, gScreenWidth * gScreenHeight * 2);
++    portGfxSyncRdram(depth, sizeof *depth); /* port: only the pixel read */
      z = *depth;
      exponent = (z >> 13) & 7;
      mantissa = (z >> 2) & 0x7FF;

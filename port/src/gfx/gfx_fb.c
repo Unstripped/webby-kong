@@ -31,6 +31,28 @@ static struct PresentedImage {
     int winW, winH, vx, vy, vw, vh;
     u32 physW, physH, ox, scale;
 } sPresented;
+/* the in-between image (frame interpolation): the VI image's twin with its own depth buffer, so the replays leave
+ * every colour image, the shared depth and RDRAM as the game frame left them. Each replay's result is copied
+ * (resolved) into a slot, single-sampled at the same size, until it is presented. */
+#define INTERP_SLOTS 7 /* in-between images per game frame at 240 fps */
+static struct {
+    GfxFb fb;
+    GLuint depth;  /* depth renderbuffer, multisampled like the colour images */
+    int samples;   /* sSamples the storage was made for */
+    GLuint slotTex[INTERP_SLOTS], slotFbo[INTERP_SLOTS];
+    u32 slotW[INTERP_SLOTS], slotH[INTERP_SLOTS]; /* storage size, 0 none */
+} sInterpImg;
+/* Depth prefetch: the depth image read into a pixel-pack buffer at the end of every task that drew depth, so the
+ * game's read on a later VI (sun/flare occlusion, every frame) copies finished data instead of stalling on the GPU
+ * work queued since (the in-between image). Valid while no depth write followed (gGfxDepthSerial). */
+u32 gGfxDepthSerial;
+static struct {
+    GLuint pbo;
+    u32 serial, w, h;
+    int valid;
+    int collected; /* data holds the buffer: copied before the next VI queues the in-between image */
+    u8 *data;
+} sDepthPrefetch;
 
 /* the shared depth goes on colour FBOs of its size; the rest detach it so they stay complete */
 static void attachDepth(const GfxFb *fb) {
@@ -69,6 +91,7 @@ static void ensureDepth(const GfxFb *fb) {
     sDepthPhysH = fb->physH;
     sDepthOx = fb->ox;
     sDepthScale = fb->scale;
+    gGfxDepthSerial++;
     glBindTexture(GL_TEXTURE_2D, gGfxDepthTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, sDepthPhysW, sDepthPhysH, 0, GL_DEPTH_COMPONENT,
                  GL_UNSIGNED_INT, NULL);
@@ -95,7 +118,11 @@ static const char *kQuadVs =
     "out vec2 vUv;\n"
     "void main() { vec2 p = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)); vUv = p;"
     " gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }\n";
-/* one fragment per N64 pixel: the texel the RDRAM pixel's top-left GL pixel holds */
+/* two N64 pixels per fragment (x = 2 * fragment x and the one after), each the texel its RDRAM pixel's top-left GL
+ * pixel holds, already in the RDP z format (18-bit z -> 3-bit exponent, 11-bit mantissa, 2-bit dz of 0) and
+ * little-endian: the readback is half the bytes of 24-bit depth and the CPU only copies. The 24-bit value is the
+ * one an RGBA8 target held before: d = 1.0 rounds to 2^24 in float, whose high byte (256) the target clamped to
+ * 255, giving 0xFF0000 (cleared depth reads as 0xF000). */
 static const char *kDepthReadFs =
     "#version 300 es\n"
     "precision highp float;\n"
@@ -103,14 +130,23 @@ static const char *kDepthReadFs =
     "uniform highp sampler2D uDepth;\n"
     "uniform int uOx;\n"
     "uniform int uScale;\n"
+    "uniform int uW;\n"
     "out vec4 fragColor;\n"
+    "const uint kShift[8] = uint[8](6u, 5u, 4u, 3u, 2u, 1u, 0u, 0u);\n"
+    "const uint kAdd[8] = uint[8](0x00000u, 0x20000u, 0x30000u, 0x38000u, 0x3C000u, 0x3E000u, 0x3F000u, 0x3F800u);\n"
+    "uint zAt(int x, int y) {\n"
+    "    float d = texelFetch(uDepth, ivec2(uOx + x * uScale, y * uScale + uScale - 1), 0).r;\n"
+    "    uint v = uint(floor(d * 16777215.0 + 0.5));\n"
+    "    uint z18 = ((min(v >> 16, 255u) << 16) | (v & 0xFFFFu)) >> 6;\n"
+    "    uint e = 0u;\n"
+    "    while (e < 7u && z18 >= (e < 6u ? kAdd[e + 1u] : 0x3F800u)) e++;\n"
+    "    return (e << 13) | ((((z18 - kAdd[e]) >> kShift[e]) & 0x7FFu) << 2);\n"
+    "}\n"
     "void main() {\n"
     "    ivec2 p = ivec2(gl_FragCoord.xy);\n"
-    "    float d = texelFetch(uDepth, ivec2(uOx + p.x * uScale, p.y * uScale + uScale - 1), 0).r;\n"
-    "    float v = floor(d * 16777215.0 + 0.5);\n"
-    "    float r = floor(v / 65536.0); v -= r * 65536.0;\n"
-    "    float g = floor(v / 256.0); float b = v - g * 256.0;\n"
-    "    fragColor = vec4(r, g, b, 255.0) / 255.0;\n"
+    "    uint z0 = zAt(p.x * 2, p.y);\n"
+    "    uint z1 = p.x * 2 + 1 < uW ? zAt(p.x * 2 + 1, p.y) : 0u;\n"
+    "    fragColor = vec4(float(z0 & 255u), float(z0 >> 8), float(z1 & 255u), float(z1 >> 8)) / 255.0;\n"
     "}\n";
 static const char *kCopyFs =
     "#version 300 es\n"
@@ -156,6 +192,8 @@ int gfxFbQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sMsaaRequest);
     out[n++] = QS_RANGE(sSamples);
     out[n++] = QS_RANGE(sPresented);
+    out[n++] = QS_RANGE(sInterpImg);
+    out[n++] = QS_RANGE(sDepthPrefetch);
     return n;
 }
 
@@ -167,6 +205,7 @@ void gfxFbQsRestored(void) {
         sFbs[i].gpuDirty = 0;
     }
     gGfxDepthDirty = 0;
+    sDepthPrefetch.valid = 0;
 }
 
 int portGfxSetScale(int scale) {
@@ -443,6 +482,11 @@ void gfxFbUploadRdram(GfxFb *fb) {
 }
 
 void gfxFbBind(GfxFb *fb) {
+    if (fb == &sInterpImg.fb) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
+        glViewport(0, 0, fb->physW, fb->physH);
+        return;
+    }
     ensureDepth(fb); /* the shared depth follows the bound image's size */
     if (fb->cpuDirty) {
         gfxFbUploadRdram(fb);
@@ -478,21 +522,74 @@ void gfxFbClearDepth(void) {
     glClearDepthf(1.0f);
     glClear(GL_DEPTH_BUFFER_BIT);
     gGfxDepthDirty = 1;
+    gGfxDepthSerial++;
 }
 
-void gfxFbPresent(u32 addr, int black, int winW, int winH) {
-    GfxFb *fb = black ? NULL : gfxFbFind(addr);
-    int vw, vh, vx, vy;
-    if (!black && fb == NULL && addr != 0) {
-        /* never drawn by the GPU: show the CPU-written RDRAM image */
-        fb = gfxFbFor(addr, gPortViWidth);
+/* the in-between image shaped like `real` (size, scale, Hor+ margin, MSAA), reallocated when that changes */
+GfxFb *gfxFbInterpFor(const GfxFb *real) {
+    GfxFb *fb = &sInterpImg.fb;
+    if (fb->fbo == 0) {
+        glGenFramebuffers(1, &fb->fbo);
+        glGenFramebuffers(1, &fb->resolveFbo);
+        glGenTextures(1, &fb->color);
+        glGenRenderbuffers(1, &sInterpImg.depth);
     }
-    if (fb != NULL) {
-        if (fb->cpuDirty) {
-            gfxFbUploadRdram(fb);
+    if (fb->physW != real->physW || fb->physH != real->physH || fb->scale != real->scale || fb->ox != real->ox ||
+        fb->width != real->width || sInterpImg.samples != sSamples) {
+        fb->width = real->width;
+        fb->height = real->height;
+        fb->physW = real->physW;
+        fb->physH = real->physH;
+        fb->scale = real->scale;
+        fb->ox = real->ox;
+        fb->sideTask = 0;
+        sInterpImg.samples = sSamples;
+        glBindTexture(GL_TEXTURE_2D, fb->color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fb->physW, fb->physH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, fb->resolveFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fb->color, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, fb->fbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, sInterpImg.depth);
+        if (sSamples) {
+            if (fb->msColor == 0) {
+                glGenRenderbuffers(1, &fb->msColor);
+            }
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, sSamples, GL_DEPTH_COMPONENT24, fb->physW, fb->physH);
+            glBindRenderbuffer(GL_RENDERBUFFER, fb->msColor);
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, sSamples, GL_RGBA8, fb->physW, fb->physH);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, fb->msColor);
+        } else {
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, fb->physW, fb->physH);
+            if (fb->msColor != 0) {
+                glDeleteRenderbuffers(1, &fb->msColor);
+                fb->msColor = 0;
+            }
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fb->color, 0);
         }
-        gfxFbResolve(fb);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, sInterpImg.depth);
+        checkComplete(fb->fbo, fb->physW, fb->physH);
+        checkComplete(fb->resolveFbo, fb->physW, fb->physH);
     }
+    fb->addr = real->addr;
+    return fb;
+}
+
+void gfxFbInterpClearDepth(void) {
+    if (sInterpImg.fb.fbo == 0) {
+        return;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, sInterpImg.fb.fbo);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepthf(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+/* letterboxed blit of an image shaped like `fb` (NULL: black), read from `readFbo`, to the canvas */
+static void presentImage(const GfxFb *fb, GLuint readFbo, int winW, int winH) {
+    int vw, vh, vx, vy;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, winW, winH);
@@ -520,8 +617,61 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH) {
     sPresented.physH = fb->physH;
     sPresented.ox = fb->ox;
     sPresented.scale = fb->scale;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->resolveFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+}
+
+void gfxFbPresent(u32 addr, int black, int winW, int winH) {
+    GfxFb *fb = black ? NULL : gfxFbFind(addr);
+    if (!black && fb == NULL && addr != 0) {
+        /* never drawn by the GPU: show the CPU-written RDRAM image */
+        fb = gfxFbFor(addr, gPortViWidth);
+    }
+    if (fb != NULL) {
+        if (fb->cpuDirty) {
+            gfxFbUploadRdram(fb);
+        }
+        gfxFbResolve(fb);
+    }
+    presentImage(fb, fb != NULL ? fb->resolveFbo : 0, winW, winH);
+}
+
+/* the replay just drawn into the in-between image, resolved into `slot` */
+void gfxFbInterpStore(int slot) {
+    GfxFb *fb = &sInterpImg.fb;
+    if (slot < 0 || slot >= INTERP_SLOTS || fb->fbo == 0) {
+        return;
+    }
+    if (sInterpImg.slotFbo[slot] == 0) {
+        glGenFramebuffers(1, &sInterpImg.slotFbo[slot]);
+        glGenTextures(1, &sInterpImg.slotTex[slot]);
+    }
+    if (sInterpImg.slotW[slot] != fb->physW || sInterpImg.slotH[slot] != fb->physH) {
+        sInterpImg.slotW[slot] = fb->physW;
+        sInterpImg.slotH[slot] = fb->physH;
+        glBindTexture(GL_TEXTURE_2D, sInterpImg.slotTex[slot]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fb->physW, fb->physH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, sInterpImg.slotFbo[slot]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sInterpImg.slotTex[slot], 0);
+        checkComplete(sInterpImg.slotFbo[slot], fb->physW, fb->physH);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fb->fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sInterpImg.slotFbo[slot]);
+    glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, fb->physW, fb->physH, 0, 0, fb->physW, fb->physH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+}
+
+/* 0 when the slot holds no image of the in-between image's current shape */
+int gfxFbPresentInterp(int slot, int winW, int winH) {
+    const GfxFb *fb = &sInterpImg.fb;
+    if (slot < 0 || slot >= INTERP_SLOTS || sInterpImg.slotW[slot] != fb->physW || sInterpImg.slotH[slot] != fb->physH ||
+        fb->physW == 0) {
+        return 0;
+    }
+    presentImage(fb, sInterpImg.slotFbo[slot], winW, winH);
+    return 1;
 }
 
 int gfxFbPresentedToN64(float fx, float fy, float *x, float *y) {
@@ -551,26 +701,16 @@ void gfxFbCpuWrote(u32 addr, u32 len) {
     }
 }
 
-/* RDP z format: 18-bit z -> 3-bit exponent, 11-bit mantissa, 2-bit dz (0) */
-static u16 zCompress(u32 z18) {
-    static const struct { u32 shift; u32 add; } kExp[8] = {
-        { 6, 0x00000 }, { 5, 0x20000 }, { 4, 0x30000 }, { 3, 0x38000 },
-        { 2, 0x3C000 }, { 1, 0x3E000 }, { 0, 0x3F000 }, { 0, 0x3F800 },
-    };
-    u32 e;
-    for (e = 0; e < 7; e++) {
-        u32 next = e < 6 ? kExp[e + 1].add : 0x3F800;
-        if (z18 < next) {
-            break;
-        }
-    }
-    return (u16)((e << 13) | ((((z18 - kExp[e].add) >> kExp[e].shift) & 0x7FF) << 2));
+/* readback width in texels: kDepthReadFs packs two N64 pixels per RGBA8 texel */
+static u32 depthPackedW(void) {
+    return (gGfxDepthW + 1) / 2;
 }
 
-static void syncDepth(u32 addr, u32 len) {
-    u32 w = gGfxDepthW, h = gGfxDepthH, x, y;
-    u16 *dst = (u16 *)addr;
-    u32 n = len / 2 < w * h ? len / 2 : w * h; /* RDRAM past the requested range belongs to someone else */
+/* depth image -> packed RDP z (kDepthReadFs) in sDepthReadFbo (bound as GL_READ_FRAMEBUFFER on return) */
+static void depthToReadTarget(void) {
+    static u32 targetW, targetH;
+    static GLint uDepth = -1, uOx, uScale, uW;
+    u32 w = depthPackedW(), h = gGfxDepthH;
     if (sSamples) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, sDepthFbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sDepthResolveFbo);
@@ -578,10 +718,21 @@ static void syncDepth(u32 addr, u32 len) {
         glBlitFramebuffer(0, 0, sDepthPhysW, sDepthPhysH, 0, 0, sDepthPhysW, sDepthPhysH, GL_DEPTH_BUFFER_BIT,
                           GL_NEAREST);
     }
-    glBindTexture(GL_TEXTURE_2D, sDepthReadTarget);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    if (targetW != w || targetH != h) {
+        targetW = w;
+        targetH = h;
+        glBindTexture(GL_TEXTURE_2D, sDepthReadTarget);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindFramebuffer(GL_FRAMEBUFFER, sDepthReadFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sDepthReadTarget, 0);
+    }
+    if (uDepth < 0) {
+        uDepth = glGetUniformLocation(sDepthReadProg, "uDepth");
+        uOx = glGetUniformLocation(sDepthReadProg, "uOx");
+        uScale = glGetUniformLocation(sDepthReadProg, "uScale");
+        uW = glGetUniformLocation(sDepthReadProg, "uW");
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, sDepthReadFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sDepthReadTarget, 0);
     glViewport(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
@@ -589,26 +740,108 @@ static void syncDepth(u32 addr, u32 len) {
     glUseProgram(sDepthReadProg);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, gGfxDepthTex);
-    glUniform1i(glGetUniformLocation(sDepthReadProg, "uDepth"), 0);
-    glUniform1i(glGetUniformLocation(sDepthReadProg, "uOx"), (GLint)sDepthOx);
-    glUniform1i(glGetUniformLocation(sDepthReadProg, "uScale"), (GLint)sDepthScale);
+    glUniform1i(uDepth, 0);
+    glUniform1i(uOx, (GLint)sDepthOx);
+    glUniform1i(uScale, (GLint)sDepthScale);
+    glUniform1i(uW, (GLint)gGfxDepthW);
     glBindVertexArray(sDepthReadVao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, sScratch);
-    for (y = 0; y < h && y * w < n; y++) {
-        for (x = 0; x < w && y * w + x < n; x++) {
-            const u8 *p = &sScratch[((h - 1 - y) * w + x) * 4];
-            u32 d24 = ((u32)p[0] << 16) | ((u32)p[1] << 8) | p[2];
-            dst[y * w + x] = zCompress(d24 >> 6);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, sDepthReadFbo);
+}
+
+/* not in GLES3's header; emscripten's WebGL2 library has it */
+void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void *data);
+
+void gfxFbDepthPrefetch(void) {
+    u32 w = gGfxDepthW, h = gGfxDepthH;
+    if (!gGfxDepthDirty || gGfxDepthTex == 0 || w * h * 4 > 640 * 480 * 4) {
+        return;
+    }
+    if (sDepthPrefetch.pbo == 0) {
+        glGenBuffers(1, &sDepthPrefetch.pbo);
+    }
+    depthToReadTarget();
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, sDepthPrefetch.pbo);
+    if (sDepthPrefetch.w != w || sDepthPrefetch.h != h) {
+        glBufferData(GL_PIXEL_PACK_BUFFER, depthPackedW() * h * 4, NULL, GL_STREAM_READ);
+    }
+    glReadPixels(0, 0, depthPackedW(), h, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    sDepthPrefetch.w = w;
+    sDepthPrefetch.h = h;
+    sDepthPrefetch.serial = gGfxDepthSerial;
+    sDepthPrefetch.valid = 1;
+    sDepthPrefetch.collected = 0;
+}
+
+static int depthPrefetchCurrent(void) {
+    return sDepthPrefetch.valid && sDepthPrefetch.serial == gGfxDepthSerial && sDepthPrefetch.w == gGfxDepthW &&
+           sDepthPrefetch.h == gGfxDepthH;
+}
+
+static u8 *depthHostBuffer(void) {
+    if (sDepthPrefetch.data == NULL) {
+        sDepthPrefetch.data = malloc(640 * 480 * 4);
+        if (sDepthPrefetch.data == NULL) {
+            portAbort("PORT: depth readback out of memory");
         }
+    }
+    return sDepthPrefetch.data;
+}
+
+/* copies the prefetched depth while the GPU queue holds nothing newer: a later read would wait for the GPU process
+ * to get through everything queued after it */
+void gfxFbDepthCollect(void) {
+    if (!depthPrefetchCurrent() || sDepthPrefetch.collected) {
+        return;
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, sDepthPrefetch.pbo);
+    glGetBufferSubData(GL_PIXEL_PACK_BUFFER, 0, depthPackedW() * sDepthPrefetch.h * 4, depthHostBuffer());
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    sDepthPrefetch.collected = 1;
+}
+
+/* the depth image as packed RDP z in host memory: the prefetch, or a readback now that serves the rest of the
+ * frame */
+static const u8 *depthPixels(void) {
+    if (depthPrefetchCurrent()) {
+        gfxFbDepthCollect();
+    } else {
+        depthToReadTarget();
+        glReadPixels(0, 0, depthPackedW(), gGfxDepthH, GL_RGBA, GL_UNSIGNED_BYTE, depthHostBuffer());
+        sDepthPrefetch.w = gGfxDepthW;
+        sDepthPrefetch.h = gGfxDepthH;
+        sDepthPrefetch.serial = gGfxDepthSerial;
+        sDepthPrefetch.valid = 1;
+        sDepthPrefetch.collected = 1;
+    }
+    return sDepthPrefetch.data;
+}
+
+/* RDRAM [addr, addr + len) of the depth image: the game reads single pixels (zbufferReadDepth), so only those are
+ * copied; the rest of RDRAM stays as it was */
+static void syncDepth(u32 addr, u32 len) {
+    u32 w = gGfxDepthW, h = gGfxDepthH, pitch = depthPackedW() * 2, i;
+    u16 *dst = (u16 *)gGfx.zimg;
+    u32 lo = addr > gGfx.zimg ? (addr - gGfx.zimg) / 2 : 0;
+    u32 hi = (addr + len - gGfx.zimg + 1) / 2;
+    const u8 *px = depthPixels();
+    if (hi > w * h) {
+        hi = w * h; /* RDRAM past the image belongs to someone else */
+    }
+    for (i = lo; i < hi; i++) {
+        memcpy(&dst[i], &px[((h - 1 - i / w) * pitch + i % w) * 2], 2);
     }
 }
 
 void gfxFbSyncRdram(u32 addr, u32 len) {
     int i;
-    if (gGfxDepthDirty && gGfx.zimg != 0 && addr < gGfx.zimg + gGfxDepthW * gGfxDepthH * 2 && addr + len > gGfx.zimg) {
-        syncDepth(gGfx.zimg, len);
-        gGfxDepthDirty = 0;
+    u32 zend = gGfx.zimg + gGfxDepthW * gGfxDepthH * 2;
+    if (gGfxDepthDirty && gGfx.zimg != 0 && addr < zend && addr + len > gGfx.zimg) {
+        syncDepth(addr, len);
+        if (addr <= gGfx.zimg && addr + len >= zend) {
+            gGfxDepthDirty = 0; /* all of it is current; a partial read leaves the rest stale */
+        }
     }
     for (i = 0; i < sFbCount; i++) {
         GfxFb *fb = &sFbs[i];

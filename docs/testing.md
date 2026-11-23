@@ -64,3 +64,18 @@ selects a kong in the Japes kong swap barrel twice; each swap reloads the player
 To reach gameplay without the intro use `--resume`, e.g. `--resume 0,0,0xb0,1,1,941,60,736,3752` (Training Grounds).
 
 The intro and menu runs never move DK, so collision and pickup changes also need a test in the browser.
+
+## Browser frame-time bench
+
+```sh
+node tools/bench/run.mjs            # after cmake --build build/web
+```
+
+Boots eight levels (`--scenes japes,isles,aztec,factory,galleon,fungi,caves,castle`) through the resume point in
+headless Chrome for Testing (ANGLE Metal; `CHROME=` selects another binary) at 1280x720 CSS, DPR 2, default
+settings, steps one VI per animation frame and times each step plus `gl.finish`. It prints `METRIC` lines:
+`game_fps` (images presented per second of game time, 59.94 with interpolation), `frame_p95_ms` and friends, and
+fails when p95 exceeds 10 ms, when a scene's render thumbnail or 1 s stick-forward distance drifts from the
+references in `build/bench/ref` (written by the first run, or with `--update-ref`; ROM-derived, never commit), or
+when a presented image repeats while the camera turns. Audio and gamepads are stubbed out: with them, real-time
+audio queue length and a connected controller make runs diverge.

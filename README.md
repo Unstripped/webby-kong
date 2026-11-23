@@ -5,7 +5,7 @@ pinned as the `decomp/` submodule) to WebAssembly: the game's C compiled with Em
 small cooperative runtime, and the RSP replaced by an F3DEX2 renderer on WebGL2 and an naudio HLE.
 
 Status: playable in the browser from boot through gameplay. The build needs no ROM: the page loads your ROM at
-start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kong`) that serves the game.
+start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`) that serves the game.
 
 ## Legal
 
@@ -20,12 +20,16 @@ start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kon
 
 ## Features
 
+- 60, 120 or 240 fps: interpolated in-between frames up to the display's refresh rate; game logic runs at the
+  N64's 30 Hz. Esc menu "Frame rate" (or `?interp=`) picks the rate; 30 is the game's own.
 - Widescreen (Hor+) at the browser window's resolution.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
 - EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite).
 - Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
-  anti-aliasing, touch controls), remembered in `localStorage`.
+  anti-aliasing, frame rate, touch controls, 3D sound, audio quality), remembered in `localStorage`.
+- Bug reports and ideas from the Esc menu: a prefilled GitHub issue with a screenshot (click the broken spot to
+  attach the renderer's view of it), your save and exact location. Crashes open the same report.
 - F5 / F9 quicksave and quickload.
 - A headless node build with scripted input for regression runs.
 
@@ -35,16 +39,72 @@ With Docker, mount your ROM (a file, or a directory holding one `*.z64`/`*.n64`/
 it without the file picker, and saves persist in the `/data` volume:
 
 ```sh
-docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
 asks for the ROM.
 
+## Configuration
+
+The server reads everything from `WEBBY_KONG_*` environment variables, and a command-line flag (`--dir`, `--port`,
+`--bind`, `--db`, `--rom`) overrides one. The same `.env` file configures both ways to run it, so a checkout and the
+image take the same settings (the image's own layout below is only a default that the file can override):
+
+```sh
+mise run serve                        # local: build/web on port 8080, saves in ~/.local/share/webby-kong
+cp .env.example .env                  # optional: your settings (gitignored; every variable is in the file)
+docker run -p 8080:8080 --env-file .env \
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WEBBY_KONG_DIR` | `build/web` (`/srv/web` in the image) | directory to serve |
+| `WEBBY_KONG_BIND` | `::` (`0.0.0.0` in the image) | address to listen on |
+| `WEBBY_KONG_PORT` | `8080` | port to listen on |
+| `WEBBY_KONG_DB` | `~/.local/share/webby-kong/saves.sqlite3` (`/data/saves.sqlite3` in the image) | SQLite file: saves, and with sign-in on users, passkeys, sessions and invites |
+| `WEBBY_KONG_ROM` | none (`/rom` in the image) | ROM file, or a directory holding one `*.z64`/`*.n64`/`*.v64`, served at `/api/rom` |
+| `WEBBY_KONG_AUTH` | off | `1` puts the passkey gate in front of every URL (see below) |
+| `WEBBY_KONG_EXTERNAL_URL` | `http://localhost:8080` | the URL people actually open: WebAuthn origin, RP ID host and base of invite links |
+| `WEBBY_KONG_RP_NAME` | `Webby` | name shown in the passkey prompt |
+| `WEBBY_KONG_SESSION_DAYS` | `30` | session cookie lifetime in days |
+| `WEBBY_KONG_REGISTRATION_OPEN` | `1` | seed of the owner's registration toggle (the database wins afterwards) |
+| `WEBBY_KONG_SMTP_HOST` | none | invite email SMTP host (unset: the dashboard offers the link to copy instead) |
+| `WEBBY_KONG_SMTP_PORT` | `587` | SMTP port |
+| `WEBBY_KONG_SMTP_USERNAME` | none | SMTP user |
+| `WEBBY_KONG_SMTP_PASSWORD` | none | SMTP password |
+| `WEBBY_KONG_SMTP_FROM` | `WEBBY_KONG_SMTP_USERNAME` | envelope sender |
+| `WEBBY_KONG_SMTP_TLS` | `starttls` | `starttls`, `ssl` or `none` |
+| `WEBBY_KONG_SMTP_TIMEOUT` | `10` | SMTP socket timeout in seconds |
+
+The effective configuration is printed at startup (the SMTP password only as set or unset).
+
+## Optional sign-in (passkeys)
+
+`WEBBY_KONG_AUTH=1` puts a passkey gate in front of everything: splash page at `/auth/`, dashboard at `/`, the game at
+`/play`. Left unset (the default) every URL behaves exactly as before.
+
+```sh
+docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://kong.example.com \
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
+```
+
+- Sign-in is WebAuthn (passkey) only, no passwords; the one extra dependency (`py_webauthn`) is installed by
+  `mise run serve` and shipped in the image, and with the gate off it is never imported. Browsers refuse passkeys on
+  plain `http://` LAN addresses, so serve it over TLS or use `http://localhost`.
+- Fresh install (no users yet): the first visitor picks a username, registers a passkey and becomes the owner.
+- Open registration is on by default; the owner can close it on the dashboard. Invite links (single use, reusable or
+  expiring) keep working while registration is closed.
+- Users, passkeys, sessions and invites live in the same `/data` SQLite file as the saves, so the existing
+  `-v ...:/data` already persists them. Saves are still shared by everyone (there are no per-user saves yet).
+- Emailed invites use the `WEBBY_KONG_SMTP_*` settings in the table above; without a host the dashboard offers the
+  link to copy instead.
+
 From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 
 ```sh
-git clone https://github.com/mjquinlan2000/webby-kong.git && cd webby-kong
+git clone https://github.com/Unstripped/webby-kong.git && cd webby-kong
 mise install
 git submodule update --init
 python -m venv tools/.venv
@@ -58,12 +118,12 @@ Build and run (no ROM needed to build):
 tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
 emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build/web          # dk64 (browser) and dk64_headless (node)
-tools/serve.py                   # serves build/web on port 8080
+mise run serve                   # serves build/web on port 8080 (settings: .env, see Configuration)
 ```
 
-Open `http://localhost:8080/` and pick the ROM, or start the server with `--rom /path/to/dk64.z64` to load it
-automatically. Details, the reference decomp build (maintainers, after a decomp bump) and troubleshooting:
-[docs/building.md](docs/building.md).
+Open `http://localhost:8080/` and pick the ROM, or set `WEBBY_KONG_ROM` in `.env` (or pass
+`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the reference decomp build
+(maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
 
 ## Playing
 
@@ -87,8 +147,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters (`drawdist`, `scale`, `msaa`, `touch`, `audio3d` and `audiorate` override the Esc menu's stored
-setting for that page load):
+URL parameters (`drawdist`, `scale`, `msaa`, `interp`, `touch`, `audio3d` and `audiorate` override the Esc menu's
+stored setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |
@@ -96,6 +156,7 @@ setting for that page load):
 | `drawdist=1..16` | Draw/spawn distance factor; 1 = N64 distances, default 4 |
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
+| `interp=0..3` | Frame rate: 0 = the game's own 30 fps; 1, 2, 3 = up to 60, 120, 240 fps by interpolated in-between frames (limited by the display's refresh rate); default 1 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
 | `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |
 | `audiorate=22050\|44100` | Sound mix sample rate; 22050 = N64, default 44100; applies at load |
@@ -133,7 +194,7 @@ setting for that page load):
 
 Every push to `main` publishes a GitHub Release after CI passes. The first is `v0.1.0`; each later one bumps the
 patch version, or the minor / major version when a commit message since the last release contains `#minor` /
-`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/mjquinlan2000/webby-kong:<version>`;
+`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/unstripped/webby-kong:<version>`;
 every push to `development` publishes `:latest`. Neither contains ROM data.
 
 ## License
