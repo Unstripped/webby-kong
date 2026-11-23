@@ -85,7 +85,7 @@ async function start(romBytes) {
         if (window.dk64report) window.dk64report.log(t);
       },
       onAbort: (what) => {
-        if (window.dk64report) window.dk64report.crashed('Aborted(' + what + ')');
+        if (window.dk64report) window.dk64report.crashed('Aborted(' + what + ')', new Error().stack);
       },
     });
     module.portBuildId = buildId;

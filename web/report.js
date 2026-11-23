@@ -65,9 +65,24 @@
 
   // ---- crash detection
   let crashMsg = null;
-  function crashed(msg) {
+  let crashStack = null;
+  // the trap's call stack, innermost first: wasm frames as `name [function index]+module offset` (the name section
+  // is in every build; the offset resolves against the same dk64.wasm, e.g. with tools/wasm_funcs.py)
+  function stackFrames(stack) {
+    const lines = String(stack || '').split('\n').map((l) => l.trim()).filter((l) => /^at |@/.test(l));
+    const wasm = [];
+    for (const l of lines) {
+      const at = /wasm-function\[(\d+)\]:(0x[0-9a-f]+)/i.exec(l);
+      if (!at) continue;
+      const name = (/^at ([^\s(]+) \(/.exec(l) || /^([^@\s]+)@/.exec(l) || [])[1] || '?';
+      wasm.push(`${name.replace(/^.*\.wasm\./, '')} [${at[1]}]+${at[2]}`);
+    }
+    return (wasm.length ? wasm : lines).slice(0, 24);
+  }
+  function crashed(msg, stack) {
     if (!window.Module || crashMsg !== null) return;
     crashMsg = String(msg);
+    crashStack = stackFrames(stack);
     log('crash: ' + crashMsg);
     setTimeout(() => window.dk64menu && window.dk64menu.openCrash(crashMsg), 0);
   }
@@ -76,12 +91,12 @@
   }
   window.addEventListener('error', (e) => {
     log('error: ' + e.message);
-    if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error.message);
+    if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error.message, e.error.stack);
   });
   window.addEventListener('unhandledrejection', (e) => {
     const r = e.reason;
     log('error: ' + (r && r.message ? r.message : String(r)));
-    if (r instanceof WebAssembly.RuntimeError) crashed(r.message);
+    if (r instanceof WebAssembly.RuntimeError) crashed(r.message, r.stack);
   });
 
   // ---- encoding
@@ -211,6 +226,7 @@
       progress: prog,
       settings: dataSettings,
       crash,
+      stack: crash && crashStack && crashStack.length ? crashStack : null,
       mark: null,
     };
 
@@ -315,6 +331,7 @@
     const parts = [
       ['| | |', '| --- | --- |', ...report.table.map(([k, v]) => `| **${cell(k)}** | ${cell(v)} |`)].join('\n'),
     ];
+    parts.push(details('Crash stack', report.data.stack || []));
     parts.push(details('Recent game events', nTrace ? report.trace.slice(-nTrace) : []));
     parts.push(details('Console', nLog ? report.log.slice(-nLog) : []));
     if (blob) {
