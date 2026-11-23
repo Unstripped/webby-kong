@@ -1,0 +1,89 @@
+image:
+  repository: ghcr.io/unstripped/webby-kong
+  # default: the chart's appVersion (the release tag, e.g. v0.2.0)
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# One SQLite file holds saves and sign-in data, so the chart always runs one replica with Recreate rollouts.
+
+persistence:
+  # false: /data is an emptyDir and saves/users are lost with the pod
+  enabled: true
+  # use this PVC instead of creating one
+  existingClaim: ""
+  # empty: the cluster default StorageClass
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  # the chart-created PVC also gets helm.sh/resource-policy: keep (saves survive helm uninstall)
+  annotations: {}
+
+rom:
+  # Any Kubernetes volume source holding the ROM file (or a directory with one *.z64/*.n64/*.v64), mounted
+  # read-only at /rom. Empty: no ROM; the page asks each player for the file. Examples:
+  #   volume:
+  #     persistentVolumeClaim: {claimName: dk64-rom}
+  #   volume:
+  #     hostPath: {path: /srv/roms/dk64, type: Directory}
+  volume: {}
+  # path of the ROM *file* inside the volume (e.g. roms/dk64.z64 on a shared PVC), mounted as /rom/<file name>;
+  # empty: the whole volume is mounted at /rom
+  subPath: ""
+
+# Optional passkey sign-in (WEBBY_KONG_AUTH=1)
+auth:
+  enabled: false
+  # required when enabled: the URL people open (https, or http://localhost); WebAuthn origin, RP ID and invite links
+  externalUrl: ""
+  rpName: Webby
+  sessionDays: 30
+  # seed of the owner's registration toggle (the database wins afterwards)
+  registrationOpen: true
+
+# Invite email, used only with auth.enabled (without a host the dashboard offers the link to copy)
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  # stored in a chart-created Secret; or set existingSecret to read it from your own Secret
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: smtp-password
+  # envelope sender (default: username)
+  from: ""
+  # starttls | ssl | none
+  tls: starttls
+  timeout: 10
+
+# extra container env (name/value or valueFrom), applied after the chart's own WEBBY_KONG_* variables
+extraEnv: []
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: kong.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: kong-example-tls
+  #    hosts: [kong.example.com]
+
+resources: {}
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# python as PID 1 ignores SIGTERM; a short grace period keeps Recreate rollouts quick (SQLite commits are atomic)
+terminationGracePeriodSeconds: 10

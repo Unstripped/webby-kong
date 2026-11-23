@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "webby-kong.fullname" . }}
+  labels:
+    {{- include "webby-kong.labels" . | nindent 4 }}
+spec:
+  # saves and sign-in data are one SQLite file on a ReadWriteOnce volume: never two pods at once
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "webby-kong.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "webby-kong.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.podAnnotations (include "webby-kong.smtpSecretEnabled" .) }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if include "webby-kong.smtpSecretEnabled" . }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      # Service links would inject WEBBY_KONG_PORT=tcp://<ip>:8080 for a Service named webby-kong, which serve.py
+      # reads as its listen port and exits on.
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: webby-kong
+          image: {{ include "webby-kong.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # WEBBY_KONG_DIR, _BIND, _DB and _ROM come from the image
+          env:
+            - name: WEBBY_KONG_PORT
+              value: "8080"
+            - name: WEBBY_KONG_AUTH
+              value: {{ ternary "1" "0" .Values.auth.enabled | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: WEBBY_KONG_EXTERNAL_URL
+              value: {{ required "auth.externalUrl is required when auth.enabled (the https URL people open)" .Values.auth.externalUrl | quote }}
+            - name: WEBBY_KONG_RP_NAME
+              value: {{ .Values.auth.rpName | quote }}
+            - name: WEBBY_KONG_SESSION_DAYS
+              value: {{ .Values.auth.sessionDays | quote }}
+            - name: WEBBY_KONG_REGISTRATION_OPEN
+              value: {{ ternary "1" "0" .Values.auth.registrationOpen | quote }}
+            - name: WEBBY_KONG_SMTP_HOST
+              value: {{ .Values.smtp.host | quote }}
+            - name: WEBBY_KONG_SMTP_PORT
+              value: {{ .Values.smtp.port | quote }}
+            - name: WEBBY_KONG_SMTP_USERNAME
+              value: {{ .Values.smtp.username | quote }}
+            - name: WEBBY_KONG_SMTP_FROM
+              value: {{ .Values.smtp.from | quote }}
+            - name: WEBBY_KONG_SMTP_TLS
+              value: {{ .Values.smtp.tls | quote }}
+            - name: WEBBY_KONG_SMTP_TIMEOUT
+              value: {{ .Values.smtp.timeout | quote }}
+            {{- if or .Values.smtp.existingSecret .Values.smtp.password }}
+            - name: WEBBY_KONG_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "webby-kong.smtpSecretName" . }}
+                  key: {{ include "webby-kong.smtpPasswordKey" . }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # /auth/ is public with the sign-in gate on and a static page with it off; it never touches SQLite
+          readinessProbe:
+            httpGet:
+              path: /auth/
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /auth/
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # SQLite temp files; the root filesystem is read-only
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.rom.volume }}
+            - name: rom
+              readOnly: true
+              {{- if .Values.rom.subPath }}
+              # a single file: serve.py scans /rom for *.z64/*.n64/*.v64
+              mountPath: /rom/{{ base .Values.rom.subPath }}
+              subPath: {{ .Values.rom.subPath }}
+              {{- else }}
+              mountPath: /rom
+              {{- end }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "webby-kong.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.rom.volume }}
+        - name: rom
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

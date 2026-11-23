@@ -1,0 +1,33 @@
+{{- $fullname := include "webby-kong.fullname" . -}}
+Webby Kong is running.
+
+{{ if .Values.ingress.enabled -}}
+Open:
+{{- range $host := .Values.ingress.hosts }}
+  {{- $https := false }}
+  {{- range $.Values.ingress.tls }}
+    {{- if has $host.host .hosts }}{{ $https = true }}{{ end }}
+  {{- end }}
+  {{- range .paths }}
+  http{{ if $https }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else -}}
+Reach it with:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ $fullname }} 8080:{{ .Values.service.port }}
+and open http://localhost:8080
+{{- end }}
+
+{{ if .Values.rom.volume -}}
+ROM: mounted read-only at /rom from rom.volume.
+{{- else -}}
+ROM: none mounted; each player is asked for their Donkey Kong 64 (USA) ROM file.
+{{- end }}
+{{- if .Values.auth.enabled }}
+
+Sign-in is on: open {{ .Values.auth.externalUrl }}; the first passkey registered becomes the owner.
+{{- end }}
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence.enabled is false; saves and sign-in data live in an emptyDir and are lost when the pod restarts.
+{{- end }}
