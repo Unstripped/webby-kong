@@ -3,6 +3,7 @@
 .omp
 **/.omp
 .github
+charts/
 build/
 tools/.venv/
 **/__pycache__/
