@@ -100,7 +100,7 @@ stage is `python:3.12-slim` running `tools/serve.py` as uid 10001 with no flags:
 `WEBBY_KONG_DIR=/srv/web`, `WEBBY_KONG_BIND=0.0.0.0`, `WEBBY_KONG_DB=/data/saves.sqlite3` and `WEBBY_KONG_ROM=/rom`,
 so `--env-file .env` takes the same settings file as `mise run serve` and saves live in the `/data` volume (with a
 host bind mount instead of a volume, add `--user $(id -u)`). `.github/workflows/docker.yml` publishes
-`ghcr.io/mjquinlan2000/webby-kong` for linux/amd64 and linux/arm64: `:latest` from `development`, `:<version>` from
+`ghcr.io/unstripped/webby-kong` for linux/amd64 and linux/arm64: `:latest` from `development`, `:<version>` from
 each release.
 
 ## Bumping the decomp

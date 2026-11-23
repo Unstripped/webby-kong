@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # webby-kong: the page, a ROM-free dk64.wasm and tools/serve.py. No ROM is needed to build; mount yours to play:
 #   docker run -p 8080:8080 --env-file .env -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data \
-#     ghcr.io/mjquinlan2000/webby-kong
+#     ghcr.io/unstripped/webby-kong
 # The wasm is architecture-independent: it is built once on the build platform.
 FROM --platform=$BUILDPLATFORM emscripten/emsdk:6.0.13 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ninja-build python3-venv \

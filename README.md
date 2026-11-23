@@ -5,7 +5,7 @@ pinned as the `decomp/` submodule) to WebAssembly: the game's C compiled with Em
 small cooperative runtime, and the RSP replaced by an F3DEX2 renderer on WebGL2 and an naudio HLE.
 
 Status: playable in the browser from boot through gameplay. The build needs no ROM: the page loads your ROM at
-start. Releases are source plus a Docker image (`ghcr.io/mjquinlan2000/webby-kong`) that serves the game.
+start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`) that serves the game.
 
 ## Legal
 
@@ -39,7 +39,7 @@ With Docker, mount your ROM (a file, or a directory holding one `*.z64`/`*.n64`/
 it without the file picker, and saves persist in the `/data` volume:
 
 ```sh
-docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
@@ -55,7 +55,7 @@ image take the same settings (the image's own layout below is only a default tha
 mise run serve                        # local: build/web on port 8080, saves in ~/.local/share/webby-kong
 cp .env.example .env                  # optional: your settings (gitignored; every variable is in the file)
 docker run -p 8080:8080 --env-file .env \
-  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 | Variable | Default | Meaning |
@@ -87,7 +87,7 @@ The effective configuration is printed at startup (the SMTP password only as set
 
 ```sh
 docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://kong.example.com \
-  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/mjquinlan2000/webby-kong
+  -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 - Sign-in is WebAuthn (passkey) only, no passwords; the one extra dependency (`py_webauthn`) is installed by
@@ -104,7 +104,7 @@ docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://
 From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 
 ```sh
-git clone https://github.com/mjquinlan2000/webby-kong.git && cd webby-kong
+git clone https://github.com/Unstripped/webby-kong.git && cd webby-kong
 mise install
 git submodule update --init
 python -m venv tools/.venv
@@ -194,7 +194,7 @@ stored setting for that page load):
 
 Every push to `main` publishes a GitHub Release after CI passes. The first is `v0.1.0`; each later one bumps the
 patch version, or the minor / major version when a commit message since the last release contains `#minor` /
-`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/mjquinlan2000/webby-kong:<version>`;
+`#major`. Each release also publishes the multi-arch (amd64/arm64) image `ghcr.io/unstripped/webby-kong:<version>`;
 every push to `development` publishes `:latest`. Neither contains ROM data.
 
 ## License

@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  const REPO = 'https://github.com/mjquinlan2000/webby-kong';
+  const REPO = 'https://github.com/Unstripped/webby-kong';
   const MAX_URL = 7500;
   const PREFIX = 'DK64R1.';
   const SAVE_PATH = '/saves/dk64.eep';
