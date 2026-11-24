@@ -4,11 +4,11 @@ Date: Thu, 19 Nov 2026 12:35:18 -0700
 Subject: [PATCH] port: arcade text position endianness
 
 
-diff --git a/src/arcade/0.c b/src/arcade/0.c
-index cc60dd7..ee07be3 100644
---- a/src/arcade/0.c
-+++ b/src/arcade/0.c
-@@ -151,7 +151,9 @@ void arcadeDrawString(Gfx **glistp, u8 *str) {
+diff --git a/src/arcade/0_game.c b/src/arcade/0_game.c
+index 5543921..8a35785 100644
+--- a/src/arcade/0_game.c
++++ b/src/arcade/0_game.c
+@@ -146,7 +146,9 @@ void arcadeDrawString(Gfx **glistp, u8 *str) {
      gDPSetPrimColor(g++, 0, 0, gArcadeTextColorR, gArcadeTextColorG, gArcadeTextColorB, gArcadeTextColorA);
      gDPSetCombine(g++, 0x119623, 0xFF2FFFFF);
      gSPSetOtherMode(g++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, 0x00504240);

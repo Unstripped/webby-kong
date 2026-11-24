@@ -4,38 +4,37 @@ Date: Tue, 17 Nov 2026 22:55:50 -0700
 Subject: [PATCH] port: anti-tamper
 
 
-diff --git a/src/boss/0.c b/src/boss/0.c
-index 4e7a09d..7776eac 100644
---- a/src/boss/0.c
-+++ b/src/boss/0.c
-@@ -557,20 +557,8 @@ void bossArmydilloStep(void) {
-         bossArmydilloInitArena();
-         gCurrentActor->speedXZ = 0.0f;
+diff --git a/src/boss/0_armydillo.c b/src/boss/0_armydillo.c
+index ab00a6b..e991efd 100644
+--- a/src/boss/0_armydillo.c
++++ b/src/boss/0_armydillo.c
+@@ -552,21 +552,6 @@ void bossArmydilloStep(void) {
          scriptSetActorRampTarget(gCurrentActor, 0.0f, 0.0f);
+         gCurrentActor->state = scriptData[state->scriptPos++];
+         gCurrentActor->subState = 0;
+-        // Anti-tamper check: sum the code words from effectUpdateAndDispatch up to effectNodeSetSubVal; on a mismatch,
+-        // overwrite the first instruction of camPathCommandDispatch with 0x27BDFF38 (addiu sp,sp,-0xC8).
 -        {
--            u32 checkPtr = (u32) effectUpdateAndDispatch;
--            u32 end = (u32) effectNodeSetSubVal;
+-            u32 checkPtr = (u32)effectUpdateAndDispatch;
+-            u32 end = (u32)effectNodeSetSubVal;
 -            s32 checksum = 0;
--            gCurrentActor->state = scriptData[state->scriptPos++];
--            gCurrentActor->subState = 0;
+-
 -            while (checkPtr < end) {
--                checksum += *(s32 *) checkPtr;
+-                checksum += *(s32 *)checkPtr;
 -                checkPtr += 4;
 -            }
 -            if (checksum != 0x3D6E227F) {
 -                *(s32 *)camPathCommandDispatch = 0x27BDFF38;
 -            }
 -        }
-+        gCurrentActor->state = scriptData[state->scriptPos++];
-+        gCurrentActor->subState = 0;
      }
      currentActorAnimTryIdleVariant(0, &gBehaviourWorkState->idleAnimFrame);
      if ((gActorGlobalState.bossFightPhase == 9) || (gActorGlobalState.damaged != 0)) {
-diff --git a/src/critter/5110.c b/src/critter/5110.c
-index c835fa8..60890aa 100644
---- a/src/critter/5110.c
-+++ b/src/critter/5110.c
-@@ -125,6 +125,8 @@ void critterBattleArenaUpdate(void) {
+diff --git a/src/critter/5110_battle_arena.c b/src/critter/5110_battle_arena.c
+index e874a53..a49b7a4 100644
+--- a/src/critter/5110_battle_arena.c
++++ b/src/critter/5110_battle_arena.c
+@@ -124,6 +124,8 @@ void critterBattleArenaUpdate(void) {
          }
          ((void (*)(void *, s32, s32))critterBitwiseNot(~(s32)osRecvMesg))(&gPiDmaMesgQueue, 0, 1);
          ((void (*)(void *, s32))critterBitwiseNot(~(s32)osInvalDCache))(alignedBuf, 0x10);
@@ -44,10 +43,10 @@ index c835fa8..60890aa 100644
          alignedBuf[0] += alignedBuf[1];
          if (alignedBuf[0] != 0x0A78F00E) {
              rewardFlag = (gCurrentMap == 0xB6) ? 0x184 : 0x183;
-diff --git a/src/global/15050.c b/src/global/15050.c
-index 779a305..7bff2a0 100644
---- a/src/global/15050.c
-+++ b/src/global/15050.c
+diff --git a/src/global/15050_heap.c b/src/global/15050_heap.c
+index cd7209f..cf03d0f 100644
+--- a/src/global/15050_heap.c
++++ b/src/global/15050_heap.c
 @@ -711,9 +711,6 @@ void heapTickDeferredFrees(void) {
      s32 addrBias = 0x4BFFD668;
  
@@ -58,10 +57,10 @@ index 779a305..7bff2a0 100644
      while (i < gHeapDeferredFreeCount) {
          if (--gHeapDeferredFrees[i].delay == 0 && flag == 0) {
              heapFreeToPool(gHeapDeferredFrees[i].ptr);
-diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index 6cd2e76..2539911 100644
---- a/src/global/63EC0.c
-+++ b/src/global/63EC0.c
+diff --git a/src/global/63EC0_effect_water.c b/src/global/63EC0_effect_water.c
+index de65c18..5e71ca3 100644
+--- a/src/global/63EC0_effect_water.c
++++ b/src/global/63EC0_effect_water.c
 @@ -672,6 +672,8 @@ void effectUpdateAndDispatch(void) {
      osRecvMesg(&gPiDmaMesgQueue, NULL, OS_MESG_BLOCK);
      gWaitPointId = 0;
@@ -71,10 +70,10 @@ index 6cd2e76..2539911 100644
      dmaWords[0] -= 0x3E0EF0F0;
      dmaWords[1] -= 0x3E0EF0F0;
      if (dmaWords[0] != 0x3050A14A || dmaWords[1] != 0xBCFCF506) {
-diff --git a/src/global/F600.c b/src/global/F600.c
-index f7c4d68..774a476 100644
---- a/src/global/F600.c
-+++ b/src/global/F600.c
+diff --git a/src/global/F600_controller_input.c b/src/global/F600_controller_input.c
+index e95b3ee..8d3a73c 100644
+--- a/src/global/F600_controller_input.c
++++ b/src/global/F600_controller_input.c
 @@ -179,17 +179,7 @@ void controllerUpdate(void) {
      if (compact != 0) {
          controllerCompactPads(gInputContPads);
@@ -93,10 +92,10 @@ index f7c4d68..774a476 100644
      padIdx = 0;
      for (i = 0; i < 4; i++) {
          if (compact != 0) {
-diff --git a/src/menu/1AF0.c b/src/menu/1AF0.c
-index 70e4e12..717acb5 100644
---- a/src/menu/1AF0.c
-+++ b/src/menu/1AF0.c
+diff --git a/src/menu/1AF0_shop.c b/src/menu/1AF0_shop.c
+index ace4bd6..8e17e6d 100644
+--- a/src/menu/1AF0_shop.c
++++ b/src/menu/1AF0_shop.c
 @@ -905,7 +905,6 @@ void menuUpdateCandyShopActor(void) {
      MenuShopState *st;
      u8 *inventory;

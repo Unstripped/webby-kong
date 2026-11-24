@@ -4,10 +4,10 @@ Date: Mon, 23 Nov 2026 21:19:17 -0700
 Subject: [PATCH] port: right stick camera
 
 
-diff --git a/include/proto/global/201B0.h b/include/proto/global/201B0.h
-index 24290fa..8a10bc5 100644
---- a/include/proto/global/201B0.h
-+++ b/include/proto/global/201B0.h
+diff --git a/include/proto/global/201B0_camera.h b/include/proto/global/201B0_camera.h
+index a851843..ead9738 100644
+--- a/include/proto/global/201B0_camera.h
++++ b/include/proto/global/201B0_camera.h
 @@ -119,6 +119,9 @@ void camUpdateFollowHeight(struct CamState *);
  #ifndef PROTO_SKIP_camUpdateFollowTargetDistance
  void camUpdateFollowTargetDistance(Actor *);
@@ -18,10 +18,10 @@ index 24290fa..8a10bc5 100644
  #ifndef PROTO_SKIP_camEndPath
  void camEndPath(Actor *);
  #endif
-diff --git a/src/global/201B0.c b/src/global/201B0.c
-index 5431d14..0c4760f 100644
---- a/src/global/201B0.c
-+++ b/src/global/201B0.c
+diff --git a/src/global/201B0_camera.c b/src/global/201B0_camera.c
+index c475808..00f7718 100644
+--- a/src/global/201B0_camera.c
++++ b/src/global/201B0_camera.c
 @@ -919,6 +919,26 @@ void camUpdateFollowHeight(CamState *cam) {
      }
  }
@@ -83,10 +83,10 @@ index 5431d14..0c4760f 100644
  }
  
  void camComputeFocusPosOffset(CamState *st, f32 *outX, f32 *outY, f32 *outZ, f32 offset) {
-diff --git a/src/global/E4090.c b/src/global/E4090.c
-index 095d52f..7e73d19 100644
---- a/src/global/E4090.c
-+++ b/src/global/E4090.c
+diff --git a/src/global/E4090_player_input.c b/src/global/E4090_player_input.c
+index bd41227..b790b79 100644
+--- a/src/global/E4090_player_input.c
++++ b/src/global/E4090_player_input.c
 @@ -923,6 +923,16 @@ PlayerInputHandlers gPlayerInputHandlers[107] = {
      } },
  };

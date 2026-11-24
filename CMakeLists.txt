@@ -35,8 +35,8 @@ file(GLOB GAME_GU_SRC CONFIGURE_DEPENDS ${TREE}/src/boot/libultra/gu/*.c ${TREE}
 list(SORT GAME_GLOBAL_SRC)
 list(SORT GAME_GU_SRC)
 set(GAME_BOOT_SRC
-  ${TREE}/src/boot/1CC0.c ${TREE}/src/boot/30E0.c ${TREE}/src/boot/3630.c
-  ${TREE}/src/boot/3D20.c ${TREE}/src/boot/6690.c ${TREE}/src/boot/libultra/io/vitbl.c
+  ${TREE}/src/boot/1CC0_inflate.c ${TREE}/src/boot/30E0_gunzip.c ${TREE}/src/boot/3630_string.c
+  ${TREE}/src/boot/3D20_sprintf.c ${TREE}/src/boot/6690_texture_desc.c ${TREE}/src/boot/libultra/io/vitbl.c
   ${TREE}/src/boot/libultra/libc/ll.c ${TREE}/src/boot/libultra/libc/llcvt.c)
 
 function(game_object_library name)

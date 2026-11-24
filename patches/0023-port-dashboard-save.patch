@@ -4,10 +4,10 @@ Date: Mon, 23 Nov 2026 14:27:40 -0700
 Subject: [PATCH] port: dashboard save
 
 
-diff --git a/src/global/104F0.c b/src/global/104F0.c
-index a48c751..a1493b4 100644
---- a/src/global/104F0.c
-+++ b/src/global/104F0.c
+diff --git a/src/global/104F0_eeprom.c b/src/global/104F0_eeprom.c
+index 3435f73..27eb77f 100644
+--- a/src/global/104F0_eeprom.c
++++ b/src/global/104F0_eeprom.c
 @@ -118,7 +118,10 @@ void eepromDispatchCommand(s32 cmd) {
          return;
      }
@@ -28,10 +28,10 @@ index a48c751..a1493b4 100644
      }
  }
  
-diff --git a/src/global/3C10.c b/src/global/3C10.c
-index 634181c..1d89ddd 100644
---- a/src/global/3C10.c
-+++ b/src/global/3C10.c
+diff --git a/src/global/3C10_map_transition.c b/src/global/3C10_map_transition.c
+index 0154d10..b1dedd0 100644
+--- a/src/global/3C10_map_transition.c
++++ b/src/global/3C10_map_transition.c
 @@ -748,6 +748,39 @@ s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason) {
      return 1;
  }
@@ -72,11 +72,11 @@ index 634181c..1d89ddd 100644
  void mapTransitionToPreviousOrExit(void) {
      s32 targetMap;
      s32 exitIndex;
-diff --git a/src/global/450.c b/src/global/450.c
-index 747bd35..bb8a35b 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
-@@ -419,6 +419,7 @@ void mainResetEngineState(void) {
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index f7ea184..bb3d706 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
+@@ -421,6 +421,7 @@ void mainResetEngineState(void) {
  
  extern s16 gMainLoopWatchdog;
  extern u8 gGfxTaskPending[];
@@ -84,7 +84,7 @@ index 747bd35..bb8a35b 100644
  
  void mainThreadLoop(void *arg) {
      u8 first;
-@@ -451,6 +452,12 @@ void mainThreadLoop(void *arg) {
+@@ -453,6 +454,12 @@ void mainThreadLoop(void *arg) {
              gPortResume.pending = 0;
              menuStartGameAtResume();
          }

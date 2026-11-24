@@ -4,10 +4,10 @@ Date: Wed, 18 Nov 2026 13:47:29 -0700
 Subject: [PATCH] port: quicksave resume
 
 
-diff --git a/src/global/117190.c b/src/global/117190.c
-index 3ce5ea1..f7ecbe9 100644
---- a/src/global/117190.c
-+++ b/src/global/117190.c
+diff --git a/src/global/117190_menu_transition.c b/src/global/117190_menu_transition.c
+index 9c31b4c..7588374 100644
+--- a/src/global/117190_menu_transition.c
++++ b/src/global/117190_menu_transition.c
 @@ -883,6 +883,23 @@ void menuStartGameFromSave(s8 saveSlot) {
      gMenuTargetMode = 6;
  }
@@ -32,10 +32,10 @@ index 3ce5ea1..f7ecbe9 100644
  
  
  void mpStartMatch(void) {
-diff --git a/src/global/3C10.c b/src/global/3C10.c
-index 9402f60..db3ee3d 100644
---- a/src/global/3C10.c
-+++ b/src/global/3C10.c
+diff --git a/src/global/3C10_map_transition.c b/src/global/3C10_map_transition.c
+index df88210..2b22543 100644
+--- a/src/global/3C10_map_transition.c
++++ b/src/global/3C10_map_transition.c
 @@ -528,6 +528,7 @@ void mapRequestTransition(s32 map, s32 exitIndex) {
              }
              flagTempsPruneUnloadedMaps();
@@ -110,11 +110,11 @@ index 9402f60..db3ee3d 100644
  void mapTransitionToPreviousOrExit(void) {
      s32 targetMap;
      s32 exitIndex;
-diff --git a/src/global/450.c b/src/global/450.c
-index 2c87c44..747bd35 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
-@@ -445,6 +445,12 @@ void mainThreadLoop(void *arg) {
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index 8a56ea7..f7ea184 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
+@@ -447,6 +447,12 @@ void mainThreadLoop(void *arg) {
                  gMapLoadPauseFrames = 8;
              }
          }
@@ -127,11 +127,11 @@ index 2c87c44..747bd35 100644
          switch (gGameMode) {
              case 6:
                  transitionRunFrame(gInitialMap, gInitialExit);
-diff --git a/src/global/CC800.c b/src/global/CC800.c
-index 5dd6a47..2730899 100644
---- a/src/global/CC800.c
-+++ b/src/global/CC800.c
-@@ -615,11 +615,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+diff --git a/src/global/CC800_player_setup.c b/src/global/CC800_player_setup.c
+index 7908fe2..93777d5 100644
+--- a/src/global/CC800_player_setup.c
++++ b/src/global/CC800_player_setup.c
+@@ -605,11 +605,14 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
  }
  
  extern s16 gSavedSlotSpawnFlags;
@@ -140,13 +140,13 @@ index 5dd6a47..2730899 100644
  
  void playerWarpToSpawnPoint(s32 spawnIndex) {
      PlayerState *ps = gActivePlayerActor->customState;
-     G01Pos *spawn = raceGridSpawnPoint(spawnIndex);
-+    /* port quicksave resume: G01Pos.yaw is a byte (encoded x360, decoded x4095/255), so face the exact yaw */
+     SpawnPoint *spawn = mapGetSpawnPoint(spawnIndex);
++    /* port quicksave resume: SpawnPoint.yaw is a byte (encoded x360, decoded x4095/255), so face the exact yaw */
 +    s32 exactYaw = (gSavedSlotSpawnFlags & PORT_SPAWN_EXACT_YAW) ? gSavedSlotSpawnYaw : -1;
  
      gSavedSlotSpawnFlags = 0;
      gGlobalPauseFlags &= ~0x400;
-@@ -640,6 +643,9 @@ void playerWarpToSpawnPoint(s32 spawnIndex) {
+@@ -630,6 +633,9 @@ void playerWarpToSpawnPoint(s32 spawnIndex) {
          gActivePlayerActor->z = spawn->z;
          gActivePlayerActor->yaw = (spawn->yaw / 255.0) * 4095.0;
          gActivePlayerActor->moveYaw = gActivePlayerActor->yaw;

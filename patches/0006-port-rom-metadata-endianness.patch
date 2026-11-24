@@ -4,10 +4,10 @@ Date: Tue, 17 Nov 2026 23:10:32 -0700
 Subject: [PATCH] port: rom metadata endianness
 
 
-diff --git a/src/global/450.c b/src/global/450.c
-index 7367e7a..624cb3a 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index 013d539..c05e9e3 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
 @@ -263,8 +263,8 @@ void viModeApplyHighRes(void) {
  
      compressedBuf = (s32 *)(gFramebuffers[1] + 0x6400);
@@ -19,10 +19,10 @@ index 7367e7a..624cb3a 100644
  
      gzipSrc = (u8 *)compressedBuf;
      gzipDst = (u8 *)gFramebuffers[1];
-diff --git a/src/global/5A50.c b/src/global/5A50.c
-index 3399559..a11b4f7 100644
---- a/src/global/5A50.c
-+++ b/src/global/5A50.c
+diff --git a/src/global/5A50_seq_player.c b/src/global/5A50_seq_player.c
+index b06b381..1670ad8 100644
+--- a/src/global/5A50_seq_player.c
++++ b/src/global/5A50_seq_player.c
 @@ -115,9 +115,11 @@ void audioLoadSeqRomOffsets(void) {
  
      size1 = 0x80;
@@ -35,11 +35,11 @@ index 3399559..a11b4f7 100644
  }
  
  void seqPlayerPlay(u8 playerIndex) {
-diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 670db20..4e06e17 100644
---- a/src/global/6AD90.c
-+++ b/src/global/6AD90.c
-@@ -1959,6 +1959,7 @@ void collisionInitTables(void) {
+diff --git a/src/global/6AD90_collision.c b/src/global/6AD90_collision.c
+index 438cbfb..18d4800 100644
+--- a/src/global/6AD90_collision.c
++++ b/src/global/6AD90_collision.c
+@@ -1950,6 +1950,7 @@ void assetInitTables(void) {
      size = 0x80;
      sAssetTableStarts = heapAlloc(0x80);
      dmaReadAssetDecompress(gSegmentTable[11].romStart, sAssetTableStarts, &size, 0, 0, 0, 0);
@@ -47,7 +47,7 @@ index 670db20..4e06e17 100644
  
      for (i = 0; i < 0x20; i++) {
          sAssetTableOffsets[i] = NULL;
-@@ -2169,7 +2170,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
+@@ -2160,7 +2161,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
          size = 8;
          start &= 0x7FFFFFFF;
          dmaReadAssetDecompress(gSegmentTable[11].romStart + start, &header, &size, 0, 0, 0, 0);
@@ -56,7 +56,7 @@ index 670db20..4e06e17 100644
          assetResolveRomRange(tableId, target, outRomAddr, outSize);
          index = target;
      } else {
-@@ -2204,9 +2205,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
+@@ -2195,9 +2196,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
      }
      start = sAssetTableStarts[tableIndex];
      dmaReadAssetDecompress(gSegmentTable[11].romStart + start, &header, &headerSize, 0, 0, 0, 0);

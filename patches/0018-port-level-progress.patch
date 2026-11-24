@@ -4,10 +4,10 @@ Date: Thu, 19 Nov 2026 15:08:52 -0700
 Subject: [PATCH] port: level progress
 
 
-diff --git a/src/global/3C10.c b/src/global/3C10.c
-index db3ee3d..634181c 100644
---- a/src/global/3C10.c
-+++ b/src/global/3C10.c
+diff --git a/src/global/3C10_map_transition.c b/src/global/3C10_map_transition.c
+index 2b22543..0154d10 100644
+--- a/src/global/3C10_map_transition.c
++++ b/src/global/3C10_map_transition.c
 @@ -639,6 +639,8 @@ s32 mapFindPreviousSavedMap(s32 *outMap, s32 *outExitIndex) {
  
  extern u8 gMenuCurrentMode;

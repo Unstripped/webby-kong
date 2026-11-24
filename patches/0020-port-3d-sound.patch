@@ -4,10 +4,10 @@ Date: Fri, 20 Nov 2026 15:59:04 -0700
 Subject: [PATCH] port: 3d sound
 
 
-diff --git a/src/global/13A7A0.c b/src/global/13A7A0.c
-index e1a80ec..c92f44c 100644
---- a/src/global/13A7A0.c
-+++ b/src/global/13A7A0.c
+diff --git a/src/global/13A7A0_n_sndplayer.c b/src/global/13A7A0_n_sndplayer.c
+index b3e6803..1a368e5 100644
+--- a/src/global/13A7A0_n_sndplayer.c
++++ b/src/global/13A7A0_n_sndplayer.c
 @@ -348,6 +348,7 @@ void __n_handleEvent(GeSndEvt *event) {
                  if (state->flags & 0x10) {
                      GfSndState *chained;
@@ -62,10 +62,10 @@ index e1a80ec..c92f44c 100644
                  gSndp->target = state;
                  ev1.type = 1;
                  ev1.state = state;
-diff --git a/src/global/1435C0.c b/src/global/1435C0.c
-index a06f859..52be26c 100644
---- a/src/global/1435C0.c
-+++ b/src/global/1435C0.c
+diff --git a/src/global/1435C0_n_env.c b/src/global/1435C0_n_env.c
+index 0d0c3a7..f21a2ab 100644
+--- a/src/global/1435C0_n_env.c
++++ b/src/global/1435C0_n_env.c
 @@ -66,6 +66,7 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
          switch (f->em_ctrlList->type) {
          case 13:
@@ -150,10 +150,10 @@ index a06f859..52be26c 100644
      *outp += 0x170;
      env->em_delta += 0xB8;
      return ptr;
-diff --git a/src/global/7130.c b/src/global/7130.c
-index 1021832..e9026e1 100644
---- a/src/global/7130.c
-+++ b/src/global/7130.c
+diff --git a/src/global/7130_sfx.c b/src/global/7130_sfx.c
+index cb43aed..5e37a74 100644
+--- a/src/global/7130_sfx.c
++++ b/src/global/7130_sfx.c
 @@ -519,6 +519,9 @@ f32 sfxUpdateDistanceVolumeAndPan(f32 x, f32 y, f32 z, u8 volume, u8 range, f32
      if (level < 10.0f) {
          return 0.0f;
