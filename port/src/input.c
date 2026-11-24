@@ -2,6 +2,7 @@
 #include "port_internal.h"
 
 u16 gPortHeadlessButtons;
+s32 gPortCameraStickX, gPortCameraStickY; /* right-stick camera; headless never writes them, so they stay 0 */
 
 #ifdef PORT_HEADLESS
 void portInputPoll(void) {
@@ -112,6 +113,7 @@ void portInputPoll(void) {
     const Uint8 *k;
     u16 b = 0;
     int sx = 0, sy = 0;
+    int camX = 0, camY = 0;
     if (!sInit) {
         SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS);
         sInit = 1;
@@ -164,19 +166,35 @@ void portInputPoll(void) {
         if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_B)) b |= B_BUTTON;
         if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_X)) b |= B_BUTTON;
         if (SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16384) b |= Z_TRIG;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) b |= L_TRIG;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) b |= R_TRIG;
+        /* right-stick camera on: LB keeps L (menus read it; every gameplay handler set ignores it) and adds D-pad Left,
+         * RB is D-pad Right (RT still gives R), so the kong swap moves to the bumpers */
+        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) b |= gPortStickCamera ? (L_TRIG | L_JPAD) : L_TRIG;
+        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) b |= gPortStickCamera ? R_JPAD : R_TRIG;
         if (SDL_GameControllerGetAxis(p, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16384) b |= R_TRIG;
         if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_START)) b |= START_BUTTON;
-        if (ry < -16384) b |= U_CBUTTONS;
-        if (ry > 16384) b |= D_CBUTTONS;
-        if (rx < -16384) b |= L_CBUTTONS;
-        if (rx > 16384) b |= R_CBUTTONS;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_UP)) b |= U_JPAD;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) b |= D_JPAD;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) b |= L_JPAD;
-        if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) b |= R_JPAD;
+        if (gPortStickCamera) {
+            /* the right stick turns and tilts the camera (patches/0028, camPortRightStick); the D-pad is the C buttons */
+            camX = axisToStick(rx);
+            camY = -axisToStick(ry);
+            if (gPortCameraInvert & 1) camX = -camX;
+            if (gPortCameraInvert & 2) camY = -camY;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_UP)) b |= U_CBUTTONS;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) b |= D_CBUTTONS;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) b |= L_CBUTTONS;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) b |= R_CBUTTONS;
+        } else {
+            if (ry < -16384) b |= U_CBUTTONS;
+            if (ry > 16384) b |= D_CBUTTONS;
+            if (rx < -16384) b |= L_CBUTTONS;
+            if (rx > 16384) b |= R_CBUTTONS;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_UP)) b |= U_JPAD;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) b |= D_JPAD;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) b |= L_JPAD;
+            if (SDL_GameControllerGetButton(p, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) b |= R_JPAD;
+        }
     }
+    gPortCameraStickX = camX;
+    gPortCameraStickY = camY;
     gPortPad.button = b;
     gPortPad.stick_x = (s8)(sx > 80 ? 80 : sx < -80 ? -80 : sx);
     gPortPad.stick_y = (s8)(sy > 80 ? 80 : sy < -80 ? -80 : sy);

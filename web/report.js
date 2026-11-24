@@ -13,7 +13,7 @@
   const REPO = 'https://github.com/Unstripped/webby-kong';
   const MAX_URL = 7500;
   const PREFIX = 'DK64R1.';
-  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate'];
+  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert'];
   const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
   const LOG_MAX = 60;
   const HIT_RE = /^#\d+ dl=/m;
@@ -151,6 +151,9 @@
     if (s.interp != null) parts.push(`${30 << s.interp} fps`);
     if (s.audio3d != null) parts.push(`3D sound ${s.audio3d ? 'on' : 'off'}`);
     if (s.audiorate != null) parts.push(`audio ${s.audiorate / 1000} kHz`);
+    if (s.stickcam != null) parts.push(`right-stick camera ${s.stickcam ? 'on' : 'off'}`);
+    if (s.stickcam && s.camspeed != null) parts.push(`camera speed ${s.camspeed}`);
+    if (s.stickcam && s.caminvert) parts.push(`camera invert ${['', 'horizontal', 'vertical', 'both'][s.caminvert]}`);
     if (s.touch != null) parts.push(`touch ${s.touch}`);
     return parts.join(' · ') || '—';
   }
