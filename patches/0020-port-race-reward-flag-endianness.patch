@@ -5,7 +5,7 @@ Subject: [PATCH] port: race reward flag endianness
 
 
 diff --git a/src/race/0.c b/src/race/0.c
-index 236a0c3..0fe2537 100644
+index 132ae6a..d8d21dd 100644
 --- a/src/race/0.c
 +++ b/src/race/0.c
 @@ -132,6 +132,9 @@ typedef struct RaceCoinConfig { // component at Actor 0x17C of the coin-race opp
@@ -27,7 +27,7 @@ index 236a0c3..0fe2537 100644
  }
  
  
-@@ -218,7 +221,7 @@ void raceOpponentBehaviourUpdate(void) {
+@@ -216,7 +219,7 @@ void raceOpponentBehaviourUpdate(void) {
              config->reward.w = 0x4B;
              flag = 0x66;
          }
@@ -36,8 +36,8 @@ index 236a0c3..0fe2537 100644
              camStartPath(gCurrentActor, 0, 1);
              currentActorClearFlag();
              flagSet(flag, 1, 2);
-@@ -451,7 +454,7 @@ void raceOpponentBehaviourUpdate(void) {
-         if (controller->unk35 == 0) {
+@@ -448,7 +451,7 @@ void raceOpponentBehaviourUpdate(void) {
+         if (controller->statusStep == 0) {
              slotQueueCancel(0xB, 0);
              controller->unkD0 = 0;
 -            if (flagGet(config->reward.h.rewardFlag, 0) == 0) {
@@ -45,22 +45,22 @@ index 236a0c3..0fe2537 100644
                  pathId = raceResultCamPathIds[raceCheckLapCompletionThreshold(controller, config->rival, config->requiredCoins)];
                  camStartPath(gCurrentActor, pathId, 1);
                  currentActorClearFlag();
-@@ -464,7 +467,7 @@ void raceOpponentBehaviourUpdate(void) {
+@@ -461,7 +464,7 @@ void raceOpponentBehaviourUpdate(void) {
      case 5:
-         switch (controller->unk35) {
+         switch (controller->statusStep) {
          case 0:
 -            if (flagGet(config->reward.h.rewardFlag, 0) == 0) {
 +            if (flagGet((s16)config->reward.w, 0) == 0) {
                  sfxStopSlotSound(gActivePlayerActor, 0);
                  playerStateQueueCallback(0x55, NULL, 0);
                  gCurrentActor->speedXZ = 0.0f;
-@@ -505,14 +508,14 @@ void raceOpponentBehaviourUpdate(void) {
+@@ -502,14 +505,14 @@ void raceOpponentBehaviourUpdate(void) {
              }
              break;
          case 4:
 -            if (flagGet(config->reward.h.rewardFlag, 0) != 0) {
 +            if (flagGet((s16)config->reward.w, 0) != 0) {
-                 controller->unk35++;
+                 controller->statusStep++;
              }
              break;
          case 5:

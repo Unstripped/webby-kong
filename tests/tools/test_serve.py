@@ -1,14 +1,18 @@
-"""tools/serve.py: the EEPROM save API that web/saves.js relies on and the mounted ROM web/main.js loads."""
+"""tools/serve.py: the save games API (tools/saves.py) that web/saves.js relies on and the mounted ROM web/main.js
+loads."""
 import contextlib
 import functools
 import hashlib
 import http.client
 import io
+import json
 import os
+import socket
 import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -16,6 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
+import saves  # noqa: E402
 import serve  # noqa: E402
 
 SAVE_A = bytes(range(256)) * 8
@@ -23,12 +28,13 @@ SAVE_B = bytes(reversed(range(256))) * 8
 
 
 class SaveServerTest(unittest.TestCase):
+    """The sign-in gate is off here: every save belongs to the anonymous owner (user_id NULL)."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = Path(self._tmp.name)
         self.db = tmp / "saves.sqlite3"
-        with contextlib.closing(sqlite3.connect(self.db)) as conn:
-            conn.executescript(serve.SCHEMA)
+        saves.init(self.db)
 
         class QuietHandler(serve.Handler):
             db_path = self.db
@@ -39,24 +45,51 @@ class SaveServerTest(unittest.TestCase):
         self.server = serve.Server(("::1", 0), functools.partial(QuietHandler, directory=str(tmp)))
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.save = self.create()["id"]
 
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
         self._tmp.cleanup()
 
-    def request(self, method, body=None, mtime=None):
+    def call(self, method, path, body=None, headers=None):
         conn = http.client.HTTPConnection("::1", self.port, timeout=5)
-        headers = {} if mtime is None else {"X-Save-Mtime": str(mtime)}
-        conn.request(method, serve.API_PATH, body=body, headers=headers)
+        conn.request(method, path, body=body, headers=headers or {})
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
         return resp, data
 
+    def call_json(self, method, path, payload):
+        return self.call(method, path, json.dumps(payload).encode(), {"Content-Type": "application/json"})
+
+    def create(self, name=None):
+        resp, data = self.call_json("POST", saves.API, {} if name is None else {"name": name})
+        self.assertEqual(resp.status, 201, data)
+        return json.loads(data)["save"]
+
+    def get_save(self, save_id):
+        resp, data = self.call("GET", f"{saves.API}/{save_id}")
+        self.assertEqual(resp.status, 200, data)
+        return json.loads(data)["save"]
+
+    def request(self, method, body=None, mtime=None, save=None, summary=None):
+        headers = {} if mtime is None else {"X-Save-Mtime": str(mtime)}
+        if summary is not None:
+            headers["X-Save-Summary"] = summary if isinstance(summary, str) else json.dumps(summary)
+        return self.call(method, f"{saves.API}/{save or self.save}/eeprom", body, headers)
+
+    def versions(self, save=None):
+        with contextlib.closing(sqlite3.connect(self.db)) as conn:
+            return conn.execute("select count(*) from eeprom where save_id = ?", (save or self.save,)).fetchone()[0]
+
+    @staticmethod
+    def summary(percent):
+        return dict({key: 0 for key in saves.SUMMARY_KEYS}, percent=percent, playSeconds=754)
+
     def test_no_save_is_404(self):
-        resp, _ = self.request("GET")
-        self.assertEqual(resp.status, 404)
+        resp, data = self.request("GET")
+        self.assertEqual((resp.status, json.loads(data)["error"]), (404, "no_save_data"))
 
     def test_put_then_get_round_trips(self):
         resp, _ = self.request("PUT", SAVE_A, 1000)
@@ -82,8 +115,125 @@ class SaveServerTest(unittest.TestCase):
     def test_repeat_of_latest_not_stored(self):
         self.request("PUT", SAVE_A, 1000)
         self.request("PUT", SAVE_A, 3000)
+        self.assertEqual(self.versions(), 1)
+
+    def test_two_saves_keep_separate_histories(self):
+        other = self.create("Other")["id"]
+        self.request("PUT", SAVE_A, 1000)
+        self.request("PUT", SAVE_B, 1000, save=other)
+        self.request("PUT", SAVE_A, 2000, save=other)
+        self.assertEqual(self.request("GET")[1], SAVE_A)
+        self.assertEqual((self.versions(), self.versions(other)), (1, 2))
+        self.request("PUT", SAVE_B, 3000)
+        self.assertEqual(self.request("GET", save=other)[1], SAVE_A)
+
+    def test_summary_is_stored_and_listed(self):
+        resp, _ = self.request("PUT", SAVE_A, 1000, summary=self.summary(12))
+        self.assertEqual(resp.status, 204)
+        resp, data = self.call("GET", saves.API)
+        listed = json.loads(data)
+        self.assertFalse(listed["dashboard"])
+        self.assertEqual(listed["saves"][0]["summary"]["percent"], 12)
+        self.assertIsNotNone(listed["saves"][0]["played_at"])
+
+    def test_a_malformed_summary_is_refused_and_not_stored(self):
+        for bad in ("{", json.dumps({"percent": 12}), json.dumps(dict(self.summary(12), percent=True)),
+                    json.dumps(dict(self.summary(12), extra=1)), json.dumps(dict(self.summary(12), keys=-1))):
+            resp, data = self.request("PUT", SAVE_A, 1000, summary=bad)
+            self.assertEqual((resp.status, json.loads(data)["error"]), (400, "summary_invalid"), bad)
+        self.assertEqual(self.versions(), 0)
+        self.assertIsNone(self.get_save(self.save)["summary"])
+
+    def test_resume_point_round_trips_and_clears(self):
+        point = {"slot": 0, "kong": 1, "map": 7, "exit": 0, "hasPos": 1, "x": 1642.5, "y": 330, "z": 1519,
+                 "yaw": 2048, "ok": True}
+        resp, _ = self.call_json("PUT", f"{saves.API}/{self.save}/resume", {"resume": point})
+        self.assertEqual(resp.status, 204)
+        resume = self.get_save(self.save)["resume"]
+        self.assertEqual({k: resume[k] for k in saves.RESUME_KEYS}, {k: point[k] for k in saves.RESUME_KEYS})
+        self.assertNotIn("ok", resume)
+        self.assertRegex(resume["time"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+        resp, data = self.call_json("PUT", f"{saves.API}/{self.save}/resume", {"resume": dict(point, x="far")})
+        self.assertEqual((resp.status, json.loads(data)["error"]), (400, "resume_invalid"))
+        resp, _ = self.call_json("PUT", f"{saves.API}/{self.save}/resume", {"resume": None})
+        self.assertEqual(resp.status, 204)
+        self.assertIsNone(self.get_save(self.save)["resume"])
+
+    def test_create_names_rename_and_delete(self):
+        self.assertEqual(self.get_save(self.save)["name"], "Save 1")
+        self.assertEqual(self.create()["name"], "Save 2")
+        resp, data = self.call_json("POST", saves.API, {"name": "x" * 41})
+        self.assertEqual((resp.status, json.loads(data)["error"]), (400, "name_invalid"))
+        resp, data = self.call_json("PATCH", f"{saves.API}/{self.save}", {"name": "  Speedrun  "})
+        self.assertEqual((resp.status, json.loads(data)["save"]["name"]), (200, "Speedrun"))
+        resp, data = self.call_json("PATCH", f"{saves.API}/{self.save}", {"name": " "})
+        self.assertEqual((resp.status, json.loads(data)["error"]), (400, "name_invalid"))
+        self.request("PUT", SAVE_A, 1000)
+        resp, _ = self.call("DELETE", f"{saves.API}/{self.save}")
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(self.versions(), 0)
+        self.assertEqual(self.call("GET", f"{saves.API}/{self.save}")[0].status, 404)
+        # ids are never reused, not even the highest: the browser keys its EEPROM file and quicksaves by the id
+        newest = self.create()["id"]
+        self.assertEqual(self.call("DELETE", f"{saves.API}/{newest}")[0].status, 204)
+        self.assertGreater(self.create()["id"], newest)
+
+    def test_an_upload_held_while_its_save_is_deleted_stores_nothing(self):
+        sock = socket.create_connection(("::1", self.port), timeout=5)
+        with contextlib.closing(sock):
+            sock.sendall(f"PUT {saves.API}/{self.save}/eeprom HTTP/1.1\r\nHost: x\r\nX-Save-Mtime: 1000\r\n"
+                         f"Content-Length: {len(SAVE_A)}\r\n\r\n".encode() + SAVE_A[:1000])
+            time.sleep(0.3)  # the handler has checked the save and waits for the rest of the body
+            self.assertEqual(self.call("DELETE", f"{saves.API}/{self.save}")[0].status, 204)
+            sock.sendall(SAVE_A[1000:])
+            status = sock.makefile("rb").readline()
+        self.assertIn(b" 404 ", status)
         with contextlib.closing(sqlite3.connect(self.db)) as conn:
-            self.assertEqual(conn.execute("select count(*) from eeprom").fetchone()[0], 1)
+            self.assertEqual(conn.execute("select count(*) from eeprom").fetchone()[0], 0)
+
+    def test_json_endpoints_take_json_only(self):
+        resp, data = self.call("POST", saves.API, b'{"name": "x"}', {"Content-Type": "text/plain"})
+        self.assertEqual((resp.status, json.loads(data)["error"]), (400, "request_invalid"))
+
+    def test_unknown_ids_and_paths_are_404(self):
+        for method, path in (("GET", f"{saves.API}/999"), ("GET", f"{saves.API}/999/eeprom"),
+                             ("DELETE", f"{saves.API}/999"), ("GET", f"{saves.API}/{self.save}/nope"),
+                             ("POST", f"{saves.API}/{self.save}")):
+            resp, data = self.call(method, path)
+            self.assertEqual((resp.status, json.loads(data)["error"]), (404, "not_found"), (method, path))
+        resp, _ = self.request("PUT", SAVE_A, 1000, save=999)
+        self.assertEqual(resp.status, 404)
+
+    def test_list_is_most_recently_played_first(self):
+        second = self.create("Second")["id"]
+        third = self.create("Third")["id"]
+        self.request("PUT", SAVE_A, 1000, save=second)
+        self.request("PUT", SAVE_A, 1000)
+        ids = [s["id"] for s in json.loads(self.call("GET", saves.API)[1])["saves"]]
+        self.assertEqual(ids, [self.save, second, third])
+
+
+class LegacyDatabaseTest(unittest.TestCase):
+    """A database from before save games had one shared history: it becomes the save "Save 1"."""
+
+    def test_shared_history_becomes_one_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "saves.sqlite3"
+            with contextlib.closing(sqlite3.connect(db)) as conn:
+                conn.executescript("""
+                    CREATE TABLE eeprom (id INTEGER PRIMARY KEY, mtime_ms INTEGER NOT NULL,
+                      received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                      sha1 TEXT NOT NULL, bytes BLOB NOT NULL);
+                    CREATE INDEX eeprom_mtime ON eeprom(mtime_ms);""")
+                conn.execute("INSERT INTO eeprom (mtime_ms, received_at, sha1, bytes) VALUES "
+                             "(1, '2025-01-01T00:00:00.000Z', 'a', x'00'), (2, '2025-02-01T00:00:00.000Z', 'b', x'01')")
+                conn.commit()
+            for _ in range(2):
+                saves.init(db)
+                with contextlib.closing(sqlite3.connect(db)) as conn:
+                    rows = conn.execute("SELECT id, user_id, name, played_at FROM saves").fetchall()
+                    self.assertEqual(rows, [(1, None, "Save 1", "2025-02-01T00:00:00.000Z")])
+                    self.assertEqual(conn.execute("SELECT save_id FROM eeprom ORDER BY id").fetchall(), [(1,), (1,)])
 
 
 class RomServerTest(unittest.TestCase):

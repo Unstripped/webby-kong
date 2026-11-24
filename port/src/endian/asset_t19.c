@@ -1,5 +1,5 @@
 /* Table 19: miscellaneous global blobs; the format depends on the index.
- *   0  s16 depthTable[512] (1024 bytes): zbufferDepthToDistance (global/103AB0.c) via D_8076A0A0, loaded by
+ *   0  s16 depthTable[512] (1024 bytes): zbufferDepthToDistance (global/103AB0.c) via gZbufferDistanceTable, loaded by
  *      mapLoadLevel (global/450.c) when gGameMode == 0                                  -> u16 words
  *   1  transition mesh blob (16452 bytes): transitionInit -> meshBlobParse, meshComputeVertexRanges,
  *      meshDrawTextured, meshApplyAnimation, transitionRender (global/10E1D0.c). No Gfx or Vtx inside:
@@ -20,7 +20,7 @@
  *      0, 1, 4, 5, 6, 7), so their format is unverified -> abort if they are ever loaded.
  *   4  u8 text[][32]: critterInitText (critter/4840.c), string bytes                    -> no swap
  *   5  u16 wordTimings[]: critter/4840.c frame thresholds per word                     -> u16 words
- *   6  f32 boneFrames[7 * 0x34]: actorSetNodeValuesForFrame / func_806A112C (global/A2F10.c) -> u32 words
+ *   6  f32 boneFrames[7 * 0x34]: actorSetNodeValuesForFrame / actorGroupBoneFrameUpdate (global/A2F10.c) -> u32 words
  *   7  newline-separated ASCII, '*' terminated: bannerTextUpdate and its draw (global/CBEA0.c) -> no swap */
 #include "endian/asset_swap.h"
 

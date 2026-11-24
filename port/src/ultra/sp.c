@@ -7,9 +7,9 @@ static OSTask *sQueue[MAX_TASKS];
 static int sQueueCount;
 /* RSP microcode text/data the game points its tasks at (global .text 0x80741310.., rspboot); the HLE
  * never reads them, they only need distinct addresses. */
-u64 func_80741310[2];
-u8 D_80741F40[16];
-u8 D_807432D0[16];
+u64 gAudioUcodeText[2];
+long long int gspF3DEX2_fifoTextStart[2]; /* PR/ucode.h's type */
+long long int gspL3DEX2_fifoTextStart[2];
 
 
 void osSpTaskLoad(OSTask *t) {

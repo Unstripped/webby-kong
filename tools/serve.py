@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Serve build/web, keep every version of the game's EEPROM save in SQLite and serve a mounted ROM.
+"""Serve build/web, keep every version of every save game's EEPROM in SQLite and serve a mounted ROM.
 
 Static files are served like `python3 -m http.server -d build/web 8080`. web/saves.js and web/main.js add:
 
-  GET /api/eeprom   latest save (highest client mtime): 2048 bytes, X-Save-Mtime / X-Save-Sha1 headers; 404 if none
-  PUT /api/eeprom   2048-byte body plus an X-Save-Mtime header (ms since epoch); stored unless it repeats the
-                    latest version or an identical (sha1, mtime) row
+  /api/saves...     save games: list/create/rename/delete, and per save the latest EEPROM (GET), a new version
+                    (PUT, kept as history) and the "Exit to dashboard" resume point. Endpoints, schema and the
+                    sqlite3 recovery recipes: tools/saves.py
   GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
                     404 if none. web/main.js starts it without the file picker (the Docker image mounts /rom)
 
@@ -27,50 +27,29 @@ The Docker image sets the same variables (WEBBY_KONG_DIR=/srv/web, WEBBY_KONG_BI
 WEBBY_KONG_DB=/data/saves.sqlite3, WEBBY_KONG_ROM=/rom), so `docker run --env-file .env` and `mise run serve` take
 one file of settings. The effective configuration (including the sign-in settings, with the SMTP password only as
 set/unset) is printed at startup.
-
-Recovery with the sqlite3 CLI (DB defaults to ~/.local/share/webby-kong/saves.sqlite3):
-
-  list versions        sqlite3 DB "select id, mtime_ms, received_at, sha1 from eeprom order by id"
-  export version N     sqlite3 DB "select writefile('x.eep', bytes) from eeprom where id=N"
-  make N current       sqlite3 DB "insert into eeprom (mtime_ms, sha1, bytes) select
-                         cast(strftime('%s','now') as integer)*1000, sha1, bytes from eeprom where id=N"
-                       (the newest mtime wins at the next page load)
 """
 import argparse
 import contextlib
 import functools
-import hashlib
 import http.server
 import os
 import socket
-import sqlite3
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
 import auth
+import saves
 from auth import config as auth_config
 
-API_PATH = "/api/eeprom"
 ROM_PATH = "/api/rom"
 ROM_SUFFIXES = {".z64", ".n64", ".v64"}
-EEPROM_SIZE = 2048
 ENV_VARS = {"dir": "WEBBY_KONG_DIR", "port": "WEBBY_KONG_PORT", "bind": "WEBBY_KONG_BIND",
             "db": "WEBBY_KONG_DB", "rom": "WEBBY_KONG_ROM"}
 DEFAULT_DIR = "build/web"
 DEFAULT_PORT = 8080
 DEFAULT_BIND = "::"
 DEFAULT_DB = "~/.local/share/webby-kong/saves.sqlite3"
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS eeprom (
-  id INTEGER PRIMARY KEY,
-  mtime_ms INTEGER NOT NULL,
-  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  sha1 TEXT NOT NULL,
-  bytes BLOB NOT NULL);
-CREATE INDEX IF NOT EXISTS eeprom_mtime ON eeprom(mtime_ms);
-"""
-LATEST = "SELECT mtime_ms, sha1, bytes FROM eeprom ORDER BY mtime_ms DESC, id DESC LIMIT 1"
 # the pages the gate redirects to (web/auth/, web/dashboard/): missing means the served copy predates them
 SIGN_IN_PAGES = ("auth/index.html", "dashboard/index.html")
 
@@ -216,12 +195,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     db_path: Path
     rom_path: Path | None = None
 
-    def db(self):
-        return contextlib.closing(sqlite3.connect(self.db_path, timeout=5, isolation_level=None))
-
-    def is_api(self):
-        return urllib.parse.urlsplit(self.path).path == API_PATH
-
     def translate_path(self, path):
         target = auth.rewrite(urllib.parse.urlsplit(path).path)
         return super().translate_path(path if target is None else target)
@@ -235,21 +208,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self.redirect("/play")
         if path == ROM_PATH:
             return self.send_rom()
-        if path != API_PATH:
-            return super().do_GET()
-        with self.db() as conn:
-            row = conn.execute(LATEST).fetchone()
-        if row is None:
-            return self.send_error(404, "no save stored")
-        mtime, sha1, data = row
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Save-Mtime", str(mtime))
-        self.send_header("X-Save-Sha1", sha1)
-        self.end_headers()
-        self.wfile.write(data)
+        if saves.is_api(path):
+            return saves.handle(self, self.db_path, auth.user_id(self), auth.enabled())
+        return super().do_GET()
 
     def send_rom(self):
         rom = find_rom(self.rom_path)
@@ -263,12 +224,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.copyfile(f, self.wfile)
 
-    def do_POST(self):
-        if not (auth.enabled() and auth.handle(self)):
-            self.send_error(501, "Unsupported method (%r)" % self.command)
+    def do_PUT(self):
+        if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
+            return
+        if saves.is_api(urllib.parse.urlsplit(self.path).path):
+            return saves.handle(self, self.db_path, auth.user_id(self), auth.enabled())
+        self.send_error(501, "Unsupported method (%r)" % self.command)
 
-    do_PATCH = do_POST
-    do_DELETE = do_POST
+    do_POST = do_PUT
+    do_PATCH = do_PUT
+    do_DELETE = do_PUT
 
     def do_HEAD(self):
         if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
@@ -281,41 +246,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def do_PUT(self):
-        if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
-            return
-        if not self.is_api():
-            return self.send_error(404)
-        try:
-            length = int(self.headers.get("Content-Length", ""))
-        except ValueError:
-            return self.send_error(400, "Content-Length required")
-        if length != EEPROM_SIZE:
-            return self.send_error(400, f"body must be {EEPROM_SIZE} bytes")
-        body = self.rfile.read(length)
-        mtime_header = self.headers.get("X-Save-Mtime", "")
-        if len(body) != EEPROM_SIZE or not mtime_header.isascii() or not mtime_header.isdigit():
-            return self.send_error(400, "X-Save-Mtime must be a non-negative integer")
-        mtime = int(mtime_header)
-        sha1 = hashlib.sha1(body).hexdigest()
-        with self.db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            latest = conn.execute(LATEST).fetchone()
-            seen = conn.execute("SELECT 1 FROM eeprom WHERE sha1 = ? AND mtime_ms = ?", (sha1, mtime)).fetchone()
-            if (latest is None or latest[1] != sha1) and seen is None:
-                conn.execute("INSERT INTO eeprom (mtime_ms, sha1, bytes) VALUES (?, ?, ?)", (mtime, sha1, body))
-            conn.execute("COMMIT")
-        self.send_response(204)
-        self.end_headers()
-
 
 def main(argv=None):
     settings = resolve(argv)
     require_web_files(settings.dir, settings.auth.enabled)
     settings.db.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.closing(sqlite3.connect(settings.db)) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.executescript(SCHEMA)
+    saves.init(settings.db)
     auth.configure(settings.db, config=settings.auth)
 
     Handler.db_path = settings.db

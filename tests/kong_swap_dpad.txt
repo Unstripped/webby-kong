@@ -1,0 +1,10 @@
+# D-pad kong swap in the Training Grounds: run with --frames 1500 --resume 0,0,0xb0,1,1,941,60,736,3752.
+# DK stands at the resume point; D-pad Right at 1000, Left at 1100 and Right at 1200 each pass every swap gate
+# (playerPortKongSwapAllowed, patch 0028) and look for an unlocked kong. A fresh headless save has no other kong
+# unlocked, so each press is refused with the locked sound. Must not abort and must end on map 176 with player type 2.
+frame 1000 press dright
+frame 1006 release dright
+frame 1100 press dleft
+frame 1106 release dleft
+frame 1200 press dright
+frame 1206 release dright

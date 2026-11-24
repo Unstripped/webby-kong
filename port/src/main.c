@@ -12,6 +12,10 @@ static double sRefreshMs;     /* display refresh interval estimate; 0 until the 
 static int sRefreshMisses;    /* consecutive frame intervals off that estimate */
 static int sRefreshesSinceVi; /* display refreshes since the last frame that ran a VI */
 f32 gPortDrawDistance = 4.0f;
+s32 gPortKongSwap = 1;
+s32 gPortStickCamera = 1;
+s32 gPortCameraSpeed = 5;
+s32 gPortCameraInvert = 0;
 
 /* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64.
  * Returns the value in effect. */
@@ -37,6 +41,26 @@ static void setAudioRate(int rate) {
 static s32 setAudioHrtf(s32 on) {
     gPortAudioHrtf = on != 0;
     return gPortAudioHrtf;
+}
+
+/* --camera-speed <1..10>: right-stick camera turn rate (5 = the C-button turn); returns the value in effect */
+static s32 setCameraSpeed(s32 v) {
+    if (v >= 1 && v <= 10) {
+        gPortCameraSpeed = v;
+    } else {
+        portLog("PORT: ignoring camera speed %d (1..10)", v);
+    }
+    return gPortCameraSpeed;
+}
+
+/* --camera-invert <0..3>: right-stick camera invert, bit 0 horizontal, bit 1 vertical; returns the value in effect */
+static s32 setCameraInvert(s32 v) {
+    if (v >= 0 && v <= 3) {
+        gPortCameraInvert = v;
+    } else {
+        portLog("PORT: ignoring camera invert %d (0..3)", v);
+    }
+    return gPortCameraInvert;
 }
 
 static void runAll(void) {
@@ -358,6 +382,7 @@ int main(int argc, char **argv) {
     }
     if (progress) {
         printf("progress %s\n", port_level_progress());
+        printf("summary %s\n", port_save_summary());
         fflush(stdout);
     }
     return 0;
@@ -376,7 +401,11 @@ int portMainQsRanges(QsRange *out) {
     out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
     out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
     out[4] = QS_RANGE(gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
-    return 5;
+    out[5] = QS_RANGE(gPortKongSwap);     /* setting: a quickload keeps it */
+    out[6] = QS_RANGE(gPortStickCamera);  /* settings: a quickload keeps them */
+    out[7] = QS_RANGE(gPortCameraSpeed);
+    out[8] = QS_RANGE(gPortCameraInvert);
+    return 9;
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
@@ -395,6 +424,16 @@ EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples()
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_kong_swap(s32 on) {
+    gPortKongSwap = on != 0;
+    return gPortKongSwap;
+}
+EMSCRIPTEN_KEEPALIVE s32 port_set_stick_camera(s32 on) {
+    gPortStickCamera = on != 0;
+    return gPortStickCamera;
+}
+EMSCRIPTEN_KEEPALIVE s32 port_set_camera_speed(s32 v) { return setCameraSpeed(v); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_camera_invert(s32 v) { return setCameraInvert(v); }
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -431,6 +470,16 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--interp") == 0) {
             portGfxSetInterp(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--kong-swap") == 0) {
+            gPortKongSwap = atoi(argv[++a]) != 0;
+        } else if (strcmp(argv[a], "--stick-camera") == 0) {
+            gPortStickCamera = atoi(argv[++a]) != 0;
+        } else if (strcmp(argv[a], "--camera-speed") == 0) {
+            setCameraSpeed(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--camera-invert") == 0) {
+            setCameraInvert(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--save-file") == 0) {
+            portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }
     }
     if (portRomSize() == 0) {

@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Mon, 23 Nov 2026 14:27:40 -0700
+Subject: [PATCH] port: dashboard save
+
+
+diff --git a/src/global/104F0.c b/src/global/104F0.c
+index a48c751..a1493b4 100644
+--- a/src/global/104F0.c
++++ b/src/global/104F0.c
+@@ -118,7 +118,10 @@ void eepromDispatchCommand(s32 cmd) {
+         return;
+     }
+     if (gMainThreadHalted == 0) {
+-        osSendMesg(&gEepromCmdQueue, (void *)cmd, 0);
++        gPortEepromQueued++; /* port dashboard exit: web/menu.js waits until the EEPROM thread is idle */
++        if (osSendMesg(&gEepromCmdQueue, (void *)cmd, 0) != 0) {
++            gPortEepromQueued--;
++        }
+     }
+ }
+ 
+@@ -891,6 +894,7 @@ void eepromThreadMain(void *arg) {
+     while (TRUE) {
+         osRecvMesg(&gEepromCmdQueue, &msg, 1);
+         sEepromCommandHandlers[(s32)msg]();
++        gPortEepromQueued--;
+     }
+ }
+ 
+diff --git a/src/global/3C10.c b/src/global/3C10.c
+index 634181c..1d89ddd 100644
+--- a/src/global/3C10.c
++++ b/src/global/3C10.c
+@@ -748,6 +748,39 @@ s32 mapCaptureLevelProgress(PortLevelProgress *out, const char **reason) {
+     return 1;
+ }
+ 
++extern s8 sPauseKongUnlocked[5]; /* ACDC0.c */
++s32 menuCalculateGamePercentage(void); /* src/menu/3E10.c */
++s32 playTimeGetSeconds(void); /* src/global/450.c */
++
++/* PORT: the save's headline numbers for the dashboard (port/src/progress.c), counted like the file select
++ * (menuInitFileSummary) and the pause menu totals, from the live state of the file being played. */
++s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason) {
++    s32 k;
++
++    if (gMenuCurrentMode != 6) {
++        *reason = "not in adventure mode";
++        return 0;
++    }
++    if (gPlayerCount >= 2 || menuIsTransitionType3Or4()) {
++        *reason = "multiplayer";
++        return 0;
++    }
++    out->slot = gEepromCurrentSlot;
++    out->percent = menuCalculateGamePercentage(); /* refreshes gPauseCollectibleCounts and sPauseKongUnlocked */
++    out->goldenBananas = gPauseCollectibleCounts[0];
++    out->crowns = gPauseCollectibleCounts[1];
++    out->keys = gPauseCollectibleCounts[2];
++    out->medals = gPauseCollectibleCounts[3];
++    out->fairies = gPauseCollectibleCounts[5];
++    out->blueprints = gPauseCollectibleCounts[7];
++    out->kongs = 0;
++    for (k = 0; k < 5; k++) {
++        out->kongs += sPauseKongUnlocked[k] != 0;
++    }
++    out->playSeconds = playTimeGetSeconds();
++    return 1;
++}
++
+ void mapTransitionToPreviousOrExit(void) {
+     s32 targetMap;
+     s32 exitIndex;
+diff --git a/src/global/450.c b/src/global/450.c
+index 747bd35..bb8a35b 100644
+--- a/src/global/450.c
++++ b/src/global/450.c
+@@ -419,6 +419,7 @@ void mainResetEngineState(void) {
+ 
+ extern s16 gMainLoopWatchdog;
+ extern u8 gGfxTaskPending[];
++void eepromSavePlayerData(void); /* src/global/104F0.c: the pause menu's Save */
+ 
+ void mainThreadLoop(void *arg) {
+     u8 first;
+@@ -451,6 +452,12 @@ void mainThreadLoop(void *arg) {
+             gPortResume.pending = 0;
+             menuStartGameAtResume();
+         }
++        /* port dashboard exit (web/menu.js): the pause menu's Save, outside transitions */
++        if (gPortSaveRequest && gEepromLoaded == 1 && (gGameMode == 0 || gGameMode == 1) && !(gScreenRenderFlags & 1)
++            && !(gGlobalPauseFlags & 0x100)) {
++            gPortSaveRequest = 0;
++            eepromSavePlayerData();
++        }
+         switch (gGameMode) {
+             case 6:
+                 transitionRunFrame(gInitialMap, gInitialExit);

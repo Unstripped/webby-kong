@@ -5,7 +5,7 @@ Subject: [PATCH] port: effect parameter halves endianness
 
 
 diff --git a/include/render.h b/include/render.h
-index 26e4161..b0dea8f 100644
+index 7503414..4696456 100644
 --- a/include/render.h
 +++ b/include/render.h
 @@ -146,10 +146,13 @@ typedef struct EffectGridNode {

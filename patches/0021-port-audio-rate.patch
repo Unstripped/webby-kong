@@ -5,7 +5,7 @@ Subject: [PATCH] port: audio rate
 
 
 diff --git a/src/global/140600.c b/src/global/140600.c
-index edf0b09..469a7f1 100644
+index a9cd86f..de36bef 100644
 --- a/src/global/140600.c
 +++ b/src/global/140600.c
 @@ -187,7 +187,8 @@ void n_alFxNew(void **outFx, AudioInitArgs *config, s16 busIndex, ALHeap *heap)
@@ -76,26 +76,26 @@ index ac56f0c..616d364 100644
          cmd->words.w0 = 0x05000000 | (osVirtualToPhysical(filter->rs_state) & 0xFFFFFF);
          cmd->words.w1 = ((filter->rs_first & 3) << 30) | ((value & 0xFFFF) << 14) | ((samples & 0xFFF) << 2);
 diff --git a/src/global/5A50.c b/src/global/5A50.c
-index 09fe76e..7c2c3b2 100644
+index 8b7ac7e..e7897c9 100644
 --- a/src/global/5A50.c
 +++ b/src/global/5A50.c
-@@ -53,7 +53,13 @@ void audioInit(void) {
+@@ -50,7 +50,13 @@ void audioInit(void) {
      N_CSPlayer *player;
      N_CSPlayer *arg;
  
--    alHeapInit(&D_8076D1E8, D_80770F50, 0x7BD80);
+-    alHeapInit(&gAudioHeap, gAudioHeapBuffer, 0x7BD80);
 +    // PORT: audio rate: the 22050 Hz heap is full; at 44100 the reverb delay lines, command lists and output
 +    // buffers double, so the synthesizer gets a twice-as-large heap in port memory (game-visible, in snapshots)
 +    if (gPortAudioRate > 22050) {
-+        alHeapInit(&D_8076D1E8, gPortAudioHeap44, sizeof gPortAudioHeap44);
++        alHeapInit(&gAudioHeap, gPortAudioHeap44, sizeof gPortAudioHeap44);
 +    } else {
-+        alHeapInit(&D_8076D1E8, D_80770F50, 0x7BD80);
++        alHeapInit(&gAudioHeap, gAudioHeapBuffer, 0x7BD80);
 +    }
      args.maxVVoices = 0x2C;
      args.maxPVoices = 0x1E;
      args.maxUpdates = 0x40;
-@@ -65,7 +71,7 @@ void audioInit(void) {
-     args.heap = &D_8076D1E8;
+@@ -62,7 +68,7 @@ void audioInit(void) {
+     args.heap = &gAudioHeap;
      task.outputRate = 22050;
      task.framesPerField = 2;
 -    task.cmdCount = 0xC00;
@@ -104,7 +104,7 @@ index 09fe76e..7c2c3b2 100644
      len = gSegmentTable[15].romEnd - gSegmentTable[15].romStart;
      tmp = heapAlloc(0x38000);
 diff --git a/src/global/6710.c b/src/global/6710.c
-index dbdd1f2..bd61843 100644
+index 5df5702..f6079eb 100644
 --- a/src/global/6710.c
 +++ b/src/global/6710.c
 @@ -124,8 +124,9 @@ void audioThreadInit(AudioInitArgs *initArgs, s32 threadPriority, AudioTaskConfi
@@ -116,7 +116,7 @@ index dbdd1f2..bd61843 100644
 +    // PORT: audio rate: the frame sizes are 22050 Hz sample counts (3, 5 and 4 subframes of 184); 44100 doubles them
 +    sAudioMinFrameSize = 0x228 * (sAudioFreq / 22050);
 +    sAudioMaxFrameSize = 0x398 * (sAudioFreq / 22050);
-     synConfig = D_807452D0;
+     synConfig = sAudioSynthConfig;
      initArgs->params[0] = synConfig.fxParams[0];
      initArgs->params[1] = synConfig.fxParams[1];
 @@ -229,14 +230,14 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {

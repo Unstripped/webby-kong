@@ -1,5 +1,5 @@
 /* Asset table 4: "model 2" objects (ModelAssetHeader, include/model.h; ModelSlot.unk24), loaded by
- * modelSlotInitFromAsset, func_80636A44 and func_80636A8C (36880.c). Format notes: decomp/tools/assets.py
+ * modelSlotInitFromAsset, modelTypeGetDefaultScale and modelTypeNeedsPrivateAsset (36880.c). Format notes: decomp/tools/assets.py
  * model2_parts. All header offsets are entry offsets; the game adds the entry address when it reads them.
  *
  * Every section boundary below was checked against all 581 non-empty entries of the US ROM (kind 1: 511, kind 2:
@@ -7,9 +7,9 @@
  * alignment) of [0x50], kind-1 entries end at [0x70] (no quad list), kind-2 quad lists end at the entry end.
  *
  * Header (0x78 bytes):
- *   0x00 u32 flags        native  func_80636A8C (&8), modelSlotInit (&= ~0x10), modelSlotBuildTriangleBuffer (&4),
+ *   0x00 u32 flags        native  modelTypeNeedsPrivateAsset (&8), modelSlotInit (&= ~0x10), modelSlotBuildTriangleBuffer (&4),
  *                                 133A90.c (&1), playerSlotMatchesSizeMask callers (36880.c, 6AD90.c, 70FD0.c)
- *   0x04 f32 scale        native  func_80636A44 (`asset[1]`)
+ *   0x04 f32 scale        native  modelTypeGetDefaultScale (`asset[1]`)
  *   0x08 s32              native  modelSlotResolveAssetTextures (= gFrameCounter), 36880.c:2242 (compare)
  *   0x0C..0x1B name + dev garbage: no reader                           untouched
  *   0x1C u8 modelKind (1 = DL model, 2 = textured quads), 0x1D u8 fullBright                       bytes

@@ -51,6 +51,36 @@
     });
   }
 
+  // text prompt modelled on confirmDialog: resolves the trimmed text, or null when cancelled
+  function promptDialog(text, value, label) {
+    return new Promise(function (resolve) {
+      var bg = h('div', { class: 'modal-bg', role: 'dialog', 'aria-modal': 'true' });
+      var input = h('input', { type: 'text', maxlength: '40', 'aria-label': text });
+      input.value = value || '';
+      function done(v) { document.removeEventListener('keydown', onKey); bg.parentNode.removeChild(bg); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      input.onkeydown = function (e) { if (e.key === 'Enter') done(input.value.trim()); };
+      var cancel = h('button', { class: 'btn ghost', type: 'button', onclick: function () { done(null); } }, 'Cancel');
+      var ok = h('button', { class: 'btn', type: 'button', onclick: function () { done(input.value.trim()); } }, label || 'OK');
+      bg.appendChild(h('div', { class: 'modal' }, h('p', null, text), input, h('div', { class: 'row', style: 'margin-top:12px' }, cancel, ok)));
+      bg.onclick = function (e) { if (e.target === bg) done(null); };
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(bg);
+      input.focus();
+      input.select();
+    });
+  }
+
+  // ---- save game summaries (tools/saves.py SUMMARY_KEYS, uploaded by the game) ----
+  function fmtPlay(sec) {
+    var m = Math.floor(sec / 60);
+    return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+  }
+  function statsText(s) {
+    return s ? s.percent + '% \u00b7 ' + s.goldenBananas + ' GB \u00b7 ' + s.keys + '/8 keys \u00b7 ' + fmtPlay(s.playSeconds) : 'Not started yet';
+  }
+  function playUrl(save) { return '/play?save=' + save.id; }
+
   function copy(text) {
     function fallback() {
       var ta = h('textarea', { style: 'position:fixed;opacity:0' });
@@ -71,10 +101,84 @@
     return { el: h('section', { class: 'panel ' + (cls || '') }, h('h2', null, title), body), body: body };
   }
 
-  function playPanel(body) {
-    body.appendChild(h('button', { class: 'play', type: 'button', onclick: function () { location.assign('/play'); } }, 'Play game'));
+  function savesPanel(body) {
+    var top = h('div'), grid = h('div', { class: 'panel-grid', style: 'margin-top:10px' });
+    var nameIn = h('input', { type: 'text', class: 'grow', maxlength: '40', placeholder: 'New save name (optional)', 'aria-label': 'New save name' });
+    var create = h('button', { class: 'btn', type: 'submit' }, 'New save');
+    var form = h('form', { class: 'row', style: 'margin-top:14px', onsubmit: function (e) {
+      e.preventDefault();
+      create.disabled = true;
+      W.api('POST', '/api/saves', { name: nameIn.value.trim() }).then(function () {
+        nameIn.value = ''; toast('Save created.'); load();
+      }).catch(fail).then(function () { create.disabled = false; });
+    } }, nameIn, create);
+    body.appendChild(top);
+    body.appendChild(form);
+    body.appendChild(grid);
     // Future modes (co-op, level select, ...) append tiles here.
     body.appendChild(h('div', { class: 'panel-grid', id: 'modes' }));
+
+    function tile(s) {
+      return h('div', { class: 'tile' },
+        h('h3', null, s.name),
+        h('p', { class: 'stats' }, statsText(s.summary)),
+        h('p', { class: 'muted' }, 'Last played ' + fmt(s.played_at)),
+        h('div', { class: 'acts' },
+          h('button', { class: 'btn', type: 'button', onclick: function () { location.assign(playUrl(s)); } }, 'Play'),
+          h('button', { class: 'btn small', type: 'button', onclick: function () {
+            promptDialog('Rename \u201c' + s.name + '\u201d', s.name, 'Rename').then(function (name) {
+              if (name) W.api('PATCH', '/api/saves/' + s.id, { name: name }).then(function () { toast('Save renamed.'); load(); }).catch(fail);
+            });
+          } }, 'Rename'),
+          h('button', { class: 'btn small danger', type: 'button', onclick: function () {
+            confirmDialog('Delete ' + s.name + '? Its whole save history is removed. This can\u2019t be undone.', 'Delete').then(function (y) {
+              if (y) W.api('DELETE', '/api/saves/' + s.id).then(function () { toast('Save deleted.'); load(); }).catch(fail);
+            });
+          } }, 'Delete')));
+    }
+
+    function load() {
+      W.api('GET', '/api/saves').then(function (r) {
+        clear(top); clear(grid);
+        if (r.saves.length) {
+          top.appendChild(h('button', { class: 'play', type: 'button', onclick: function () { location.assign(playUrl(r.saves[0])); } }, 'Continue ' + r.saves[0].name));
+        } else {
+          top.appendChild(h('button', { class: 'play', type: 'button', onclick: function (e) {
+            e.target.disabled = true;
+            W.api('POST', '/api/saves', {}).then(function (c) { location.assign(playUrl(c.save)); }, function (er) { e.target.disabled = false; fail(er); });
+          } }, 'Start a new game'));
+        }
+        r.saves.forEach(function (s) { grid.appendChild(tile(s)); });
+      }).catch(fail);
+    }
+    load();
+  }
+
+  function playersPanel(body) {
+    var box = h('div');
+    body.appendChild(box);
+    W.api('GET', '/api/players').then(function (r) {
+      var rows = [];
+      r.players.forEach(function (u) {
+        var who = [u.username, ' ',
+          u.owner ? h('span', { class: 'badge owner' }, 'owner') : null, ' ',
+          u.id === me.user.id ? h('span', { class: 'badge' }, 'you') : null, ' ',
+          u.disabled ? h('span', { class: 'badge bad' }, 'disabled') : null];
+        if (!u.saves.length) {
+          rows.push(h('tr', null, h('td', null, who), h('td', { class: 'muted' }, 'No saves yet'), ['\u2013', '\u2013', '\u2013', '\u2013', '\u2013'].map(function (t) { return h('td', null, t); })));
+          return;
+        }
+        u.saves.forEach(function (s) {
+          var m = s.summary;
+          var cells = m ? [m.percent + '%', m.goldenBananas, m.keys + '/8', fmtPlay(m.playSeconds)] : ['\u2013', '\u2013', '\u2013', '\u2013'];
+          rows.push(h('tr', null, h('td', null, who.map(function (c) { return c && c.cloneNode ? c.cloneNode(true) : c; })), h('td', null, s.name),
+            cells.map(function (t) { return h('td', null, t); }), h('td', null, fmt(s.played_at))));
+        });
+      });
+      box.appendChild(h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' },
+        h('thead', null, h('tr', null, ['Player', 'Save', 'Progress', 'Golden bananas', 'Keys', 'Play time', 'Last played'].map(function (t) { return h('th', null, t); }))),
+        h('tbody', null, rows))));
+    }).catch(fail);
   }
 
   function invitesPanel(body) {
@@ -255,9 +359,10 @@
   }
 
   var PANELS = [
-    { id: 'play', title: 'Play', cls: 'wide', render: playPanel },
-    { id: 'invites', title: 'Invites', cls: 'span2', render: invitesPanel },
+    { id: 'saves', title: 'Your saves', cls: 'wide', render: savesPanel },
+    { id: 'players', title: 'Players', cls: 'span2', render: playersPanel },
     { id: 'account', title: 'Account', render: accountPanel },
+    { id: 'invites', title: 'Invites', cls: 'span2', render: invitesPanel },
     { id: 'users', title: 'Users', cls: 'span2', owner: true, render: usersPanel },
     { id: 'settings', title: 'Settings', owner: true, render: settingsPanel }
   ];

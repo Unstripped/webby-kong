@@ -25,7 +25,8 @@ start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`)
 - Widescreen (Hor+) at the browser window's resolution.
 - Objects and enemies draw and spawn out to 4× the game's distances (`?drawdist`, 1 = N64 behaviour).
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
-- EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite).
+- EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite). Several save games,
+  each with its own EEPROM and history (`/play?save=<id>`).
 - Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
   anti-aliasing, frame rate, touch controls, 3D sound, audio quality), remembered in `localStorage`.
 - Bug reports and ideas from the Esc menu: a prefilled GitHub issue with a screenshot (click the broken spot to
@@ -105,7 +106,10 @@ docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://
 - Open registration is on by default; the owner can close it on the dashboard. Invite links (single use, reusable or
   expiring) keep working while registration is closed.
 - Users, passkeys, sessions and invites live in the same `/data` SQLite file as the saves, so the existing
-  `-v ...:/data` already persists them. Saves are still shared by everyone (there are no per-user saves yet).
+  `-v ...:/data` already persists them.
+- Saves belong to their user: the dashboard creates, renames and deletes your save games, and lists every player's
+  saves with their progress. The Esc menu's "Exit to dashboard" saves in-game and returns there; playing that save
+  again resumes on the spot. A save history from before sign-in (or made with the gate off) becomes the owner's.
 - Emailed invites use the `WEBBY_KONG_SMTP_*` settings in the table above; without a host the dashboard offers the
   link to copy instead.
 

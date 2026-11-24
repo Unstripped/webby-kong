@@ -3,13 +3,16 @@
 //   (Module.portBuildId = SHA-1 of the wasm main.js instantiated). Kept in IndexedDB, so it survives a reload.
 // - Resume point: save slot, kong, map, exit, position. After a reload of any build the game boots straight
 //   into it once the EEPROM is read (src/global/450.c), skipping logos, title and file select.
+// Both are kept per save game (dk64saves.scope()). The server's resume point from menu.js "Exit to dashboard"
+// (dk64saves.takeResume()) applies regardless of the auto-resume toggle; the newer of it and the local one wins,
+// and a same-build snapshot only when it is newer than the server's point.
 (function () {
   'use strict';
 
   const DB_NAME = 'dk64dbg';
   const STORE = 'snapshots';
-  const KEY = 'quick';
-  const RESUME_KEY = 'dk64dbg.resume';
+  const key = () => 'quick' + window.dk64saves.scope();
+  const resumeKey = () => 'dk64dbg.resume' + window.dk64saves.scope();
   const AUTO_KEY = 'dk64dbg.autoResume';
   const RESUME_ONCE = 'dk64dbg.resumeOnce';
   const SKIP_SNAPSHOT = 'dk64dbg.skipSnapshot';
@@ -45,7 +48,7 @@
     const db = await idbOpen();
     try {
       return await new Promise((resolve, reject) => {
-        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(KEY);
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key());
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => reject(req.error);
       });
@@ -59,7 +62,7 @@
     try {
       await new Promise((resolve, reject) => {
         const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put(rec, KEY);
+        tx.objectStore(STORE).put(rec, key());
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error);
@@ -81,7 +84,7 @@
 
   function readResume() {
     try {
-      const s = localStorage.getItem(RESUME_KEY);
+      const s = localStorage.getItem(resumeKey());
       return s ? JSON.parse(s) : null;
     } catch (e) {
       return null;
@@ -120,7 +123,7 @@
     }
     snap = { buildId: m.portBuildId, time: new Date().toISOString(), map: currentMap(m), bytes };
     if (res.ok) {
-      localStorage.setItem(RESUME_KEY, JSON.stringify({ ...res, time: snap.time }));
+      localStorage.setItem(resumeKey(), JSON.stringify({ ...res, time: snap.time }));
     }
     const noResume = res.ok ? '' : ` · no resume point: ${res.reason}`;
     try {
@@ -175,9 +178,9 @@
   // same-build snapshot so it cannot override the imported state.
   function bootInto(resume, params) {
     if (resume) {
-      localStorage.setItem(RESUME_KEY, JSON.stringify({ ok: true, ...resume, time: new Date().toISOString() }));
+      localStorage.setItem(resumeKey(), JSON.stringify({ ok: true, ...resume, time: new Date().toISOString() }));
     } else {
-      localStorage.removeItem(RESUME_KEY);
+      localStorage.removeItem(resumeKey());
     }
     sessionStorage.setItem(SKIP_SNAPSHOT, '1');
     sessionStorage.setItem(RESUME_ONCE, '1');
@@ -185,6 +188,12 @@
     u.searchParams.delete('noresume');
     for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, String(v));
     location.replace(u.href);
+  }
+
+  function newest(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    return String(b.time || '') > String(a.time || '') ? b : a;
   }
 
   // main.js, right after callMain
@@ -195,17 +204,19 @@
     sessionStorage.removeItem(SKIP_SNAPSHOT);
     const m = mod();
     const rec = skipSnapshot ? null : await idbGet().catch(() => null);
-    if (new URLSearchParams(location.search).has('noresume') || !(once || autoResume())) {
+    if (new URLSearchParams(location.search).has('noresume')) {
       snap = rec;
       return;
     }
-    if (rec && rec.buildId === m.portBuildId) {
+    const server = skipSnapshot ? null : window.dk64saves.takeResume();
+    const auto = once || autoResume();
+    if (auto && rec && rec.buildId === m.portBuildId && !(server && String(server.time) > String(rec.time))) {
       snap = rec;
       if (restore(rec)) toast(`Resumed snapshot · map 0x${hex(rec.map)}`);
       return;
     }
     snap = rec;
-    const r = readResume();
+    const r = newest(auto ? readResume() : null, server);
     if (r) {
       m.ccall('port_resume_request', null, Array(9).fill('number'),
         [r.slot, r.kong, r.map, r.exit, r.hasPos, r.x, r.y, r.z, r.yaw]);

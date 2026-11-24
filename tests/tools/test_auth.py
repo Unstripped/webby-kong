@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import auth  # noqa: E402
+import saves  # noqa: E402
 import serve  # noqa: E402
 
 ORIGIN = "http://localhost:8080"
@@ -44,8 +45,7 @@ class AuthServer:
         (self.dir / "auth").mkdir()
         (self.dir / "auth" / "index.html").write_text("<!doctype html><title>Webby</title>")
         self.db_path = self.dir / "saves.sqlite3"
-        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
-            conn.executescript(serve.SCHEMA)
+        saves.init(self.db_path)
         self.config = auth.configure(self.db_path, environ)
 
         class Quiet(serve.Handler):
@@ -204,7 +204,7 @@ class AuthEnabledTest(unittest.TestCase):
         self.assertEqual(resp.getheader("Location"), "/auth/?next=%2Fplay%3Fdrawdist%3D2")
 
     def test_anonymous_api_and_assets_are_401_json(self):
-        for path in ("/api/me", "/api/eeprom", "/api/rom", "/dk64.wasm"):
+        for path in ("/api/me", "/api/saves", "/api/saves/1/eeprom", "/api/players", "/api/rom", "/dk64.wasm"):
             resp, payload = self.get(path, accept="*/*")
             self.assertEqual(resp.status, 401, path)
             self.assertEqual(self.json_of(payload)["error"], "unauthorized")
@@ -527,6 +527,75 @@ class AuthEnabledTest(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT count(*) AS n FROM credentials c JOIN users u ON u.id = "
                                           "c.user_id WHERE u.username = 'bob'").fetchone()["n"], 0)
             self.assertIsNone(conn.execute("SELECT 1 FROM invites WHERE id = ?", (invite["id"],)).fetchone())
+
+    # --- save games per user ------------------------------------------------------------------------------------
+
+    def create_save(self, cookie, name=None):
+        resp, payload = self.post("/api/saves", {} if name is None else {"name": name}, cookie=cookie)
+        self.assertEqual(resp.status, 201, payload)
+        return self.json_of(payload)["save"]
+
+    def put_eeprom(self, cookie, save_id, summary=None):
+        headers = {"Cookie": f"webby_session={cookie}", "Origin": ORIGIN, "X-Save-Mtime": "1000"}
+        if summary is not None:
+            headers["X-Save-Summary"] = json.dumps(summary)
+        conn = http.client.HTTPConnection("::1", self.app.port, timeout=8)
+        conn.request("PUT", f"/api/saves/{save_id}/eeprom", body=bytes(2048), headers=headers)
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        return resp
+
+    def test_saves_belong_to_their_user(self):
+        alice_cookie, _ = self.owner()
+        bob_cookie, _ = self.register("bob")
+        alices = self.create_save(alice_cookie, "Alice's")
+        resp, payload = self.get("/api/saves", cookie=alice_cookie)
+        self.assertEqual(self.json_of(payload), {"saves": [alices], "dashboard": True})
+        for path in (f"/api/saves/{alices['id']}", f"/api/saves/{alices['id']}/eeprom"):
+            resp, payload = self.get(path, cookie=bob_cookie)
+            self.assertEqual((resp.status, self.json_of(payload)["error"]), (404, "not_found"), path)
+        self.assertEqual(self.put_eeprom(bob_cookie, alices["id"]).status, 404)
+        self.assertEqual(self.delete(f"/api/saves/{alices['id']}", cookie=bob_cookie)[0].status, 404)
+        self.assertEqual(self.json_of(self.get("/api/saves", cookie=bob_cookie)[1])["saves"], [])
+
+    def test_every_user_sees_every_player_and_their_progress(self):
+        alice_cookie, alice = self.owner()
+        bob_cookie, bob = self.register("bob")
+        save = self.create_save(alice_cookie)
+        summary = {"slot": 0, "percent": 12, "goldenBananas": 9, "keys": 1, "crowns": 0, "medals": 0,
+                   "fairies": 0, "blueprints": 2, "kongs": 2, "playSeconds": 3600}
+        self.assertEqual(self.put_eeprom(alice_cookie, save["id"], summary).status, 204)
+        resp, payload = self.get("/api/players", cookie=bob_cookie)
+        self.assertEqual(resp.status, 200)
+        players = {p["username"]: p for p in self.json_of(payload)["players"]}
+        self.assertEqual(set(players), {"alice", "bob"})
+        self.assertTrue(players["alice"]["owner"])
+        self.assertEqual([(s["id"], s["name"], s["summary"]) for s in players["alice"]["saves"]],
+                         [(save["id"], "Save 1", summary)])
+        self.assertEqual(players["bob"]["saves"], [])
+        self.assertFalse(players["bob"]["disabled"])
+        self.assertEqual(self.get("/api/players")[0].status, 401)
+
+    def test_the_owner_adopts_saves_made_before_sign_in_existed(self):
+        with contextlib.closing(sqlite3.connect(self.app.db_path)) as conn:
+            conn.execute("INSERT INTO saves (user_id, name) VALUES (NULL, 'Save 1')")
+            conn.commit()
+        alice_cookie, _ = self.owner()
+        self.assertEqual([s["name"] for s in self.json_of(self.get("/api/saves", cookie=alice_cookie)[1])["saves"]],
+                         ["Save 1"])
+        bob_cookie, _ = self.register("bob")
+        self.assertEqual(self.json_of(self.get("/api/saves", cookie=bob_cookie)[1])["saves"], [])
+
+    def test_deleting_a_user_deletes_their_saves_and_history(self):
+        owner_cookie, _ = self.owner()
+        bob_cookie, bob = self.register("bob")
+        save = self.create_save(bob_cookie)
+        self.assertEqual(self.put_eeprom(bob_cookie, save["id"]).status, 204)
+        self.assertEqual(self.delete(f"/api/users/{bob['id']}", cookie=owner_cookie)[0].status, 204)
+        with contextlib.closing(self.app.db()) as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM saves WHERE id = ?", (save["id"],)).fetchone())
+            self.assertIsNone(conn.execute("SELECT 1 FROM eeprom WHERE save_id = ?", (save["id"],)).fetchone())
 
     # --- invite tokens at rest and one-shot email ---------------------------------------------------------------
 

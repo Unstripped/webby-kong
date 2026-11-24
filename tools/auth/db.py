@@ -9,6 +9,7 @@ lexicographically and compare with now_iso() as plain strings.
 """
 import contextlib
 import hashlib
+import json
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -109,6 +110,9 @@ def init(path, registration_open_default=True):
         conn.executescript(SCHEMA)
         conn.execute(f"INSERT OR IGNORE INTO settings (key, value) VALUES ('{REGISTRATION_OPEN}', ?)",
                      ("1" if registration_open_default else "0",))
+        owner = conn.execute("SELECT id FROM users WHERE is_owner = 1 LIMIT 1").fetchone()
+        if owner is not None:
+            adopt_orphan_saves(conn, owner[0])
         conn.commit()
 
 
@@ -164,6 +168,29 @@ def list_users(conn):
     return conn.execute(
         "SELECT u.*, (SELECT count(*) FROM credentials c WHERE c.user_id = u.id) AS passkey_count "
         "FROM users u ORDER BY u.id").fetchall()
+
+
+# --- saves (tools/saves.py owns the table) ----------------------------------------------------------------------
+
+def adopt_orphan_saves(conn, owner_id):
+    """Saves made with the gate off (or the pre-saves shared history) have no user: they become the owner's."""
+    conn.execute("UPDATE saves SET user_id = ? WHERE user_id IS NULL", (owner_id,))
+
+
+def list_players(conn):
+    """Every user, disabled ones too, each with their saves (most recently played first) for the dashboard."""
+    players = {}
+    for row in conn.execute("SELECT * FROM users ORDER BY username COLLATE NOCASE"):
+        players[row["id"]] = {"id": row["id"], "username": row["username"], "owner": bool(row["is_owner"]),
+                              "disabled": bool(row["disabled"]), "last_login_at": row["last_login_at"],
+                              "saves": []}
+    for row in conn.execute("SELECT id, user_id, name, played_at, summary FROM saves WHERE user_id IS NOT NULL "
+                            "ORDER BY played_at IS NULL, played_at DESC, id DESC"):
+        player = players.get(row["user_id"])
+        if player is not None:
+            player["saves"].append({"id": row["id"], "name": row["name"], "played_at": row["played_at"],
+                                    "summary": json.loads(row["summary"]) if row["summary"] else None})
+    return list(players.values())
 
 
 # --- credentials ------------------------------------------------------------------------------------------------

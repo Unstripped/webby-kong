@@ -29,9 +29,9 @@ typedef struct LightTrigger {
 
 _Static_assert(sizeof(LightTrigger) == 0x40, "LightTrigger layout");
 
-extern f32 D_807F7EEC; /* ambient r */
-extern f32 D_807F7EF0; /* ambient g */
-extern f32 D_807F7EF4; /* ambient b */
+extern f32 gLightBaseR; /* ambient r */
+extern f32 gLightBaseG; /* ambient g */
+extern f32 gLightBaseB; /* ambient b */
 extern f32 D_80758D50; /* spot distance cutoff (1100.0) */
 
 /* cvt.w.s then the asm's upper clamp at 255 (no lower clamp; sb keeps the low byte). */
@@ -63,9 +63,9 @@ void lightApplyToVertices(Vtx *start, Vtx *end, s32 stride, LightTrigger *lights
 
     while (v < (u8 *)end) {
         Vtx *vtx = (Vtx *)v;
-        f32 r = D_807F7EEC;
-        f32 g = D_807F7EF0;
-        f32 b = D_807F7EF4;
+        f32 r = gLightBaseR;
+        f32 g = gLightBaseG;
+        f32 b = gLightBaseB;
         s32 vx = vtx->v.ob[0];
         s32 vy = vtx->v.ob[1];
         s32 vz = vtx->v.ob[2];

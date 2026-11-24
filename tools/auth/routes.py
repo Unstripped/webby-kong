@@ -1,9 +1,9 @@
 """HTTP surface of the sign-in gate.
 
 Public (no cookie):   /auth/api/config, /auth/api/invites/<token>, /auth/api/register/*, /auth/api/login/*, logout
-Session required:     /api/me, /api/me/passkeys/*, /api/settings, /api/users*, /api/invites*
+Session required:     /api/me, /api/me/passkeys/*, /api/settings, /api/users*, /api/invites*, /api/players
 
-serve.py owns /api/eeprom and /api/rom and calls gate() before serving anything else; when this module returns False
+serve.py owns /api/saves* and /api/rom and calls gate() before serving anything else; when this module returns False
 from handle(), the request was not ours and falls through to the existing static-file code.
 
 Every response is JSON with Cache-Control: no-store; errors are {"error": "<code>", "message": "<sentence>"}.
@@ -25,7 +25,8 @@ MAX_JSON_BYTES = 64 * 1024
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 PUBLIC_PREFIXES = ("/auth/", "/invite/")
 PUBLIC_PATHS = {"/favicon.ico"}
-OWN_API_PATHS = {"/api/eeprom", "/api/rom"}
+OWN_API_PATHS = {"/api/rom", "/api/saves"}
+OWN_API_PREFIXES = ("/api/saves/",)
 
 
 class HttpError(Exception):
@@ -104,6 +105,13 @@ def _require_user(handler, conn):
     if user is None:
         raise HttpError(401, "unauthorized", "sign in first")
     return user
+
+
+def user_id(handler, db_path):
+    """The signed-in user's id for serve.py's own APIs (tools/saves.py), or None."""
+    with db.open_db(db_path) as conn:
+        user = _user(handler, conn)
+    return user["id"] if user is not None else None
 
 
 def _require_owner(handler, conn):
@@ -267,6 +275,8 @@ def _register_complete(handler, conn, match):
             if consumed.rowcount != 1:
                 raise HttpError(409, "invite_exhausted", "that invite link has just been used")
         user = db.create_user(conn, username, stored["handle"])
+        if user["is_owner"]:
+            db.adopt_orphan_saves(conn, user["id"])
         db.create_credential(conn, user["id"], credential_id, bytes(verified.credential_public_key),
                              verified.sign_count, _transports(body), str(verified.aaguid),
                              verified.credential_backed_up, verified.credential_backed_up, name)
@@ -421,6 +431,11 @@ def _list_users(handler, conn, match):
                                    for row in db.list_users(conn)]})
 
 
+def _list_players(handler, conn, match):
+    _require_user(handler, conn)
+    _json(handler, 200, {"players": db.list_players(conn)})
+
+
 def _patch_user(handler, conn, match):
     owner = _require_owner(handler, conn)
     target = db.get_user(conn, int(match["id"]))
@@ -533,6 +548,7 @@ ROUTES = [
     ("GET", r"^/api/users$", _list_users),
     ("PATCH", r"^/api/users/(?P<id>\d+)$", _patch_user),
     ("DELETE", r"^/api/users/(?P<id>\d+)$", _delete_user),
+    ("GET", r"^/api/players$", _list_players),
     ("GET", r"^/api/invites$", _list_invites),
     ("POST", r"^/api/invites$", _create_invite),
     ("DELETE", r"^/api/invites/(?P<id>\d+)$", _revoke_invite),
@@ -574,7 +590,7 @@ def handle(handler, db_path):
     path = urlsplit(handler.path).path
     if not (path.startswith("/auth/api/") or path.startswith("/api/")):
         return False
-    if path in OWN_API_PATHS:
+    if path in OWN_API_PATHS or path.startswith(OWN_API_PREFIXES):
         return False
     method = handler.command.upper()
     try:

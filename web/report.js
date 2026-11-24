@@ -13,8 +13,7 @@
   const REPO = 'https://github.com/Unstripped/webby-kong';
   const MAX_URL = 7500;
   const PREFIX = 'DK64R1.';
-  const SAVE_PATH = '/saves/dk64.eep';
-  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate'];
+  const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert'];
   const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
   const LOG_MAX = 60;
   const HIT_RE = /^#\d+ dl=/m;
@@ -66,9 +65,24 @@
 
   // ---- crash detection
   let crashMsg = null;
-  function crashed(msg) {
+  let crashStack = null;
+  // the trap's call stack, innermost first: wasm frames as `name [function index]+module offset` (the name section
+  // is in every build; the offset resolves against the same dk64.wasm, e.g. with tools/wasm_funcs.py)
+  function stackFrames(stack) {
+    const lines = String(stack || '').split('\n').map((l) => l.trim()).filter((l) => /^at |@/.test(l));
+    const wasm = [];
+    for (const l of lines) {
+      const at = /wasm-function\[(\d+)\]:(0x[0-9a-f]+)/i.exec(l);
+      if (!at) continue;
+      const name = (/^at ([^\s(]+) \(/.exec(l) || /^([^@\s]+)@/.exec(l) || [])[1] || '?';
+      wasm.push(`${name.replace(/^.*\.wasm\./, '')} [${at[1]}]+${at[2]}`);
+    }
+    return (wasm.length ? wasm : lines).slice(0, 24);
+  }
+  function crashed(msg, stack) {
     if (!window.Module || crashMsg !== null) return;
     crashMsg = String(msg);
+    crashStack = stackFrames(stack);
     log('crash: ' + crashMsg);
     setTimeout(() => window.dk64menu && window.dk64menu.openCrash(crashMsg), 0);
   }
@@ -77,12 +91,12 @@
   }
   window.addEventListener('error', (e) => {
     log('error: ' + e.message);
-    if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error.message);
+    if (e.error instanceof WebAssembly.RuntimeError) crashed(e.error.message, e.error.stack);
   });
   window.addEventListener('unhandledrejection', (e) => {
     const r = e.reason;
     log('error: ' + (r && r.message ? r.message : String(r)));
-    if (r instanceof WebAssembly.RuntimeError) crashed(r.message);
+    if (r instanceof WebAssembly.RuntimeError) crashed(r.message, r.stack);
   });
 
   // ---- encoding
@@ -137,6 +151,9 @@
     if (s.interp != null) parts.push(`${30 << s.interp} fps`);
     if (s.audio3d != null) parts.push(`3D sound ${s.audio3d ? 'on' : 'off'}`);
     if (s.audiorate != null) parts.push(`audio ${s.audiorate / 1000} kHz`);
+    if (s.stickcam != null) parts.push(`right-stick camera ${s.stickcam ? 'on' : 'off'}`);
+    if (s.stickcam && s.camspeed != null) parts.push(`camera speed ${s.camspeed}`);
+    if (s.stickcam && s.caminvert) parts.push(`camera invert ${['', 'horizontal', 'vertical', 'both'][s.caminvert]}`);
     if (s.touch != null) parts.push(`touch ${s.touch}`);
     return parts.join(' · ') || '—';
   }
@@ -173,7 +190,8 @@
       }
     };
     if (!crash) attempt(() => m.ccall('port_save_flush_now', null));
-    const save = attempt(() => (m.FS.analyzePath(SAVE_PATH).exists ? toHex(m.FS.readFile(SAVE_PATH)) : null));
+    const savePath = window.dk64saves.path();
+    const save = attempt(() => (m.FS.analyzePath(savePath).exists ? toHex(m.FS.readFile(savePath)) : null));
     let resumeReason = null;
     const resume = attempt(() => {
       const r = JSON.parse(m.ccall('port_resume_capture', 'string'));
@@ -211,6 +229,7 @@
       progress: prog,
       settings: dataSettings,
       crash,
+      stack: crash && crashStack && crashStack.length ? crashStack : null,
       mark: null,
     };
 
@@ -315,6 +334,7 @@
     const parts = [
       ['| | |', '| --- | --- |', ...report.table.map(([k, v]) => `| **${cell(k)}** | ${cell(v)} |`)].join('\n'),
     ];
+    parts.push(details('Crash stack', report.data.stack || []));
     parts.push(details('Recent game events', nTrace ? report.trace.slice(-nTrace) : []));
     parts.push(details('Console', nLog ? report.log.slice(-nLog) : []));
     if (blob) {
@@ -418,9 +438,10 @@
     m.ccall('port_set_paused', null, ['number'], [1]);
     m.ccall('port_save_flush_now', null);
     if (r.save) {
-      m.FS.writeFile(SAVE_PATH, fromHex(r.save));
+      const savePath = window.dk64saves.path();
+      m.FS.writeFile(savePath, fromHex(r.save));
       const t = Date.now();
-      m.FS.utime(SAVE_PATH, t, t); // newest mtime: saves.js boot uploads and keeps this copy
+      m.FS.utime(savePath, t, t); // newest mtime: saves.js boot uploads and keeps this copy
       await new Promise((resolve, reject) => m.FS.syncfs(false, (err) => (err ? reject(err) : resolve())));
     } else {
       window.dk64dbg.toast('Report has no save file; loading its location only');
