@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Serve build/web, keep every version of every save game's EEPROM in SQLite and serve a mounted ROM.
 
-Static files are served like `python3 -m http.server -d build/web 8080`. web/saves.js and web/main.js add:
+Static files are served like `python3 -m http.server -d build/web 8080`. web/src/game/saves.ts and boot.ts add:
 
   /api/saves...     save games: list/create/rename/delete, and per save the latest EEPROM (GET), a new version
                     (PUT, kept as history) and the "Exit to dashboard" resume point. Endpoints, schema and the
                     sqlite3 recovery recipes: tools/saves.py
   GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
-                    404 if none. web/main.js starts it without the file picker (the Docker image mounts /rom)
+                    404 if none. web/src/game/boot.ts starts it without the file picker (the Docker image mounts /rom)
 
 WEBBY_KONG_AUTH=1 puts an optional passkey sign-in gate in front of all of that (tools/auth/): the splash page lives
 at /auth/, the dashboard at /, the game at /play, and everything else needs a session cookie. Without the variable

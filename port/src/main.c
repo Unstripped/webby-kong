@@ -396,7 +396,7 @@ int main(int argc, char **argv) {
 #include <string.h>
 
 static double sLastMs;
-static int sMenuPaused; /* web/menu.js open: the game is frozen */
+static int sMenuPaused; /* Esc menu (web/src/game/menu/) open: the game is frozen */
 
 int portMainQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sAccumMs);
@@ -420,7 +420,7 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
     }
 }
 
-/* web/settings.js: applied between frames; each returns the value in effect */
+/* web/src/game/settings.ts: applied between frames; each returns the value in effect */
 EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }

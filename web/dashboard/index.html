@@ -5,18 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>Webby</title>
-<link rel="stylesheet" href="/dashboard/dashboard.css">
 </head>
 <body>
-<header class="hdr">
-  <div class="brand"><div id="banana" aria-hidden="true"></div><span class="wordmark">Webby</span></div>
-  <div class="who"><span id="who"></span><button type="button" id="signout" class="btn ghost">Sign out</button></div>
-</header>
-<main id="grid" class="grid" aria-live="polite"></main>
-<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
-<script src="/auth/webauthn.js"></script>
-<script src="/auth/banana.js"></script>
-<script src="/savefile.js"></script>
-<script src="/dashboard/dashboard.js"></script>
+<!-- display:contents keeps the header, grid and toasts laid out as direct children of <body> -->
+<div id="app" style="display:contents"></div>
+<script type="module" src="/src/dashboard/main.tsx"></script>
 </body>
 </html>

@@ -87,7 +87,10 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 - At start, `portRomFill` (`port/src/romfill.c`) inflates the global, arcade and jetpac segments from the ROM and
   copies the pieces listed in `build/gen/rom_fill.c` into their placeholders (`PORT: rom fill ok <n> pieces`).
 - CMake links two targets: `dk64` (browser) and `dk64_headless` (node).
-- Edits to `web/*.js` and `web/index.html` are copied to `build/web` by their own target, without relinking.
+- The page (`web/`, TypeScript + Preact) is built by Vite into `build/web` by its own target (`dk64_web_files`:
+  `npm ci` when `package-lock.json` changes, `npm run typecheck`, `vite build`), so a page edit never relinks. It
+  needs `npm` (Node from `mise.toml`); `-DWEBBY_KONG_WEB=OFF` builds the wasm alone. `npm run watch` rebuilds the
+  page on every save without CMake.
 - `-DPORT_SAFE_HEAP=ON` in a separate build directory makes the headless build trap wild memory accesses.
 
 ## Serving and saves
@@ -105,7 +108,7 @@ Open `http://localhost:8080/` and pick the ROM. With `WEBBY_KONG_ROM` set to a R
 `*.z64`/`*.n64`/`*.v64`) the server serves it at `/api/rom` and the page starts it without the picker. For a ROM at
 another URL, open `http://localhost:8080/?rom=<url>`.
 
-The game save (EEPROM) lives in IndexedDB; `web/saves.js` also uploads every version to `tools/serve.py`, which keeps
+The game save (EEPROM) lives in IndexedDB; `web/src/game/saves.ts` also uploads every version to `tools/serve.py`, which keeps
 them in `WEBBY_KONG_DB` (default `~/.local/share/webby-kong/saves.sqlite3`) and restores the newest one at page load.
 The recovery commands (list, export, make a version current) are in the `tools/serve.py` docstring
 (`tools/serve.py --help`). Under a plain static server the page warns and keeps the save in the browser only.

@@ -1,4 +1,4 @@
-"""tools/report.py: decoding the in-game bug report blob (web/report.js) from issue text."""
+"""tools/report.py: decoding the in-game bug report blob (web/src/game/report.ts) from issue text."""
 import base64
 import json
 import sys

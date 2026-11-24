@@ -13,3 +13,6 @@ __pycache__/
 
 # Local settings for `mise run serve` / `docker run --env-file` (see .env.example)
 .env
+/node_modules/
+/test-results/
+/playwright-report/

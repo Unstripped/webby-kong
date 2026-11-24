@@ -143,7 +143,7 @@ static void glsU1(GLint loc, float *c, float v) {
     }
 }
 
-/* frame grab for web/debug.js: requested from JS, filled after the next present */
+/* frame grab for web/src/game/debug/api.ts: requested from JS, filled after the next present */
 static int sCaptureReq, sCaptureW, sCaptureH;
 static u32 sCaptureSeq;
 static u8 *sCapturePx;
@@ -731,7 +731,7 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     draw(q, 6);
 }
 
-/* web/debug.js frame grab: the canvas as just presented */
+/* web/src/game/debug/api.ts frame grab: the canvas as just presented */
 static void captureIfRequested(int w, int h) {
     size_t need;
     if (!sCaptureReq || w <= 0 || h <= 0) {

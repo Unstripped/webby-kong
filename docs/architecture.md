@@ -53,7 +53,7 @@ flowchart LR
 
 `tools/serve.py` is the whole server: `ThreadingHTTPServer` over `SimpleHTTPRequestHandler`, one SQLite file.
 
-- Static files from `--dir` (`web/` plus the built `dk64.js`/`dk64.wasm`), as `python -m http.server` would serve them.
+- Static files from `--dir` (the Vite build of `web/` plus the built `dk64.js`/`dk64.wasm`), as `python -m http.server` would serve them.
 - `/api/saves*` (`tools/saves.py`): save games, each a 2 KB EEPROM with every version kept, a progress summary the
   game uploads with it and the resume point of "Exit to dashboard"; `GET /api/rom` hands the browser the mounted ROM.
 - `WEBBY_KONG_AUTH=1` adds the optional passkey gate (`tools/auth/`): `/auth/` splash, `/` dashboard, `/play` the game,

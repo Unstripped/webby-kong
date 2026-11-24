@@ -23,7 +23,9 @@ from . import webauthn as wa
 
 MAX_JSON_BYTES = 64 * 1024
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
-PUBLIC_PREFIXES = ("/auth/", "/invite/")
+# /assets/ holds Vite's content-hashed JS/CSS bundles (source code, no ROM data); the wasm, ROM, menu images and APIs
+# stay gated
+PUBLIC_PREFIXES = ("/auth/", "/invite/", "/assets/")
 PUBLIC_PATHS = {"/favicon.ico"}
 OWN_API_PATHS = {"/api/rom", "/api/saves"}
 OWN_API_PREFIXES = ("/api/saves/",)

@@ -209,7 +209,7 @@ defaulting to that release's image); every push to `development` publishes `:lat
 
 ## License
 
-[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: `web/nipplejs.js` is nipplejs under the MIT
-license (see its header); `port/src/audio/hrir_kemar.c` is derived from the KEMAR HRTF measurements by Bill Gardner
-and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this citation
-(<https://sound.media.mit.edu/resources/KEMAR.html>).
+[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: the npm packages bundled into the page (Preact,
+@preact/signals and nipplejs, all MIT; see `package.json`); `port/src/audio/hrir_kemar.c` is derived from the KEMAR
+HRTF measurements by Bill Gardner and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this
+citation (<https://sound.media.mit.edu/resources/KEMAR.html>).

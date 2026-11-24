@@ -1,5 +1,5 @@
-/* Current level's collectables as JSON for the web menu (web/menu.js), and the save's headline numbers for the
- * dashboard (web/saves.js upload); the game fills PortLevelProgress and PortSaveSummary. */
+/* Current level's collectables as JSON for the web menu (web/src/game/menu/), and the save's headline numbers for
+ * the dashboard (web/src/game/saves.ts upload); the game fills PortLevelProgress and PortSaveSummary. */
 #include "port_internal.h"
 #include <emscripten.h>
 #include <stdio.h>

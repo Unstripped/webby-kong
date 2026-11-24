@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode an in-game bug report (web/report.js) from a GitHub issue.
+"""Decode an in-game bug report (web/src/game/report.ts) from a GitHub issue.
 
 Reads FILE, or stdin when omitted, and finds the DK64R1.<base64url(deflate-raw(JSON))> blob anywhere in it:
 

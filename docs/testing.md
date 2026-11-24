@@ -10,14 +10,20 @@ locally from the repository root:
 | --- | --- | --- |
 | `rom-guard` | No committed file is a ROM, build output (`.wasm`), starts with an N64 ROM header, or is larger than 2 MiB | `python3 tools/check_no_roms.py` |
 | `patches` | `patches/*.patch` apply to the pinned `decomp/` source | `python3 tools/prepare.py check` |
-| `checks` | Python and JavaScript parse, shell scripts parse, tooling unit tests pass | see below |
+| `checks` | Python parses, the page typechecks (`tsc`) and its unit/component tests pass (Vitest), shell scripts parse, tooling unit tests pass | see below |
+| `e2e` | ROM-free Playwright runs against `tools/serve.py`: the game page's ROM drop zone, F2 panel and window globals, and passkey sign-up, dashboard saves and sign-in with a virtual authenticator | see below |
 
 ```sh
 python3 -m compileall -q tools tests/tools
-for f in web/*.js; do node --check "$f"; done
+npm ci && npm run typecheck && npm test
 sh -n tools/link_check.sh && sh -n .githooks/pre-commit
 python3 -m unittest discover -s tests/tools -v
+npx playwright install chromium   # once
+npm run build && npm run test:e2e
 ```
+
+Vitest tests live next to their sources (`web/src/**/*.test.ts(x)`, happy-dom); the Playwright specs are in
+`tests/e2e/` and start two `tools/serve.py` instances (ports 8090 and 8091) on throwaway databases in `build/e2e/`.
 
 Because CI cannot run the game, the headless scenarios below are a required local step before merging to `main`.
 

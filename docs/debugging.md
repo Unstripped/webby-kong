@@ -8,7 +8,7 @@ JSON every 60 frames ([testing.md](testing.md)).
 
 ## Debug panel and `dk64dbg`
 
-`web/debug.js` adds a `dk64dbg` object to the page (state, trace log, frame grabs, marks):
+`web/src/game/debug/api.ts` adds a `dk64dbg` object to the page (state, trace log, frame grabs, marks):
 
 - F2 toggles the debug panel: state, trace category toggles (they persist across reloads), Mark and Export buttons,
   quicksave controls.
@@ -17,7 +17,7 @@ JSON every 60 frames ([testing.md](testing.md)).
 
 ## Quicksave and resume
 
-F5 quicksaves and F9 quickloads (`web/quicksave.js`, one slot in IndexedDB). A quicksave is an exact snapshot of
+F5 quicksaves and F9 quickloads (`web/src/game/quicksave.ts`, one slot in IndexedDB). A quicksave is an exact snapshot of
 RDRAM plus the port and game `.data`/`.bss` (`port/src/qs.c`) and restores only into the identical `dk64.wasm`
 (it is bound to the wasm's SHA-1). It also records a resume point (save slot, kong, map, position) taken in
 adventure mode.
@@ -28,7 +28,7 @@ resume point once the EEPROM is read. `?noresume` or the panel's Auto-resume chi
 ## Bug reports
 
 Esc → Report a bug (or a crash, which opens the same view) builds a prefilled issue from `.github/ISSUE_TEMPLATE/`
-(`web/report.js`): a table of version, location, settings and browser, recent trace events and console lines, and
+(`web/src/game/report.ts`): a table of version, location, settings and browser, recent trace events and console lines, and
 one `DK64R1.` blob (base64url of deflate-raw JSON) holding the EEPROM save, the resume point, level progress,
 settings and, when the player clicked the screenshot, the pixel probe at that spot. The RDRAM quicksave is never
 included: it is ROM-derived. A crash (wasm trap or `abort()`) adds its call stack, innermost first, as
