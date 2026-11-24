@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Tue, 24 Nov 2026 11:39:27 -0700
+Subject: [PATCH] port: disco chunky
+
+
+diff --git a/src/global/CC800.c b/src/global/CC800.c
+index 2730899..b3a35b0 100644
+--- a/src/global/CC800.c
++++ b/src/global/CC800.c
+@@ -345,6 +345,16 @@ extern s32 gCurrentMap;
+ extern f32 gKongAccelY[];
+ extern f32 gKongTerminalSpeedY[];
+ 
++// PORT: Esc menu "Disco Chunky" (gPortDiscoChunky): Chunky's model 0xC becomes 0xE, his afro and disco suit
++// (same skeleton and animations; F56F0 playerKongHolsterGun already handles 0xC-0x10). Reads the s32 word, as patch 0002.
++s32 playerPortCharacterModel(const KongCharacterEntry *row) {
++    s32 model = (u16)row->model;
++    if (model == 0xC && gPortDiscoChunky) {
++        return 0xE;
++    }
++    return model;
++}
++
+ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
+     const KongCharacterEntry *row;
+     u32 slot = playerIndex;
+@@ -357,7 +367,7 @@ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
+         gPlayerCharacterId[0] = 0;
+     }
+     row = &gKongCharacterTable[gPlayerCharacterId[slot]];
+-    actorSpawn(row->actorType, row->model);
++    actorSpawn(row->actorType, playerPortCharacterModel(row));
+     gSpawnedActor->flags &= ~0x1000;
+     gSpawnedActor->flags |= row->actorFlags;
+     gSpawnedActor->shadowScale[0] = 0x42;
+@@ -600,7 +610,7 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+     gCurrentCharacterIndex = row->characterIndex;
+     controllerAnimFree(gActivePlayerActor);
+     actorSub140Free(gActivePlayerActor->collision);
+-    controllerAnimInit(gActivePlayerActor, (u16)row->model); // PORT: m.modelId is the word's low half, +2 on the N64 only
++    controllerAnimInit(gActivePlayerActor, playerPortCharacterModel(row)); // PORT: Disco Chunky; reads the word, not m.modelId
+     gActivePlayerActor->collision = actorSub140CreateFromModel(gActivePlayerActor);
+     gActivePlayerActor->flags &= ~0x1000;
+     gActivePlayerActor->flags |= row->actorFlags;
+diff --git a/src/global/CEAE0.c b/src/global/CEAE0.c
+index 600865d..bc23a63 100644
+--- a/src/global/CEAE0.c
++++ b/src/global/CEAE0.c
+@@ -507,6 +507,30 @@ static void playerPortDpadKongSwap(void) {
+     tagBarrelSpawnActorSmokePuffs(0, 1);
+ }
+ 
++s32 playerPortCharacterModel(const KongCharacterEntry *row);
++
++// PORT: when the Disco Chunky setting changes (or a quickload brings back the other model) while Chunky is the
++// player, reload his model where a D-pad kong swap would be allowed: the swap's commit, same kong.
++static void playerPortDiscoChunkySync(void) {
++    s32 model;
++
++    if (gPlayerCharacterId[0] != 4 || gCurrentActor != gActivePlayerActor) {
++        return;
++    }
++    model = controllerLookupModelAssetId(gCurrentActor);
++    if ((model != 0xC && model != 0xE) || model == playerPortCharacterModel(&gKongCharacterTable[4])) {
++        return;
++    }
++    if (!playerPortKongSwapAllowed()) {
++        return;  // retried every frame until Chunky stands on the ground with nothing pending
++    }
++    playerApplyCharacterModel(&gKongCharacterTable[4]);
++    playerSetActiveGlobals(gCurrentActor);
++    gActivePlayerState->gunDrawn = 0;
++    playerResumeLocomotion(gCurrentActor);
++    tagBarrelSpawnActorSmokePuffs(0, 1);
++}
++
+ void playerUpdateCommon(s32 mode) {
+     f32 dist;
+     f32 screenX;
+@@ -598,6 +622,7 @@ void playerUpdateCommon(s32 mode) {
+     }
+     gCurrentActor->renderFlags &= ~0x1000;
+     playerPortDpadKongSwap();  // PORT
++    playerPortDiscoChunkySync();  // PORT
+     gPlayerStateHandlers[gCurrentActor->state].fn();
+     gActivePlayerState->hitStatus = collisionGetHitStatus();
+     if (gPlayerCount == 1) {
