@@ -1,6 +1,7 @@
-/* EEPROM persistence: one file per save game, /saves/s<id>.eep (--save-file from web/main.js; /saves/dk64.eep without
- * the save server). IDBFS in the browser, backed up through web/saves.js with the save's summary; NODERAWFS-free
- * memory in headless. port_save_request/port_save_busy run the in-game save for web/menu.js "Exit to dashboard". */
+/* EEPROM persistence: one file per save game, /saves/s<id>.eep (--save-file from web/src/game/boot.ts;
+ * /saves/dk64.eep without the save server). IDBFS in the browser, backed up through web/src/game/saves.ts with the
+ * save's summary; NODERAWFS-free memory in headless. port_save_request/port_save_busy run the in-game save for the Esc
+ * menu's "Exit to dashboard" (web/src/game/menu/control.ts). */
 #include "port_internal.h"
 #include <emscripten.h>
 #include <stdio.h>
@@ -32,7 +33,7 @@ EM_JS(void, port_save_sync, (const char *summary), {
         FS.syncfs(false, function(err) {
             if (err) console.log('PORT: save sync failed: ' + err);
         });
-        if (typeof window !== 'undefined' && window.dk64saves) { /* web/saves.js */
+        if (typeof window !== 'undefined' && window.dk64saves) { /* web/src/game/saves.ts (globals.ts) */
             window.dk64saves.upload(FS, UTF8ToString(summary));
         }
     }
@@ -93,7 +94,8 @@ EMSCRIPTEN_KEEPALIVE void port_save_flush_now(void) {
     }
 }
 
-/* web/menu.js exit: 1 requests the in-game save (consumed by mainThreadLoop), 0 withdraws it */
+/* Esc menu exit (web/src/game/menu/control.ts): 1 requests the in-game save (consumed by mainThreadLoop), 0 withdraws
+ * it */
 EMSCRIPTEN_KEEPALIVE void port_save_request(s32 on) {
     gPortSaveRequest = on != 0;
 }

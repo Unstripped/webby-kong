@@ -1,0 +1,15 @@
+    .dk64t-root { position: fixed; inset: 0; z-index: 2; pointer-events: none; display: none;
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    .dk64t-root.on { display: block; }
+    .dk64t-root.menuonly { display: block; }
+    .dk64t-root.menuonly:not(.on) > :not(.dk64t-menu) { display: none; }
+    .dk64t-zone { position: fixed; left: 0; top: 0; width: 50vw; height: 100vh; pointer-events: auto; touch-action: none; z-index: 2; }
+    .dk64t-btn { position: fixed; z-index: 3; pointer-events: auto; touch-action: none; display: flex; align-items: center;
+      justify-content: center; border-radius: 50%; border: 2px solid rgba(255,255,255,.45); background: rgba(255,255,255,.14);
+      color: rgba(255,255,255,.85); font: 600 3.2vmin/1 system-ui, sans-serif; box-sizing: border-box; }
+    .dk64t-sh, .dk64t-st, .dk64t-swap { border-radius: 2vmin; }
+    .dk64t-root.noswap .dk64t-swap { display: none; }
+    .dk64t-a { background: rgba(60,110,255,.35); }
+    .dk64t-b { background: rgba(40,180,80,.35); }
+    .dk64t-c { background: rgba(240,200,40,.30); }
+    .dk64t-btn.down { background: rgba(255,255,255,.45); }

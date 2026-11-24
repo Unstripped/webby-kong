@@ -123,7 +123,7 @@ typedef struct {
     s32 slot, percent, goldenBananas, keys, crowns, medals, fairies, blueprints, kongs, playSeconds;
 } PortSaveSummary;
 s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/global/3C10.c */
-extern s32 gPortSaveRequest;  /* web/menu.js exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
+extern s32 gPortSaveRequest;  /* Esc menu exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
 extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
 
 /* ---- kong swap (web settings; patches/0027-port-dpad-kong-swap.patch) ---- */

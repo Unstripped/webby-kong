@@ -210,6 +210,8 @@ class AuthEnabledTest(unittest.TestCase):
             self.assertEqual(self.json_of(payload)["error"], "unauthorized")
         resp, _ = self.get("/favicon.ico")
         self.assertEqual(resp.status, 404)  # public, just missing
+        resp, _ = self.get("/assets/missing.js")
+        self.assertEqual(resp.status, 404)  # public, just missing
 
     def test_public_surface_needs_no_cookie(self):
         resp, payload = self.get("/auth/api/config")

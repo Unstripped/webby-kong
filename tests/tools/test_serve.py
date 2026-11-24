@@ -1,5 +1,5 @@
-"""tools/serve.py: the save games API (tools/saves.py) that web/saves.js relies on and the mounted ROM web/main.js
-loads."""
+"""tools/serve.py: the save games API (tools/saves.py) that web/src/game/saves.ts relies on and the mounted ROM
+web/src/game/boot.ts loads."""
 import base64
 import contextlib
 import functools

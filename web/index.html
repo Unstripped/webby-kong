@@ -40,38 +40,8 @@
 </style>
 </head>
 <body>
-<!-- z-index 5: above touch controls / debug panel (2-3), below the Esc menu and crash report (10) -->
-<div id="rom-drop" hidden>
-  <button type="button" id="rom-zone">
-    <!-- N64 Game Pak front traced from photos, 116x76: straight sides and bottom, one wide dome arc across the top
-         with rounded shoulders, a notch cut into each bottom corner, two vertical seams marking the side strips, and a
-         label recess whose top follows the dome. The arrow sits on the label; .spin (3/4 circle centered on the label)
-         shows only while loading. -->
-    <svg viewBox="0 -2 120 80" aria-hidden="true">
-      <g transform="translate(2 0)">
-        <path class="body" d="M4 76 V69 H0 V22 Q0 18.2 5 15.5 A111 111 0 0 1 111 15.5 Q116 18.2 116 22 V69 H112 V76 Z"/>
-        <path class="strip" d="M4 76 V69 H0 V22 Q0 18.2 5 15.5 A111 111 0 0 1 18 9.5 V76 Z M98 9.5 A111 111 0 0 1 111 15.5 Q116 18.2 116 22 V69 H112 V76 H98 Z"/>
-        <path class="seam" d="M18 9.5 V76 M98 9.5 V76"/>
-        <path class="label" d="M24 14.5 A104 104 0 0 1 92 14.5 V63 Q92 66 89 66 H27 Q24 66 24 63 Z"/>
-        <path class="arrow" d="M58 20 V50 M47 40 L58 51 L69 40"/>
-        <path class="spin" d="M58 30 A11 11 0 1 1 47 41"/>
-      </g>
-    </svg>
-    <span aria-live="polite"><span id="rom-title"></span><span id="rom-detail"></span></span>
-  </button>
-  <input type="file" id="rom" accept=".z64,.n64,.v64" hidden>
-</div>
 <canvas id="canvas" tabindex="-1"></canvas>
-<script src="dk64.js"></script>
-<script src="saves.js"></script>
-<script src="savefile.js"></script>
-<script src="settings.js"></script>
-<script src="main.js"></script>
-<script src="quicksave.js"></script>
-<script src="debug.js"></script>
-<script src="report.js"></script>
-<script src="nipplejs.js"></script>
-<script src="touch.js"></script>
-<script src="menu.js"></script>
+<div id="app"></div>
+<script type="module" src="/src/game/main.tsx"></script>
 </body>
 </html>
