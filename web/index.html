@@ -8,14 +8,58 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 14px system-ui, sans-serif; touch-action: none; overscroll-behavior: none; }
   #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #000; outline: none; }
-  #ui { position: fixed; top: 8px; left: 8px; z-index: 1; }
-  #status { margin-left: 8px; }
+  #rom-drop { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #rom-drop[hidden] { display: none; }
+  #rom-zone { pointer-events: auto; width: min(280px, 80vmin); aspect-ratio: 1; box-sizing: border-box; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    border: 1px solid #2a2a2a; border-radius: 18px; background: #0a0a0a; color: inherit; font: inherit; text-align: center;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  #rom-zone:disabled { cursor: default; }
+  #rom-zone:not(:disabled):hover, #rom-zone:focus-visible { border-color: #f5b400; outline: none; }
+  #rom-drop svg { width: min(128px, 30vmin); height: auto; overflow: visible; }
+  #rom-drop .body { fill: #6d6d72; }
+  #rom-drop .strip { fill: #58585d; }
+  #rom-drop .seam { fill: none; stroke: #4b4b50; stroke-width: 2.4; stroke-linecap: round; }
+  #rom-drop .label { fill: #26262a; }
+  #rom-drop .arrow, #rom-drop .spin { fill: none; stroke: #f5b400; stroke-linecap: round; stroke-linejoin: round; }
+  #rom-drop .arrow { stroke-width: 6; transition: transform .15s, opacity .15s; }
+  #rom-drop .spin { stroke-width: 5; opacity: 0; transform-box: fill-box; transform-origin: center; }
+  #rom-zone:not(:disabled):hover .arrow { transform: translateY(5px); }
+  #rom-drop[data-state="loading"] .arrow { opacity: 0; }
+  #rom-drop[data-state="loading"] .spin { opacity: 1; animation: rom-spin 1s linear infinite; }
+  @keyframes rom-spin { to { transform: rotate(360deg); } }
+  #rom-title { display: block; color: #f1f1f1; font-size: 16px; font-weight: 800; letter-spacing: .02em; }
+  #rom-detail { display: block; margin-top: 4px; color: #777; font-size: 12px; overflow-wrap: anywhere; }
+  #rom-drop[data-state="error"] #rom-zone, #rom-drop[data-state="failed"] #rom-zone { border-color: #6b2222; }
+  #rom-drop[data-state="error"] #rom-title, #rom-drop[data-state="failed"] #rom-title { color: #ff6b6b; }
+  /* after the error rules: a drag over an error state turns yellow */
+  #rom-drop.over #rom-zone { border-color: #f5b400; box-shadow: 0 0 0 4px #f5b40022, 0 0 40px #f5b40033; }
+  #rom-drop.over #rom-title { color: #f1f1f1; }
+  #rom-drop.over .arrow { transform: translateY(5px); }
+  @media (prefers-reduced-motion: reduce) { #rom-drop * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
-<div id="ui">
-  <label>ROM (Donkey Kong 64 USA): <input type="file" id="rom" accept=".z64,.n64,.v64"></label>
-  <span id="status">Select your ROM to start.</span>
+<!-- z-index 5: above touch controls / debug panel (2-3), below the Esc menu and crash report (10) -->
+<div id="rom-drop" hidden>
+  <button type="button" id="rom-zone">
+    <!-- N64 Game Pak front traced from photos, 116x76: straight sides and bottom, one wide dome arc across the top
+         with rounded shoulders, a notch cut into each bottom corner, two vertical seams marking the side strips, and a
+         label recess whose top follows the dome. The arrow sits on the label; .spin (3/4 circle centered on the label)
+         shows only while loading. -->
+    <svg viewBox="0 -2 120 80" aria-hidden="true">
+      <g transform="translate(2 0)">
+        <path class="body" d="M4 76 V69 H0 V22 Q0 18.2 5 15.5 A111 111 0 0 1 111 15.5 Q116 18.2 116 22 V69 H112 V76 Z"/>
+        <path class="strip" d="M4 76 V69 H0 V22 Q0 18.2 5 15.5 A111 111 0 0 1 18 9.5 V76 Z M98 9.5 A111 111 0 0 1 111 15.5 Q116 18.2 116 22 V69 H112 V76 H98 Z"/>
+        <path class="seam" d="M18 9.5 V76 M98 9.5 V76"/>
+        <path class="label" d="M24 14.5 A104 104 0 0 1 92 14.5 V63 Q92 66 89 66 H27 Q24 66 24 63 Z"/>
+        <path class="arrow" d="M58 20 V50 M47 40 L58 51 L69 40"/>
+        <path class="spin" d="M58 30 A11 11 0 1 1 47 41"/>
+      </g>
+    </svg>
+    <span aria-live="polite"><span id="rom-title"></span><span id="rom-detail"></span></span>
+  </button>
+  <input type="file" id="rom" accept=".z64,.n64,.v64" hidden>
 </div>
 <canvas id="canvas" tabindex="-1"></canvas>
 <script src="dk64.js"></script>
