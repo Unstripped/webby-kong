@@ -26,6 +26,10 @@ tools/prepare.py export    # rewrite patches/ from build/tree commits base..HEAD
 
 Commit the resulting `patches/*.patch` changes here.
 
+`mise run sync` / `mise run serve` compile your `build/tree` commits and edits as they are; they recreate
+`build/tree` only when `decomp/`, `patches/` or `tools/prepare.py` change, and stop instead if it holds work
+`patches/` does not.
+
 ## No ROMs, ever
 
 Never commit a ROM, game asset, save file or build output: they are Nintendo's data or derived from it. CI rejects

@@ -122,24 +122,16 @@ From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 ```sh
 git clone https://github.com/Unstripped/webby-kong.git && cd webby-kong
 mise install
-git submodule update --init
-python -m venv tools/.venv
-tools/.venv/bin/pip install -r decomp/requirements.txt
-tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps  # libclang after the decomp's `clang` package
+mise run serve                   # syncs and builds (no ROM needed), then serves build/web on port 8080
 ```
 
-Build and run (no ROM needed to build):
-
-```sh
-tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
-emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/web          # dk64 (browser) and dk64_headless (node)
-mise run serve                   # serves build/web on port 8080 (settings: .env, see Configuration)
-```
+`mise run serve` first runs `mise run sync` (`tools/sync.py`): it fast-forwards the branch, checks out the pinned
+`decomp/`, sets up `tools/.venv`, regenerates `build/tree` and `build/gen` when their inputs changed and rebuilds
+`build/web`. Every step is skipped when already current, so run it whenever you pull or switch branches.
 
 Open `http://localhost:8080/` and pick the ROM, or set `WEBBY_KONG_ROM` in `.env` (or pass
-`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the reference decomp build
-(maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
+`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the manual steps, the
+reference decomp build (maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
 
 ## Playing
 
