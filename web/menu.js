@@ -258,7 +258,7 @@
   exitNote.style.display = 'none';
   const saveNote = el('p', 'msg');
   saveNote.style.display = 'none';
-  let exiting = false;
+  let exiting = false; // Exit to dashboard or Import save in progress: the menu cannot close, and they exclude each other
   let exitForce = false;
   const titleEl = el('div', 'title', 'PAUSED');
   const mainView = el('div');
@@ -596,6 +596,7 @@
   }
 
   async function importSave(file) {
+    if (exiting) return;
     let bytes;
     try {
       bytes = window.dk64savefile.parse(await file.arrayBuffer());
@@ -603,6 +604,7 @@
       note(err.message);
       return;
     }
+    if (exiting) return; // Exit to dashboard started while the file was read
     const kept = window.dk64saves.status().server === 'ok' && window.dk64saves.current() !== null;
     if (
       !confirm(
@@ -614,7 +616,11 @@
     ) {
       return;
     }
+    // until the reload: closing the menu would unpause the game, and its next EEPROM flush (or Exit to dashboard's
+    // in-game save) would write the old progress over the import
+    exiting = true;
     importBtn.disabled = true;
+    exitBtn.disabled = true;
     note('Importing\u2026');
     try {
       await window.dk64qs.forget(); // first: if it fails, nothing has changed yet
@@ -623,6 +629,8 @@
     } catch (err) {
       note('Couldn\u2019t import the save (' + err.message + ').');
       importBtn.disabled = false;
+      exitBtn.disabled = false;
+      exiting = false;
       return;
     }
     window.dk64qs.bootInto(null, {});
@@ -818,6 +826,7 @@
     if (exiting) return;
     exiting = true;
     exitBtn.disabled = true;
+    importBtn.disabled = true;
     exitNote.textContent = 'Saving…';
     exitNote.style.display = '';
     const m = window.Module;
@@ -846,6 +855,7 @@
       exitNote.textContent = problem;
       exitBtn.textContent = 'Exit anyway';
       exitBtn.disabled = false;
+      importBtn.disabled = false;
       exitForce = true;
       exiting = false;
       return;
