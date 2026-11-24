@@ -8,6 +8,11 @@
 // (port_resume_capture), runs the pause menu's in-game save (port_save_request; the game runs for the ~1 s the
 // EEPROM thread needs, port_save_busy), waits for the upload, stores the resume point on the server and goes to /.
 // When something fails it says so and offers "Exit anyway".
+// Export save downloads this save game's EEPROM file (web/savefile.js): the last in-game save, not progress since.
+// Import save… reads an .eep / RetroArch .srm, replaces this save game's EEPROM in place (dk64saves.replace), drops
+// its quicksave snapshot (which would bring the old progress back), clears the server's resume point and reloads;
+// saves.js boot() then uploads the import as the newest version, so with the save server the old progress stays in
+// its history.
 (function () {
   'use strict';
 
@@ -230,20 +235,34 @@
   const btns = el('div', 'btns');
   const exitBtn = button('Exit to dashboard', 'alt', () => exitToDashboard());
   const resumeBtn = button('Resume', null, () => close());
+  const importBtn = button('Import save\u2026', 'alt', () => fileIn.click());
   btns.append(
     button('Suggest an idea', 'alt', () => showReport('idea')),
     button('Report a bug', 'alt', () => showReport('bug')),
+    button('Export save', 'alt', () => exportSave()),
+    importBtn,
     exitBtn,
     resumeBtn,
   );
+  const fileIn = el('input');
+  fileIn.type = 'file';
+  fileIn.accept = '.eep,.srm';
+  fileIn.style.display = 'none';
+  fileIn.addEventListener('change', () => {
+    const file = fileIn.files[0];
+    fileIn.value = '';
+    if (file) importSave(file);
+  });
   actions.append(el('span', 'hint', 'Esc · Back to resume'), btns);
   const exitNote = el('p', 'msg');
   exitNote.style.display = 'none';
+  const saveNote = el('p', 'msg');
+  saveNote.style.display = 'none';
   let exiting = false;
   let exitForce = false;
   const titleEl = el('div', 'title', 'PAUSED');
   const mainView = el('div');
-  mainView.append(label, cards, wide, msg, setLabel, settingsEl, foot, actions, exitNote);
+  mainView.append(label, cards, wide, msg, setLabel, settingsEl, foot, actions, saveNote, exitNote, fileIn);
 
   // report view (bug, idea, crash): see showReport()
   const reportView = el('div');
@@ -557,6 +576,58 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
 
+  function note(text) {
+    saveNote.textContent = text;
+    saveNote.style.display = '';
+  }
+
+  function exportSave() {
+    const m = window.Module;
+    m.ccall('port_save_flush_now', null);
+    const bytes = window.dk64saves.localBytes(m.FS);
+    if (!bytes) {
+      note('Nothing to export yet: the game hasn\u2019t saved this save game.');
+      return;
+    }
+    const cur = window.dk64saves.current();
+    const name = window.dk64savefile.fileName(cur ? cur.name : '');
+    window.dk64savefile.download(bytes, name);
+    note('Exported ' + name + ' (your last in-game save).');
+  }
+
+  async function importSave(file) {
+    let bytes;
+    try {
+      bytes = window.dk64savefile.parse(await file.arrayBuffer());
+    } catch (err) {
+      note(err.message);
+      return;
+    }
+    const kept = window.dk64saves.status().server === 'ok' && window.dk64saves.current() !== null;
+    if (
+      !confirm(
+        'Import ' + file.name + '? It replaces this save game\u2019s progress and reloads the game. ' +
+          (kept
+            ? 'The current progress stays in the save server\u2019s history.'
+            : 'The current progress in this browser is lost: export it first to keep it.'),
+      )
+    ) {
+      return;
+    }
+    importBtn.disabled = true;
+    note('Importing\u2026');
+    try {
+      await window.dk64qs.forget(); // first: if it fails, nothing has changed yet
+      await window.dk64saves.replace(window.Module, bytes);
+      await window.dk64saves.putResume(null).catch(() => {});
+    } catch (err) {
+      note('Couldn\u2019t import the save (' + err.message + ').');
+      importBtn.disabled = false;
+      return;
+    }
+    window.dk64qs.bootInto(null, {});
+  }
+
   function showReport(kind) {
     const g = ++gen;
     pending = 0;
@@ -707,6 +778,8 @@
     exitForce = false;
     exitBtn.textContent = 'Exit to dashboard';
     exitBtn.disabled = false;
+    saveNote.style.display = 'none';
+    importBtn.disabled = false;
     exitNote.style.display = 'none';
     backdrop.classList.add('on');
     isOpen = true;

@@ -7,6 +7,9 @@
 // - upload(FS, summary): called from port_save_sync (port/src/save.c) after each EEPROM flush, with the game's
 //   summary JSON (or '') for the dashboard.
 // - settle() / putResume() / takeResume(): menu.js "Exit to dashboard" and quicksave.js's resume point.
+// - localBytes(FS): this save game's EEPROM file in IDBFS (menu.js Export save).
+// - replace(m, bytes): overwrites this save game's EEPROM file in place (report.js load, menu.js Import save); the
+//   caller reloads, and boot() then uploads it as the newest version.
 // Without the server (plain http.server answers 501/404) the game runs on /saves/dk64.eep in IDBFS alone and toasts a
 // warning; there is no dashboard then.
 (function () {
@@ -106,6 +109,24 @@
     } catch (err) {
       return null;
     }
+  }
+
+  // menu.js Export save: null when there is no file yet (the game never saved this save game)
+  function localBytes(FS) {
+    const local = readLocal(FS);
+    return local ? local.bytes : null;
+  }
+
+  // Pauses the game and writes `bytes` as this save game's EEPROM file with the newest mtime, so boot() uploads it
+  // after the reload and the server serves it as latest. Flushing first leaves the save clean, so neither a pending
+  // write nor the visibilitychange flush (port/src/save.c) can overwrite it.
+  async function replace(m, bytes) {
+    m.ccall('port_set_paused', null, ['number'], [1]);
+    m.ccall('port_save_flush_now', null);
+    m.FS.writeFile(path(), bytes);
+    const t = Date.now();
+    m.FS.utime(path(), t, t);
+    await new Promise((resolve, reject) => m.FS.syncfs(false, (err) => (err ? reject(err) : resolve())));
   }
 
   async function put(bytes, mtime, keepalive, summary) {
@@ -213,6 +234,8 @@
     settle,
     putResume,
     takeResume,
+    localBytes,
+    replace,
     path,
     scope,
     current: () => current,

@@ -434,16 +434,11 @@
     ) {
       return;
     }
-    // flushing leaves the save clean, so the visibilitychange flush (port/src/save.c) cannot overwrite the import
-    m.ccall('port_set_paused', null, ['number'], [1]);
-    m.ccall('port_save_flush_now', null);
     if (r.save) {
-      const savePath = window.dk64saves.path();
-      m.FS.writeFile(savePath, fromHex(r.save));
-      const t = Date.now();
-      m.FS.utime(savePath, t, t); // newest mtime: saves.js boot uploads and keeps this copy
-      await new Promise((resolve, reject) => m.FS.syncfs(false, (err) => (err ? reject(err) : resolve())));
+      await window.dk64saves.replace(m, fromHex(r.save));
     } else {
+      m.ccall('port_set_paused', null, ['number'], [1]);
+      m.ccall('port_save_flush_now', null);
       window.dk64dbg.toast('Report has no save file; loading its location only');
     }
     window.dk64qs.bootInto(r.save ? r.resume : null, r.settings || {});

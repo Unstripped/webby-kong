@@ -112,6 +112,25 @@
         nameIn.value = ''; toast('Save created.'); load();
       }).catch(fail).then(function () { create.disabled = false; });
     } }, nameIn, create);
+    // Import save…: a new save game whose first version is the file's EEPROM (web/savefile.js parses .eep / .srm)
+    var fileIn = h('input', { type: 'file', accept: '.eep,.srm', style: 'display:none', onchange: function () {
+      var f = fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      importBtn.disabled = true;
+      f.arrayBuffer().then(function (buf) {
+        var bytes = window.dk64savefile.parse(buf);
+        return W.api('POST', '/api/saves', {
+          name: nameIn.value.trim() || f.name.replace(/\.(eep|srm)$/i, '').trim().slice(0, 40),
+          eeprom: btoa(String.fromCharCode.apply(null, bytes)),
+        });
+      }).then(function (r) {
+        nameIn.value = ''; toast('Imported as \u201c' + r.save.name + '\u201d.'); load();
+      }).catch(fail).then(function () { importBtn.disabled = false; });
+    } });
+    var importBtn = h('button', { class: 'btn ghost', type: 'button', onclick: function () { fileIn.click(); } }, 'Import save\u2026');
+    form.appendChild(importBtn);
+    form.appendChild(fileIn);
     body.appendChild(top);
     body.appendChild(form);
     body.appendChild(grid);
@@ -130,11 +149,31 @@
               if (name) W.api('PATCH', '/api/saves/' + s.id, { name: name }).then(function () { toast('Save renamed.'); load(); }).catch(fail);
             });
           } }, 'Rename'),
+          h('button', { class: 'btn small', type: 'button', onclick: function () { exportSave(s); } }, 'Export'),
           h('button', { class: 'btn small danger', type: 'button', onclick: function () {
             confirmDialog('Delete ' + s.name + '? Its whole save history is removed. This can\u2019t be undone.', 'Delete').then(function (y) {
               if (y) W.api('DELETE', '/api/saves/' + s.id).then(function () { toast('Save deleted.'); load(); }).catch(fail);
             });
           } }, 'Delete')));
+    }
+
+    // the save's latest EEPROM version as an .eep file (web/savefile.js)
+    function exportSave(s) {
+      fetch('/api/saves/' + s.id + '/eeprom', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+        if (r.ok) {
+          return r.arrayBuffer().then(function (buf) {
+            var name = window.dk64savefile.fileName(s.name);
+            window.dk64savefile.download(new Uint8Array(buf), name);
+            toast('Exported ' + name + '.');
+          });
+        }
+        return r.json().catch(function () { return null; }).then(function (b) {
+          if (b && b.error === 'no_save_data') { toast('Nothing to export yet: this save has no progress.', true); return; }
+          var e = new Error((b && b.message) || 'Export failed (' + r.status + ')');
+          e.status = r.status;
+          throw e;
+        });
+      }).catch(fail);
     }
 
     function load() {
