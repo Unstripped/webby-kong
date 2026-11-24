@@ -5,10 +5,10 @@ Subject: [PATCH] port: dpad kong swap
 
 
 diff --git a/src/global/CEAE0.c b/src/global/CEAE0.c
-index 121b952..48167e8 100644
+index d57fc81..600865d 100644
 --- a/src/global/CEAE0.c
 +++ b/src/global/CEAE0.c
-@@ -416,6 +416,97 @@ extern s32 D_80720020;
+@@ -416,6 +416,97 @@ extern s32 gEffectSpriteMelonSpin;
  void func_80026D40(void *, u8);
  f32 sqrtf(f32);
  
@@ -52,7 +52,7 @@ index 121b952..48167e8 100644
 +        return 0;
 +    }
 +    // a normal-size kong (not Krusha, Rambi, Enguarde, Mini Monkey or Hunky Chunky), hands free, nothing pending
-+    if (gPlayerCharacterId[0] >= 5 || gPlayerSlots[0].unk2C0 != 1 || (ps->stateFlags & 0x20018170) || (ps->stateFlags2 & 0x70) || ps->heldActor != NULL || ps->unkCA != 0 || gPlayerSlots[0].queuedState >= 0) {
++    if (gPlayerCharacterId[0] >= 5 || gPlayerSlots[0].sizeMode != 1 || (ps->stateFlags & 0x20018170) || (ps->stateFlags2 & 0x70) || ps->heldActor != NULL || ps->barrelCooldown != 0 || gPlayerSlots[0].queuedState >= 0) {
 +        return 0;
 +    }
 +    // on the ground: idle, walk/run, or either with the gun drawn (playerResumeLocomotion picks a ground state)
@@ -106,7 +106,7 @@ index 121b952..48167e8 100644
  void playerUpdateCommon(s32 mode) {
      f32 dist;
      f32 screenX;
-@@ -504,6 +595,7 @@ void playerUpdateCommon(s32 mode) {
+@@ -506,6 +597,7 @@ void playerUpdateCommon(s32 mode) {
          }
      }
      gCurrentActor->renderFlags &= ~0x1000;

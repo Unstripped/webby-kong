@@ -14,7 +14,7 @@
     { label: 'L', bits: 0x0020, cls: 'sh', pos: 'left:6vmin;top:14vmin;width:18vmin;height:9vmin' },
     { label: 'Z', bits: 0x2000, cls: 'sh', pos: 'left:6vmin;bottom:58vmin;width:14vmin;height:9vmin' },
     { label: 'START', bits: 0x1000, cls: 'st', pos: 'left:50%;bottom:4vmin;width:14vmin;height:7vmin;transform:translateX(-50%)' },
-    // D-pad Right: next unlocked kong (patches/0028-port-dpad-kong-swap.patch); hidden while the Kong swap setting is Off
+    // D-pad Right: next unlocked kong (patches/0027-port-dpad-kong-swap.patch); hidden while the Kong swap setting is Off
     { label: '⇄', bits: 0x0100, cls: 'swap', pos: 'left:6vmin;top:3vmin;width:14vmin;height:8vmin' },
   ];
   const STICK_SIZE = 120; // nipplejs outer circle, px

@@ -126,8 +126,15 @@ s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/glo
 extern s32 gPortSaveRequest;  /* web/menu.js exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
 extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
 
-/* ---- kong swap (web settings; patches/0028-port-dpad-kong-swap.patch) ---- */
+/* ---- kong swap (web settings; patches/0027-port-dpad-kong-swap.patch) ---- */
 extern s32 gPortKongSwap; /* 1: D-pad Left/Right swaps to an unlocked kong (src/global/CEAE0.c); switchable live */
+
+/* ---- right-stick camera (web settings; port/src/input.c, patches/0028-port-right-stick-camera.patch) ---- */
+extern s32 gPortStickCamera;  /* 1: gamepad right stick turns/tilts the camera, D-pad = C buttons, LB/RB add D-pad Left/Right */
+extern s32 gPortCameraSpeed;  /* 1..10; 5 = the C-button turn rate at full tilt */
+extern s32 gPortCameraInvert; /* bit 0: horizontal, bit 1: vertical */
+extern s32 gPortCameraStickX; /* right stick this poll, -80..80 after invert; 0 when the setting is off or no gamepad */
+extern s32 gPortCameraStickY; /* up positive */
 
 /* ---- audio output rate and 3D sound (port/src/audio/spatial.c, hrtf.c; --audio-rate, --hrtf, web settings) ---- */
 extern s32 gPortAudioRate; /* synthesizer and AI rate: 22050 (N64) or 44100; fixed at boot, restored by a quickload */
