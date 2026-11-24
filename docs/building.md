@@ -13,20 +13,41 @@ committed manifest in `port/ref/`. Only regenerating that manifest after a decom
 - The ROM, to play: Donkey Kong 64 (USA), SHA-1 `cf806ff2603640a748fca5026ded28802f1f4a50`.
 - Docker, only for the reference decomp build (maintainers, after a decomp bump) or the image build.
 
-## One-time setup
+## Setup and sync
 
 ```sh
 mise install
+mise run sync    # or `mise run serve`, which syncs first
+```
+
+`mise run sync` runs `tools/sync.py`, which brings the checkout's build up to date and skips every step whose inputs
+are unchanged, so it is safe to rerun at any time (a no-op run takes about a second):
+
+1. Fast-forward the current branch from its upstream (`python tools/sync.py --no-pull` skips this). An unreachable
+   remote, a diverged branch or conflicting local changes only warn, and the checked-out source is built.
+2. Repair `decomp`'s `core.worktree` if it points elsewhere (left behind when a checkout is moved), then
+   `git submodule update --init decomp` when `decomp/` is not at the commit the index pins, older or newer (so
+   switching branches works). A `decomp/` that `port/ref/` was generated from (a bump in progress, after
+   `tools/prepare.py ref`) is built as is; tracked local changes in a `decomp/` that must move stop the sync.
+3. Create or update `tools/.venv` when a requirements file changes (the manual equivalent is below).
+4. `tools/prepare.py all` when `decomp/`, `patches/` or `prepare.py` changed; `tools/prepare.py gen` when only
+   `port/ref/`, `gen_data.py` or `build/tree` did. It never recreates a `build/tree` holding work `patches/` lacks
+   (an unfinished am/rebase, uncommitted changes, unexported commits): it stops and says what to do.
+5. Configure `build/web` with `emcmake` when unconfigured or configured with another Emscripten, then
+   `cmake --build build/web`.
+
+Fingerprints of the last prepare live in `build/sync.json`. The venv by hand:
+
+```sh
 git submodule update --init
 python -m venv tools/.venv
 tools/.venv/bin/pip install -r decomp/requirements.txt
 tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps
+tools/.venv/bin/pip install -r tools/requirements-server.txt
 ```
 
 The order matters: the decomp's requirements install a `clang` package, and the second command then reinstalls
-`libclang` from `tools/requirements.txt` over it (without touching other dependencies). `mise run serve` installs
-`tools/requirements-server.txt` (the optional sign-in dependency) into `tools/.venv` on every run, so serving needs
-no extra setup.
+`libclang` from `tools/requirements.txt` over it (without touching other dependencies).
 
 Optional but recommended: refuse ROMs and ROM-derived files at commit time in this clone:
 
@@ -52,6 +73,8 @@ only, and passes `tools/check_no_roms.py`.
 
 ## Build
 
+`mise run sync` does all of this; by hand:
+
 ```sh
 tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
 emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -73,7 +96,7 @@ cmake --build build/web          # dk64 (browser) and dk64_headless (node)
 mise run serve   # build/web on port 8080, saves in ~/.local/share/webby-kong/saves.sqlite3
 ```
 
-`mise run serve` installs the sign-in dependency into `tools/.venv` and runs `tools/serve.py` with no flags: every
+`mise run serve` syncs (above), then runs `tools/serve.py` with no flags: every
 setting comes from a `WEBBY_KONG_*` variable (the table is in the [README](../README.md#configuration)), optionally
 through the gitignored `.env` at the repository root, and a CLI flag overrides one (`mise run serve -- --port 9000`).
 The effective configuration is printed at startup.
@@ -127,4 +150,5 @@ each release.
 | `link_check: function signature mismatch (fix the prototype by patch)` | A function is declared and defined with different types; fix the prototype in a patch. |
 | `Unsupported ROM: need Donkey Kong 64 (USA), SHA-1 …` (in the page) | Wrong ROM, region or revision. |
 | `prepare: build/tree has uncommitted changes` | `prepare.py tree`/`all` would discard work in `build/tree`: commit it there and `tools/prepare.py export`, or move it away. |
-| `serve: <dir> does not exist: build the page …` / `serve: <dir> has no index.html, …` | `mise run serve` / `tools/serve.py` points at an unbuilt or stale directory (with `WEBBY_KONG_AUTH=1` it also needs `auth/index.html` and `dashboard/index.html`): build as above (`tools/prepare.py all`, `emcmake cmake …`, `cmake --build build/web`) or set `WEBBY_KONG_DIR`/`--dir` to a built directory. |
+| `sha1 information is lacking or useless`, `Patch failed at 0001` (from `prepare.py tree`/`all`) | `decomp/` is not at the commit this repository pins, so `patches/` does not apply: `mise run sync` checks out the pinned commit (and repairs a `decomp` `core.worktree` left pointing at a moved checkout). |
+| `serve: <dir> does not exist: build the page …` / `serve: <dir> has no index.html, …` | `tools/serve.py` points at an unbuilt or stale directory (with `WEBBY_KONG_AUTH=1` it also needs `auth/index.html` and `dashboard/index.html`): `mise run sync`, or set `WEBBY_KONG_DIR`/`--dir` to a built directory. |
