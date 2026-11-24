@@ -5,7 +5,7 @@ Subject: [PATCH] port: spotlight brightness endianness
 
 
 diff --git a/src/global/CB230.c b/src/global/CB230.c
-index 6e59112..50b93ea 100644
+index d76757f..55b5eba 100644
 --- a/src/global/CB230.c
 +++ b/src/global/CB230.c
 @@ -20,13 +20,7 @@ extern Actor *gCurrentActor;
@@ -33,4 +33,4 @@ index 6e59112..50b93ea 100644
 +    lightAdd(A[0], A[1], A[2], B[0], B[1], B[2], 0.0f, 1, (u8)p->brightness, (u8)p->brightness, (u8)p->brightness);
  }
  
- void func_806C6884(s16 yOffset, s16 stopDist, u16 flags) {
+ void spotlightFollowerStep(s16 yOffset, s16 stopDist, u16 flags) {

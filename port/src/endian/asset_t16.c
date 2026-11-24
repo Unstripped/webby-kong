@@ -1,6 +1,6 @@
 /* Asset table 16: per-map zones and spawn nodes, indexed by map. Loaded in mapLoadLevel (450.c) and parsed by
- * spawnNodeListInitFromMap (1295B0.c, via func_80724C78) into gZoneTable / gSpawnNodeList; the buffer is freed
- * right after. Compressed by the asset table (D_80748E18[16] == 1), so assetLoad inflates it before the swap.
+ * spawnNodeListInitFromMap (1295B0.c, via spawnNodesInitForMap) into gZoneTable / gSpawnNodeList; the buffer is freed
+ * right after. Compressed by the asset table (sAssetTableCompressed[16] == 1), so assetLoad inflates it before the swap.
  *
  * Layout (sequential s16 stream; the walk ends exactly at the end of every map's entry in the US ROM):
  *   s16 zoneCount                                       -> ZoneTable.count
@@ -24,7 +24,7 @@
  *
  * SpawnNode 0x0A conflict: read as two bytes (unkA/unkB) by bonus/0.c:120,130,467, 1295B0.c:597,
  * B7490.c:538-697 and BC3B0.c:221-294, and as one s16 (unkAWide) by 12E800.c:244-245
- * (behaviourPickRandomTargetY), BA790.c:242 (func_806B640C) and BC3B0.c:138-141,197-198
+ * (behaviourPickRandomTargetY), BA790.c:242 (explodingChaserUpdate) and BC3B0.c:138-141,197-198
  * (actorUpdateLockOnCursor). ROM data holds both kinds (e.g. 0x2B00 byte pairs on map 0x50, 0x00D7 halfwords on
  * map 16). The field stays in ROM (big-endian) byte order so every byte reader is correct; the unkAWide readers
  * need a game patch reading `(s16)portReadBE16(&node->unkAWide)`. No code writes the field. */

@@ -19,7 +19,7 @@ index 9b5fdd7..b950097 100644
  void billboardCacheInit(void);
  #endif
 diff --git a/src/global/1295B0.c b/src/global/1295B0.c
-index 297b1c1..a477cbc 100644
+index 28cab6c..0e2f50f 100644
 --- a/src/global/1295B0.c
 +++ b/src/global/1295B0.c
 @@ -13,6 +13,7 @@
@@ -30,7 +30,7 @@ index 297b1c1..a477cbc 100644
  #include "proto/global/69E60.h"
  #include "proto/global/7130.h"
  #include "proto/global/79890.h"
-@@ -978,7 +979,7 @@ void spawnNodesUpdate(void) {
+@@ -963,7 +964,7 @@ void spawnNodesUpdate(void) {
          if (active) {
              gBehaviourWorkState = node->actor->customState;
          }
@@ -40,7 +40,7 @@ index 297b1c1..a477cbc 100644
          if (active) {
              node->chunkIndex = node->actor->chunkIndex;
 diff --git a/src/global/35000.c b/src/global/35000.c
-index abf10ac..d6eacac 100644
+index ce20772..2d721b5 100644
 --- a/src/global/35000.c
 +++ b/src/global/35000.c
 @@ -271,6 +271,12 @@ void renderEntrySetDistanceOverride(RenderEntry *list, void *targetId, u8 listIn
@@ -50,43 +50,43 @@ index abf10ac..d6eacac 100644
 +// PORT: the in-range test that lets mapChunksRender skip entries uses the extended draw distance, as the objects' own
 +// culls do. Effects keep theirs: their fades (effectPlayerDistanceFadeUpdate) end at maxDistance.
 +static f32 renderEntryMaxDist(RenderEntry *entry) {
-+    return entry->unk24 == 5 ? entry->unk1C : renderExtendDistance(entry->unk1C);
++    return entry->type == 5 ? entry->maxDist : renderExtendDistance(entry->maxDist);
 +}
 +
  RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY, f32 camZ, RenderEntry **outClosest) {
      RenderEntry *node;
      f32 dx;
 @@ -299,7 +305,7 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
-         node = node->unk14;
+         node = node->next;
      }
      if (head != NULL) {
--        if (head->unk10 < head->unk1C || head->unk1C == -2) {
-+        if (head->unk10 < renderEntryMaxDist(head) || head->unk1C == -2) {
+-        if (head->camDist < head->maxDist || head->maxDist == -2) {
++        if (head->camDist < renderEntryMaxDist(head) || head->maxDist == -2) {
              *outClosest = head;
-             if (head->unk1C == -2) {
+             if (head->maxDist == -2) {
                  dist = 9999.0f;
 @@ -310,7 +316,7 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
-         cur = head->unk14;
+         cur = head->next;
          while (cur != NULL) {
              inserted = 0;
--            if ((dist < cur->unk10 && cur->unk10 < cur->unk1C) || cur->unk1C == -2) {
-+            if ((dist < cur->unk10 && cur->unk10 < renderEntryMaxDist(cur)) || cur->unk1C == -2) {
+-            if ((dist < cur->camDist && cur->camDist < cur->maxDist) || cur->maxDist == -2) {
++            if ((dist < cur->camDist && cur->camDist < renderEntryMaxDist(cur)) || cur->maxDist == -2) {
                  *outClosest = cur;
-                 if (cur->unk1C == -2) {
+                 if (cur->maxDist == -2) {
                      dist = 9999.0f;
 @@ -318,10 +324,10 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
-                     dist = cur->unk10;
+                     dist = cur->camDist;
                  }
              }
--            key = (cur->unk1C < cur->unk10) ? 9999.0 : cur->unk10;
-+            key = (renderEntryMaxDist(cur) < cur->unk10) ? 9999.0 : cur->unk10;
-             ins = cur->unk18;
+-            key = (cur->maxDist < cur->camDist) ? 9999.0 : cur->camDist;
++            key = (renderEntryMaxDist(cur) < cur->camDist) ? 9999.0 : cur->camDist;
+             ins = cur->prev;
              while (ins != NULL && inserted == 0) {
--                insKey = (ins->unk1C < ins->unk10) ? 9999.0 : ins->unk10;
-+                insKey = (renderEntryMaxDist(ins) < ins->unk10) ? 9999.0 : ins->unk10;
-                 if (key <= insKey || cur->unk1C == -2) {
+-                insKey = (ins->maxDist < ins->camDist) ? 9999.0 : ins->camDist;
++                insKey = (renderEntryMaxDist(ins) < ins->camDist) ? 9999.0 : ins->camDist;
+                 if (key <= insKey || cur->maxDist == -2) {
                      inserted = 1;
-                     if (ins != cur->unk18) {
+                     if (ins != cur->prev) {
 @@ -450,7 +456,7 @@ Gfx *renderActorEntryBuildDisplayList(FrameMatrices *frame, Actor *actor, Gfx *g
          dx = dx * dx;
          dy = dy * dy;
@@ -97,10 +97,10 @@ index abf10ac..d6eacac 100644
          }
          if (mapPointOutsideClipBounds(actor->x, actor->y, actor->z, actor->cullMarginX, actor->cullMarginY)) {
 diff --git a/src/global/36880.c b/src/global/36880.c
-index 6d40971..b4a09dc 100644
+index 1ad2a29..fa7a048 100644
 --- a/src/global/36880.c
 +++ b/src/global/36880.c
-@@ -2423,9 +2423,9 @@ Gfx *renderModelAnimatedSlot(ModelType1RenderView *obj, Gfx *gfx, f32 camX, f32
+@@ -2405,9 +2405,9 @@ Gfx *renderModelAnimatedSlot(ModelType1RenderView *obj, Gfx *gfx, f32 camX, f32
          dy *= dy;
          dz *= dz;
          dist = sqrtf(dx + dy + dz);
@@ -112,7 +112,7 @@ index 6d40971..b4a09dc 100644
          }
          if (drawDist < dist) {
              return gfx;
-@@ -2586,7 +2586,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
+@@ -2568,7 +2568,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
      f32 dz;
      s32 pad0;
      f32 scale;
@@ -121,7 +121,7 @@ index 6d40971..b4a09dc 100644
      s32 i;
      s32 vtxOffset;
      s16 pad16;
-@@ -2609,7 +2609,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
+@@ -2591,7 +2591,7 @@ Gfx *renderModelQuadGfx(RenderQuadModelObj *obj, Gfx *gfx, f32 camX, f32 camY, f
          dy *= dy;
          dz *= dz;
          dist = sqrtf(dx + dy + dz);
@@ -130,7 +130,7 @@ index 6d40971..b4a09dc 100644
          if (limit < dist) {
              return gfx;
          }
-@@ -3225,11 +3225,11 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
+@@ -3207,11 +3207,11 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
      ModelSpriteSource *d1;
      TexAnimNode *link;
      s16 idx;
@@ -144,7 +144,7 @@ index 6d40971..b4a09dc 100644
  
      result = NULL;
      second = 0;
-@@ -3269,15 +3269,15 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
+@@ -3251,15 +3251,15 @@ SpriteDisplayNode *spriteListBuildDisplayChain(RenderEntry *listA, RenderEntry *
                  break;
              }
              if (tgt != NULL) {
@@ -164,7 +164,7 @@ index 6d40971..b4a09dc 100644
                      if (tgt->animTextureId != -1) {
                          found = 0;
 diff --git a/src/global/61AA0.c b/src/global/61AA0.c
-index bb72fd9..a99cb38 100644
+index f944f94..610f105 100644
 --- a/src/global/61AA0.c
 +++ b/src/global/61AA0.c
 @@ -71,6 +71,7 @@ void renderCalcPlayerDistanceAlpha(f32 x, f32 y, f32 z, f32 maxDist, s16 actorTy
@@ -176,7 +176,7 @@ index bb72fd9..a99cb38 100644
      if (gCurrentMap == 0x26) {
          maxDist = renderAdjustActorDistance(actorType, maxDist);
 @@ -126,6 +127,19 @@ f32 renderScaleDistanceByFov(f32 dist) {
-     return (dist / D_807F5FDC) * D_807F5FE0;
+     return (dist / gDefaultFovCos) * gViewFovScaledCos;
  }
  
 +extern f32 gGfxFarClip;

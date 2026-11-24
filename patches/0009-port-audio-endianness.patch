@@ -5,34 +5,34 @@ Subject: [PATCH] port: audio endianness
 
 
 diff --git a/src/global/5A50.c b/src/global/5A50.c
-index 1edbf07..09fe76e 100644
+index a11b4f7..8b7ac7e 100644
 --- a/src/global/5A50.c
 +++ b/src/global/5A50.c
-@@ -72,6 +72,7 @@ void audioInit(void) {
+@@ -69,6 +69,7 @@ void audioInit(void) {
      dmaReadAssetDecompress(gSegmentTable[15].romStart, tmp, &len, 0xD, 0, 2, 0);
-     bankA = alHeapDBAlloc(NULL, 0, &D_8076D1E8, 1, len);
+     bankA = alHeapDBAlloc(NULL, 0, &gAudioHeap, 1, len);
      dmaReadAssetDecompress(gSegmentTable[15].romStart, bankA, &len, 0xD, 0, 2, 0);
 +    portSwapBankFile(bankA);
      alBnkfNew(bankA, (u8 *)gSegmentTable[14].romStart);
-     D_8076D1FC = bankA->bankArray[0];
+     gSfxBankHigh = bankA->bankArray[0];
      len = gSegmentTable[16].romEnd - gSegmentTable[16].romStart;
-@@ -79,6 +80,7 @@ void audioInit(void) {
+@@ -76,6 +77,7 @@ void audioInit(void) {
      heapFree(tmp);
-     bankB = alHeapDBAlloc(NULL, 0, &D_8076D1E8, 1, len);
+     bankB = alHeapDBAlloc(NULL, 0, &gAudioHeap, 1, len);
      dmaReadAssetDecompress(gSegmentTable[16].romStart, bankB, &len, 0xD, 0, 2, 0);
 +    portSwapBankFile(bankB);
      alBnkfNew(bankB, (u8 *)gSegmentTable[17].romStart);
      gSfxBank = bankB->bankArray[0];
      seqp.maxVoices = 0x2C;
 diff --git a/src/global/7130.c b/src/global/7130.c
-index 4d26d3d..ee2a2e2 100644
+index 29fb3d2..1021832 100644
 --- a/src/global/7130.c
 +++ b/src/global/7130.c
-@@ -2354,6 +2354,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
-         dmaReadAssetDecompress(addr, D_8076BF38[seqIndex], &len, 0x80, 0, 1, buf);
+@@ -2358,6 +2358,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
+         dmaReadAssetDecompress(addr, gSeqBuffers[seqIndex], &len, 0x80, 0, 1, buf);
      }
      heapFree(buf);
-+    portSwapSeqHeader(D_8076BF38[seqIndex]);
-     n_alCSeqNew(&D_8076BF48[seqIndex], D_8076BF38[seqIndex]);
-     alSeqpSetSeq((ALSeqPlayer *)gSeqPlayers[seqIndex], (ALSeq *)&D_8076BF48[seqIndex]);
++    portSwapSeqHeader(gSeqBuffers[seqIndex]);
+     n_alCSeqNew(&gSeqCSeqs[seqIndex], gSeqBuffers[seqIndex]);
+     alSeqpSetSeq((ALSeqPlayer *)gSeqPlayers[seqIndex], (ALSeq *)&gSeqCSeqs[seqIndex]);
      resetCSPChannelStates(gSeqPlayers[seqIndex]);

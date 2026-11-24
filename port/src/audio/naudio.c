@@ -3,7 +3,7 @@
  *
  * Modelled on the exact microcode the game ships (global .text 0x80741310.., IMEM 0x1080..0x1CAF; a
  * disassembly is produced at build/ref/naudio_ucode.txt) together with its DMEM image (the task's
- * ucode_data, D_80760590). Every handler below is a transcription of the ucode's instruction stream: the
+ * ucode_data, gAudioUcodeData). Every handler below is a transcription of the ucode's instruction stream: the
  * vector code runs on a small RSP vector-unit model (48-bit accumulators, VCO carries, element selection,
  * byte-exact vector loads/stores) so fixed-point rounding and saturation match the hardware bit for bit.
  *
@@ -48,7 +48,7 @@ _Static_assert(sizeof(OSTask_t) == 0x40, "OSTask layout");
 
 /* Task ucode_data: DMEM image of the jump table and constants (0x000..0x2AF), in N64 byte order
  * (tools/gen_data.py RAW_FILES). Generated from the ROM. */
-extern u8 D_80760590[];
+extern u8 gAudioUcodeData[];
 
 #define DMEM_SIZE 0x1000
 #define UCODE_DATA_SIZE 0x2B0
@@ -1003,11 +1003,11 @@ static void opSpatialEnd(u32 w1) {
 static void loadUcodeData(void) {
     int i;
 
-    if (!(D_80760590[0] == 0x10 && D_80760590[1] == 0xE8)) {
-        portAbort("PORT: naudio ucode data D_80760590 not recognised");
+    if (!(gAudioUcodeData[0] == 0x10 && gAudioUcodeData[1] == 0xE8)) {
+        portAbort("PORT: naudio ucode data gAudioUcodeData not recognised");
     }
     for (i = 0; i < UCODE_DATA_SIZE / 2; i++) {
-        sUcodeData[i] = (u16)((D_80760590[2 * i] << 8) | D_80760590[2 * i + 1]);
+        sUcodeData[i] = (u16)((gAudioUcodeData[2 * i] << 8) | gAudioUcodeData[2 * i + 1]);
     }
     sUcodeReady = 1;
 }

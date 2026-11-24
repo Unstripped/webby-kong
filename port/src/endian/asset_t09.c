@@ -2,7 +2,7 @@
  * Consumers: modelAssetGetSubtables, modelTypeCountsInit, modelTypeCountBeforeMap, modelSlotsLoadMap
  * (global/36880.c); actorMapModelsSetup, actorListInitOffsets, actorListBuildLookupTable,
  * actorListSpawnFromRecords, actorListSetCustomFloat (global/8D3E0.c); gridBuildNodeLists (global/F9450.c);
- * csModelStateSetVars (global/42630.c); 3C10.c via D_8076A160[].modelData (same layout).
+ * csModelStateSetVars (global/42630.c); 3C10.c via gSavedMapSlots[].modelData (same layout).
  *
  * Layout:
  *   s32 modelCount

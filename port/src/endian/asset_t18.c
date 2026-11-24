@@ -1,6 +1,6 @@
 /* Asset table 18: per-map volume triggers, indexed by map. Loaded by volumeTriggerTableInit (1332B0.c), copied
  * record by record into gVolumeTriggerTable by volumeTriggerTableLoad, then freed. Compressed by the asset table
- * (D_80748E18[18] == 1), so assetLoad inflates it before the swap.
+ * (sAssetTableCompressed[18] == 1), so assetLoad inflates it before the swap.
  *
  * Layout (the US ROM entries are exactly 2 + count * 0x38 bytes):
  *   0x00  s16 count                                  volumeTriggerTableLoad (`*data`)
@@ -13,12 +13,12 @@
  *       +2 u8 payload[8]                             forwarded by actorAppendCallbackMemcpy8 and read through
  *                                                    gActorGlobalState.volumeTriggerQueueId[] as s16[4]
  *                                                    (1295B0.c:64,877, 1332B0.c:140, 80150.c, 8F4B0.c, 9CE20.c,
- *                                                    A2F10.c, BD820.c:136, C4620.c:204); func_80724994 builds the
+ *                                                    A2F10.c, BD820.c:136, C4620.c:204); spawnNodesSendVolumeTrigger builds the
  *                                                    same payload natively as s16[4]. ROM values confirm halfwords
  *                                                    (0xFFFF, 0xFF56, 0x008C ...). Swapped as 4 x s16.
  *
  * Payload byte readers: bonus/0.c:188 and C2A90.c:59 read `((u8 *)volumeTriggerQueueId[i])[3]`, i.e. the low
- * byte of payload s16[1] in big-endian order. With native payloads (both this table and func_80724994's) those two
+ * byte of payload s16[1] in big-endian order. With native payloads (both this table and spawnNodesSendVolumeTrigger's) those two
  * sites need a game patch to `(u8)volumeTriggerQueueId[i][1]`. */
 #include "endian/asset_swap.h"
 

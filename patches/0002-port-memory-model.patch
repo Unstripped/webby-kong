@@ -5,10 +5,10 @@ Subject: [PATCH] port: memory model
 
 
 diff --git a/src/arcade/0.c b/src/arcade/0.c
-index 0558382..d52b9c8 100644
+index 8d2ce28..2d0e865 100644
 --- a/src/arcade/0.c
 +++ b/src/arcade/0.c
-@@ -54,8 +54,8 @@ extern u8 gScreenRenderFlags;
+@@ -52,8 +52,8 @@ extern u8 gScreenRenderFlags;
  extern f32 gScreenFadeProgress;
  extern u8 gGameMode;
  extern void *gSegment1Data;
@@ -20,7 +20,7 @@ index 0558382..d52b9c8 100644
  void arcadeRunFrame(void) {
      Gfx *glist;
 diff --git a/src/bonus/0.c b/src/bonus/0.c
-index b073efb..1a82a19 100644
+index 2ae45a0..e15cc45 100644
 --- a/src/bonus/0.c
 +++ b/src/bonus/0.c
 @@ -28,8 +28,8 @@
@@ -35,7 +35,7 @@ index b073efb..1a82a19 100644
  // Bonus challenge controller component (Actor+0x178): setup step and the remaining-count HUD.
  typedef struct BonusCounterState {
 diff --git a/src/bonus/12A0.c b/src/bonus/12A0.c
-index 0431bb8..073d37e 100644
+index f22bd93..ab719bb 100644
 --- a/src/bonus/12A0.c
 +++ b/src/bonus/12A0.c
 @@ -18,9 +18,9 @@
@@ -52,7 +52,7 @@ index 0431bb8..073d37e 100644
  typedef struct LB3Obj {
      Actor *act[4];
 diff --git a/src/bonus/2690.c b/src/bonus/2690.c
-index b979b5f..fe4a073 100644
+index eb49363..4afbf4c 100644
 --- a/src/bonus/2690.c
 +++ b/src/bonus/2690.c
 @@ -83,9 +83,9 @@ typedef struct {
@@ -69,7 +69,7 @@ index b979b5f..fe4a073 100644
  extern s16 gScreenWidth;
  extern s16 gScreenHeight;
 diff --git a/src/bonus/9010.c b/src/bonus/9010.c
-index 6f0796e..65873de 100644
+index 838a61d..fbff738 100644
 --- a/src/bonus/9010.c
 +++ b/src/bonus/9010.c
 @@ -11,8 +11,8 @@
@@ -80,27 +80,27 @@ index 6f0796e..65873de 100644
 -extern Mtx D_2000180;
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
 +#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
- s8 D_8002D910[10] = { 7, 20, 8, 9, 11, 10, 12, 13, 15, 14 };
- s8 D_8002D91C[4] = { 8, 11, 12, 14 };
- s8 D_8002D920 = 0;
+ s8 sLapTargetOrder[10] = { 7, 20, 8, 9, 11, 10, 12, 13, 15, 14 };
+ s8 sExtraPointTargetIds[4] = { 8, 11, 12, 14 };
+ s8 sLastTargetIndex = 0;
 diff --git a/src/boss/3840.c b/src/boss/3840.c
-index f16b9ad..b87074f 100644
+index f59e734..a5e316f 100644
 --- a/src/boss/3840.c
 +++ b/src/boss/3840.c
 @@ -384,7 +384,7 @@ void bossStartCountdownTimer(void) {
  
  extern PlayerStruct *gPlayerSlots;
- extern u8 D_80750AD4;
+ extern u8 gBossRoundNumber;
 -extern Gfx D_1000118;
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
  
  Gfx *bossDrawRoundText(Gfx *glist, Actor *actor) {
      f32 scaleMtx[4][4];
 diff --git a/src/critter/0.c b/src/critter/0.c
-index bb668d8..341eda3 100644
+index 90c50e9..25bc5a1 100644
 --- a/src/critter/0.c
 +++ b/src/critter/0.c
-@@ -628,11 +628,11 @@ Gfx *func_800255C4(Gfx *gdl, CritterObj *obj) {
+@@ -620,11 +620,11 @@ Gfx *critterDrawObjType4(Gfx *gdl, CritterObj *obj) {
      return gdl;
  }
  
@@ -129,22 +129,30 @@ index 985b998..0096e2c 100644
  extern s16 gScreenWidth;
  extern Actor *gSpawnedActor;
 diff --git a/src/critter/5110.c b/src/critter/5110.c
-index 8d9ad83..5f6c89f 100644
+index a9fc5f3..c835fa8 100644
 --- a/src/critter/5110.c
 +++ b/src/critter/5110.c
-@@ -180,8 +180,8 @@ void critterBattleArenaUpdate(void) {
+@@ -19,6 +19,7 @@ typedef struct CritterBattleArenaState {
+ 
+ // This TU's .data (0x80029FA0-0x80029FB0). Global code (80150, 936B0, F9450) also decrements critterArenaTargetsLeft.
+ s8 critterArenaTargetsLeft = 0;
++__asm__(".globl D_80029FA0\n.set D_80029FA0, critterArenaTargetsLeft\n"); // PORT: global (80150, 936B0, F9450) links it by its address name
+ u16 critterArenaSavedAmmo = 0;
+ s8 critterArenaWon = 0;
+ 
+@@ -180,8 +181,8 @@ void critterBattleArenaUpdate(void) {
      renderCallbacksRegister(&critterRenderCenterImage, gCurrentActor, 3);
  }
  
--extern u8 D_1000118[];
--extern u8 D_2000180[];
-+#define D_1000118 (*(u8 (*)[])PORT_ABS_D_1000118)
-+#define D_2000180 (*(u8 (*)[])PORT_ABS_D_2000180)
+-extern Gfx D_1000118;
+-extern Mtx D_2000180;
++#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
++#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
  
- 
- 
+ Gfx *critterRenderCenterImage(Gfx *glistp, Actor *actor) {
+     CritterBattleArenaState *challengeState = actor->customState;
 diff --git a/src/global/0.c b/src/global/0.c
-index 1e89a34..63618bf 100644
+index 2a23d26..63d7776 100644
 --- a/src/global/0.c
 +++ b/src/global/0.c
 @@ -13,58 +13,58 @@ typedef struct {
@@ -258,19 +266,11 @@ index 1e89a34..63618bf 100644
  
  // .data 0x80744460-0x80744470
  s8 gMainThreadHalted = 0;
-@@ -74,6 +74,7 @@ Struct80744464 D_80744464 = { 0xF, 2, 0x1E };
- OSMesgQueue D_80761050;
- OSMesg D_80761068[0xF2];
- OSThread gMainThread;
-+__asm__(".globl D_8076154C\n.set D_8076154C, gMainThread+0x11C\n");
- u8 D_807615E0[160];
- u64 D_80761680;
- u8 D_80761688[16216];
 diff --git a/src/global/100180.c b/src/global/100180.c
-index bc8e4f0..8b1e738 100644
+index 6312339..d92f7ae 100644
 --- a/src/global/100180.c
 +++ b/src/global/100180.c
-@@ -412,8 +412,8 @@ Gfx *textLoadFontSheetGfx(Gfx *dl, u8 font, s16 line) {
+@@ -409,8 +409,8 @@ Gfx *textLoadFontSheetGfx(Gfx *dl, u8 font, s16 line) {
      return dl;
  }
  
@@ -281,7 +281,7 @@ index bc8e4f0..8b1e738 100644
  
  Gfx *textDrawStringVtx(Gfx *dl, s16 font, s16 x, s16 y, const u8 *str, u8 flags) {
      u8 line;
-@@ -567,10 +567,10 @@ Gfx *textDrawStringVtx(Gfx *dl, s16 font, s16 x, s16 y, const u8 *str, u8 flags)
+@@ -564,10 +564,10 @@ Gfx *textDrawStringVtx(Gfx *dl, s16 font, s16 x, s16 y, const u8 *str, u8 flags)
      return dl;
  }
  
@@ -296,7 +296,7 @@ index bc8e4f0..8b1e738 100644
  Gfx *textObjectDrawFlat(Gfx *dl, TextObject *textObj) {
      s32 line;
 diff --git a/src/global/103AB0.c b/src/global/103AB0.c
-index 11306b8..7cda21d 100644
+index 103bc7f..c75909d 100644
 --- a/src/global/103AB0.c
 +++ b/src/global/103AB0.c
 @@ -35,8 +35,8 @@ extern s16 gGfxScreenTop;
@@ -310,7 +310,7 @@ index 11306b8..7cda21d 100644
  
  typedef struct {
      f32 scale;
-@@ -392,7 +392,7 @@ void lensFlareAddSource(f32 x, f32 y, f32 z, f32 dirX, f32 dirY, f32 dirZ, f32 m
+@@ -347,7 +347,7 @@ void lensFlareAddSource(f32 x, f32 y, f32 z, f32 dirX, f32 dirY, f32 dirZ, f32 m
      }
  }
  
@@ -319,17 +319,17 @@ index 11306b8..7cda21d 100644
  
  Gfx *playerViewSetPrimaryViewport(Gfx *dl) {
      gSPMatrix(dl++, &D_2000100, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
-@@ -402,7 +402,7 @@ Gfx *playerViewSetPrimaryViewport(Gfx *dl) {
+@@ -357,7 +357,7 @@ Gfx *playerViewSetPrimaryViewport(Gfx *dl) {
  }
  
- extern u8 D_807FD838[2][3];
+ extern u8 gLensFlareFade[2][3];
 -extern Mtx D_2000180;
 +#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
  
  Gfx *lensFlareBuildDisplayList(Gfx *dl) {
      s16 i;
-@@ -618,8 +618,8 @@ void func_80701C90(void) {
-     D_807FD890 = 1;
+@@ -569,8 +569,8 @@ void underwaterTintReset(void) {
+     gUnderwaterTintSnap = 1;
  }
  
 -extern Mtx D_2000000;
@@ -337,10 +337,10 @@ index 11306b8..7cda21d 100644
 +#define D_2000000 (*(Mtx *)PORT_ABS_D_2000000)
 +#define D_2000200 (*(Mtx *)PORT_ABS_D_2000200)
  
- Gfx *func_80701CA0(Gfx *dl) {
+ Gfx *underwaterTintBuildDisplayList(Gfx *dl) {
      PlayerState *playerState;
 diff --git a/src/global/109660.c b/src/global/109660.c
-index 3a9b24d..29323b0 100644
+index 8ea66c8..c3c8343 100644
 --- a/src/global/109660.c
 +++ b/src/global/109660.c
 @@ -141,8 +141,8 @@ void lightSetOverrideColor(f32 r, f32 g, f32 b) {
@@ -364,7 +364,7 @@ index 3a9b24d..29323b0 100644
  Gfx *gfxDrawSkySprite(Gfx *dl, s16 azimuthAngle, s16 elevationAngle, u8 mode) {
      s16 x;
 diff --git a/src/global/10D2D0.c b/src/global/10D2D0.c
-index c6cbc20..b2e88a1 100644
+index e15a50a..730b78b 100644
 --- a/src/global/10D2D0.c
 +++ b/src/global/10D2D0.c
 @@ -11,8 +11,8 @@
@@ -381,26 +381,26 @@ index c6cbc20..b2e88a1 100644
 @@ -138,7 +138,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
      kongId = playerGetResolvedKongId(playerIndex);
      kong = &inv->kong[kongId];
-     mode = player->unk2E4;
--    flags = player->unk2E3;
-+    flags = (u8)player->unk2E2; // PORT: unk2E3 is the low byte only on the N64 (+3); here it is at +2
+     mode = player->healthHudMode;
+-    flags = player->healthHudFlagsLow;
++    flags = (u8)player->healthHudFlags; // PORT: healthHudFlagsLow is the low byte only on the N64 (+3); here it is at +2
      singlePlayer = gPlayerCount == 1;
      if (!singlePlayer) {
          mode = 0;
 @@ -146,7 +146,7 @@ Gfx *healthHudUpdateDraw(Gfx *glist, s16 playerIndex, PlayerStruct *player) {
      if (!singlePlayer) {
          healthApplyPendingDelta(playerIndex, player, inv, kong);
-         player->unk2E2 &= 0xFFEA;
--        flags = player->unk2E3;
-+        flags = (u8)player->unk2E2; // PORT: as above
+         player->healthHudFlags &= 0xFFEA;
+-        flags = player->healthHudFlagsLow;
++        flags = (u8)player->healthHudFlags; // PORT: as above
      }
      if (flags & 0x10) {
          switch (mode) {
 diff --git a/src/global/10E1D0.c b/src/global/10E1D0.c
-index 66aa37e..3cdd24f 100644
+index a6d3d4d..8e9d480 100644
 --- a/src/global/10E1D0.c
 +++ b/src/global/10E1D0.c
-@@ -453,7 +453,7 @@ void transitionRunFrame(s32 map, s32 exit) {
+@@ -454,7 +454,7 @@ void transitionRunFrame(s32 map, s32 exit) {
  
  extern void *gSegment1Data;
  extern u16 gPerspNorm;
@@ -409,7 +409,7 @@ index 66aa37e..3cdd24f 100644
  
  void transitionBeginDisplayList(FrameMatrices *frame, Gfx **outDl) {
      Gfx *dl = gGfxTaskBuffers[gGfxBufferIndex];
-@@ -592,9 +592,9 @@ typedef struct TransitionChannels {
+@@ -593,9 +593,9 @@ typedef struct TransitionChannels {
  TransitionChannels sTransitionChannels = { { 1, 2, 3, 0 } };
  extern s32 sTransitionBarY;
  extern void *sTransitionBarTexture;
@@ -423,13 +423,13 @@ index 66aa37e..3cdd24f 100644
  u8 transitionRender(Gfx **gdl, void *asset, u16 *framebuffer) {
      Gfx *glist;
 diff --git a/src/global/114270.c b/src/global/114270.c
-index 97a2b64..9b8728f 100644
+index f1acf15..614adbf 100644
 --- a/src/global/114270.c
 +++ b/src/global/114270.c
-@@ -380,9 +380,9 @@ extern EffectSpriteParticle *D_807FDAB0;
- extern s16 D_807FDAB4;
+@@ -380,9 +380,9 @@ extern EffectSpriteParticle *gEffectSpriteDrawEntry;
+ extern s16 gEffectSpriteDrawWindAngle;
  extern u8 gGfxBufferIndex;
- extern u8 D_807FDA1B;
+ extern u8 gEffectSpriteBrightness;
 -extern Gfx D_1000020[];
 -extern Gfx D_1000118[];
 -extern Mtx D_20000C0;
@@ -440,12 +440,12 @@ index 97a2b64..9b8728f 100644
  
  Gfx *effectSpriteRenderPool(Gfx *glist, Actor *actor) {
 diff --git a/src/global/117190.c b/src/global/117190.c
-index 1209a0f..e5b58fa 100644
+index 6a12a91..3ce5ea1 100644
 --- a/src/global/117190.c
 +++ b/src/global/117190.c
-@@ -460,9 +460,9 @@ void menuHandleDemoModeTransition(void) {
+@@ -448,9 +448,9 @@ void menuHandleDemoModeTransition(void) {
+         menuTransitionRequest(0x4C, 0, 2);
      }
-     menuTransitionRequest(0x4C, 0, 2);
  }
 -extern Gfx D_1000118;
 -extern Mtx D_20000C0;
@@ -457,10 +457,10 @@ index 1209a0f..e5b58fa 100644
  Gfx *menuOverlayGfxInit(Gfx *gfx) {
      gfx = gfxInit2DDisplayList(gfx);
 diff --git a/src/global/119370.c b/src/global/119370.c
-index e26d63c..85f78dd 100644
+index dccd571..1b1df1c 100644
 --- a/src/global/119370.c
 +++ b/src/global/119370.c
-@@ -806,10 +806,10 @@ extern void *D_807F600C;
+@@ -806,10 +806,10 @@ extern void *gRenderLoadedTexture;
  extern u8 gCurrentPlayerIndex;
  extern s16 gScreenWidth;
  extern s16 gScreenHeight;
@@ -476,10 +476,10 @@ index e26d63c..85f78dd 100644
  Gfx *effectGridBuildDisplayList(EffectNode *effect, Gfx *inGlist, s16 chunk) {
      s32 i;
 diff --git a/src/global/11BC10.c b/src/global/11BC10.c
-index 685aa98..6f76b3d 100644
+index 4aa958c..e7f26ad 100644
 --- a/src/global/11BC10.c
 +++ b/src/global/11BC10.c
-@@ -1087,7 +1087,8 @@ void effectParticleArcUpdate(EffectNode *effect, s8 *isDone) {
+@@ -1096,7 +1096,8 @@ void effectParticleArcUpdate(EffectNode *effect, s8 *isDone) {
  }
  
  extern PlayerState *gActivePlayerState;
@@ -489,7 +489,7 @@ index 685aa98..6f76b3d 100644
  
  void effectTimedLightIntensityFade(EffectNode *effect, s8 *isDone) {
      f32 ratio;
-@@ -1106,7 +1107,6 @@ void effectTimedLightIntensityFade(EffectNode *effect, s8 *isDone) {
+@@ -1115,7 +1116,6 @@ void effectTimedLightIntensityFade(EffectNode *effect, s8 *isDone) {
  }
  
  extern void *D_8002FBB0[];
@@ -497,7 +497,7 @@ index 685aa98..6f76b3d 100644
  void timedLightOrbitUpdate(EffectNode *effect, s8 *isDone) {
      f32 ratio;
      void **slot;
-@@ -1126,7 +1126,7 @@ void timedLightOrbitUpdate(EffectNode *effect, s8 *isDone) {
+@@ -1135,7 +1135,7 @@ void timedLightOrbitUpdate(EffectNode *effect, s8 *isDone) {
              return;
          }
          slot++;
@@ -506,47 +506,21 @@ index 685aa98..6f76b3d 100644
  }
  
  
-diff --git a/src/global/135D30.c b/src/global/135D30.c
-index 761d89e..9a45d9d 100644
---- a/src/global/135D30.c
-+++ b/src/global/135D30.c
-@@ -82,6 +82,7 @@ FlagTableEntry D_80755EA0[0x16] = {
-     { 0x57, 0, 0x13, 0x15D, 1, 0 }, { 0x2A, 0, 0x7, 0x167, 1, 0 }, { 0xB0, 0, 0x3, 0x17A, 1, 0 },
-     { 0x22, 0, 0x9, 0x186, 1, 0 },
- };
-+__asm__(".globl D_80755F4C\n.set D_80755F4C, D_80755EA0+0xAC\n");
- extern FlagTableEntry4 D_80755F4C[];
- FlagTableEntry4 D_80755F50[0x35] = {
-     { 0xE0, 4, 0 }, { 0x1C4, 0, 0 }, { 0x131, 3, 0 }, { 0x132, 4, 0 }, { 0x2, 5, 0 },
-diff --git a/src/global/1435C0.c b/src/global/1435C0.c
-index d4d61fc..05fe098 100644
---- a/src/global/1435C0.c
-+++ b/src/global/1435C0.c
-@@ -26,6 +26,7 @@ s16 D_80756490[128] = {
-     0x179C, 0x160E, 0x147E, 0x12ED, 0x115C, 0x0FCA, 0x0E38, 0x0CA5,
-     0x0B11, 0x097D, 0x07E9, 0x0654, 0x04C0, 0x032A, 0x0195, 0x0000,
- };
-+__asm__(".globl D_8075658E\n.set D_8075658E, D_80756490+0xFE\n");
- extern s16 D_8075658E[];
- 
- extern u8 gAudioSurroundEnabled;
 diff --git a/src/global/14CF0.c b/src/global/14CF0.c
-index 2e7cb48..6bde6c2 100644
+index 8bf7deb..872802a 100644
 --- a/src/global/14CF0.c
 +++ b/src/global/14CF0.c
-@@ -25,8 +25,8 @@ extern s8 gMainThreadHalted;
- extern u8 gGfxBufferIndex;
- extern TaskNode gGfxTaskNodes[][2];
+@@ -23,6 +23,8 @@ extern TaskNode gGfxTaskNodes[][2];
  extern void *gFramebuffers[];
--extern u8 D_805FB000[];
--extern u8 D_805FB0D0[];
-+#define D_805FB000 ((u8 *)K0_HOST(PORT_ABS_D_805FB000))
-+#define D_805FB0D0 ((u8 *)K0_HOST(PORT_ABS_D_805FB0D0))
- extern u64 D_8076AF20[];
- extern u64 D_8076B320[];
+ extern u64 gGfxTaskDramStack[];
+ extern u64 gGfxTaskYieldData[];
++#define rspbootTextStart ((u8 *)K0_HOST(PORT_ABS_rspbootTextStart))
++#define rspbootTextEnd ((u8 *)K0_HOST(PORT_ABS_rspbootTextEnd))
  extern SchedClient gGfxSchedClient;
+ extern FrameMatrices gFrameMatrices[];
+ extern OSMesgQueue gGfxDoneQueue;
 diff --git a/src/global/15050.c b/src/global/15050.c
-index 3c2b2e1..0720f31 100644
+index ad3a82c..b8f6bbc 100644
 --- a/src/global/15050.c
 +++ b/src/global/15050.c
 @@ -10,6 +10,8 @@
@@ -558,9 +532,9 @@ index 3c2b2e1..0720f31 100644
  extern u8 sHeapFlags;
  extern HeapPool gHeapPools[];
  extern s32 gHeapPoolCount;
-@@ -128,11 +130,11 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
-         bssSize = gSegmentTable[id].bssEnd - gSegmentTable[id].bssStart; // FAKE: re-reads the field the bssStart local holds (target loads it once, lw v1,16(v0) at 0x170); the local spelling gives bssStart a register from its init (move t4,zero for sw zero,228(sp) at 0xac), 120 lines
-         size = (s32)gSegmentTable[id].bssStart - vram; // FAKE: same bssStart re-read (one load at 0x170; the local spelling scores 120); keeps the left-operand conversion (Q0733)
+@@ -129,11 +131,11 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
+         size = (s32)gSegmentTable[id].bssStart; // FAKE: same bssStart re-read (one load at 0x170; size = bssStart scores 120); keeps the conversion on it (Q0733: 107 without)
+         size -= vram;
      }
 -    gFramebuffers[0] = (size + bssSize + 0x8002403F) & ~0x3F;
 -    fb1 = ((size + bssSize + 0x8002403F) & ~0x3F) + fbSize;
@@ -575,20 +549,20 @@ index 3c2b2e1..0720f31 100644
          switch (i) {
              case 0:
 diff --git a/src/global/17B90.c b/src/global/17B90.c
-index 0d5ecf9..3a85a22 100644
+index ae6e3ac..6dac464 100644
 --- a/src/global/17B90.c
 +++ b/src/global/17B90.c
-@@ -354,7 +354,7 @@ void controllerAnimFreeModel(Actor *actor, u8 modelIndex) {
-                 do {
-                     op = cmd->words.w0 >> 24;
-                     if (op == G_SETTIMG) {
--                        if (IS_KSEG0(cmd->words.w1)) {
-+                        if (PORT_IS_PTR(cmd->words.w1)) {
-                             assetFreeBuffer((void *)cmd->words.w1, 0x270, 0x15);
-                         }
+@@ -352,7 +352,7 @@ void controllerAnimFreeModel(Actor *actor, u8 modelIndex) {
+             for (cmd = model->displayLists[0]; cmd != dlEnd; cmd++) {
+                 op = cmd->words.w0 >> 24;
+                 if (op == G_SETTIMG) {
+-                    if (IS_KSEG0(cmd->words.w1)) {
++                    if (PORT_IS_PTR(cmd->words.w1)) {
+                         assetFreeBuffer((void *)cmd->words.w1, 0x270, 0x15);
                      }
+                 }
 diff --git a/src/global/2DE90.c b/src/global/2DE90.c
-index c346d5e..aac9a04 100644
+index 648dd8c..487bee7 100644
 --- a/src/global/2DE90.c
 +++ b/src/global/2DE90.c
 @@ -85,8 +85,8 @@ u8 type;
@@ -603,29 +577,29 @@ index c346d5e..aac9a04 100644
  extern s16 gGfxScreenLeft;
  extern s16 gGfxScreenTop;
 diff --git a/src/global/2F550.c b/src/global/2F550.c
-index 31a1681..a0805db 100644
+index 45fa3eb..f233d91 100644
 --- a/src/global/2F550.c
 +++ b/src/global/2F550.c
-@@ -523,7 +523,7 @@ u8 func_8062BDB0(Actor *actor, MapBspNode *node, MapVisNode *vis, f32 x, f32 z,
+@@ -523,7 +523,7 @@ u8 mapTreeTestModelFloor(Actor *actor, MapBspNode *node, MapVisNode *vis, f32 x,
      return 0;
  }
  
 -extern Gfx D_1000118;
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
  extern u8 gViewportCount;
- extern u8 D_807F5FEC;
- extern u8 D_807F5FED;
-@@ -609,7 +609,7 @@ extern f32 D_807F5FE0;
- extern f32 D_807F5FDC;
+ extern u8 gMapFirstViewPending;
+ extern u8 gRenderOnePrimitive;
+@@ -609,7 +609,7 @@ extern f32 gViewFovScaledCos;
+ extern f32 gDefaultFovCos;
  extern PlanePoly gFrustumPlanes[];
- extern struct RenderEntry *D_807F5FF0;
+ extern struct RenderEntry *gRenderListWorld;
 -extern Mtx D_2000180;
 +#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
  
  
  Gfx *mapRenderPlayerView(Gfx *gfx, f32 eyeX, f32 eyeY, f32 eyeZ, f32 atX, f32 atY, f32 atZ, f32 fov, f32 aspect, f32 farClip) {
 diff --git a/src/global/35000.c b/src/global/35000.c
-index 2a2f967..abf10ac 100644
+index 16390cf..ce20772 100644
 --- a/src/global/35000.c
 +++ b/src/global/35000.c
 @@ -358,7 +358,7 @@ RenderEntry *renderEntryListSortByDistance(RenderEntry *list, f32 camX, f32 camY
@@ -637,20 +611,8 @@ index 2a2f967..abf10ac 100644
  
  
  Gfx *renderEntryListBuildDisplayList(Gfx *glist, RenderEntry *list, f32 camX, f32 camY, f32 camZ, s32 renderMask, s16 layer, u8 playerIndex) {
-diff --git a/src/global/3C10.c b/src/global/3C10.c
-index e6fc1b2..1aae99d 100644
---- a/src/global/3C10.c
-+++ b/src/global/3C10.c
-@@ -71,6 +71,7 @@ u16 D_80744700[8] = { 0x08, 0xC5, 0x9A, 0x6F, 0x53, 0xC4, 0xC7, 0xCB };
- s16 D_80744710[8] = { 0x1A, 0x4A, 0x8A, 0xA8, 0xEC, 0x124, 0x13D, 0x17C };
- s32 D_80744720[5] = { 0x181, 0x6, 0x46, 0x42, 0x75 };
- u16 D_80744734[10] = { 0xA9, 0xAD, 0xAF, 0xAE, 0xB2, 0xC2, 0xC1, 0xAA, 0xAA, 0x00 };
-+__asm__(".globl D_80744736\n.set D_80744736, D_80744734+0x2\n");
- extern u16 D_80744736[]; /* &D_80744734[1] */
- u16 D_80744748[10] = { 0x07, 0x26, 0x1A, 0x1E, 0x30, 0x48, 0x57, 0x22, 0x11, 0x00 };
- Struct8074475C D_8074475C[11] = {
 diff --git a/src/global/450.c b/src/global/450.c
-index 2f3d2a9..9248250 100644
+index eaaeb6d..1bdcb64 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
 @@ -64,14 +64,14 @@ void func_80024000(void);
@@ -674,18 +636,18 @@ index 2f3d2a9..9248250 100644
 +#define D_2000180 (*(u8 (*)[])PORT_ABS_D_2000180)
 +#define D_2000200 (*(u8 (*)[])PORT_ABS_D_2000200)
  
- extern s8 D_807467CC;
+ extern s8 gEepromLoaded;
  extern u8 gSaveIconTimer;
 @@ -93,7 +93,7 @@ extern PlayerStruct *gPlayerSlots;
  extern u8 gPlayerCount;
  extern f32 gScreenFadeProgress;
  extern f32 gScreenFadeRate;
--extern s32 D_807FF100;
-+#define D_807FF100 (*(s32 *)K0_HOST(PORT_ABS_D_807FF100))
+-extern s32 gSegment1DataBuffer;
++#define gSegment1DataBuffer (*(s32 *)K0_HOST(PORT_ABS_gSegment1DataBuffer))
  
  extern s8 gMainThreadHalted;
- extern u64 D_80761680;
-@@ -189,6 +189,32 @@ u8 gGfxSubListEnabled;
+ extern u64 gMainThreadStackSentinel;
+@@ -199,6 +199,11 @@ u8 gGfxSubListEnabled;
  u8 D_8076A0A5;
  u16 D_8076A0A6;
  s32 gCurrentMap;
@@ -693,33 +655,12 @@ index 2f3d2a9..9248250 100644
 +__asm__(".globl gCurrentLevelIndex\n.set gCurrentLevelIndex, gCurrentMap\n"
 +        ".globl gCurrentWorldId\n.set gCurrentWorldId, gCurrentMap\n"
 +        ".globl D_80744474\n.set D_80744474, gFramebuffers+4\n"
-+        ".globl D_8074458C\n.set D_8074458C, gViModeIndexByTvType+4\n"
-+        ".globl gGfxTaskBufferCap\n.set gGfxTaskBufferCap, gGfxTaskBuffers+8\n"
-+        ".globl D_80744518\n.set D_80744518, D_80744510+8\n"
-+        ".globl D_80744538\n.set D_80744538, D_80744530+8\n"
-+        ".globl D_8076A0D1\n.set D_8076A0D1, D_8076A0D0+1\n"
-+        ".globl D_8076A0D2\n.set D_8076A0D2, D_8076A0D0+2\n"
-+        ".globl D_8076A0D6\n.set D_8076A0D6, D_8076A0D0+6\n"
-+        ".globl D_8076A0DA\n.set D_8076A0DA, D_8076A0D0+0xA\n"
-+        ".globl gMenuPlayerCharacterSel\n.set gMenuPlayerCharacterSel, D_8076A0D0+0x14\n"
-+        ".globl D_8076A0E5\n.set D_8076A0E5, D_8076A0D0+0x15\n"
-+        ".globl D_8076A0E6\n.set D_8076A0E6, D_8076A0D0+0x16\n"
-+        ".globl D_8076A0E7\n.set D_8076A0E7, D_8076A0D0+0x17\n"
-+        ".globl D_8076A0E8\n.set D_8076A0E8, D_8076A0D0+0x18\n"
-+        ".globl D_80744514\n.set D_80744514, D_80744510+4\n"
-+        ".globl D_8074451C\n.set D_8074451C, D_80744510+0xC\n"
-+        ".globl D_80744520\n.set D_80744520, D_80744510+0x10\n"
-+        ".globl D_80744534\n.set D_80744534, D_80744530+4\n"
-+        ".globl D_80744524\n.set D_80744524, D_80744510+0x14\n"
-+        ".globl D_8074453C\n.set D_8074453C, D_80744530+0xC\n"
-+        ".globl D_8074453D\n.set D_8074453D, D_80744530+0xD\n"
-+        ".globl D_8074453E\n.set D_8074453E, D_80744530+0xE\n"
-+        ".globl D_80744540\n.set D_80744540, D_80744530+0x10\n");
- s32 D_8076A0AC;
++        ".globl gGfxTaskBufferCap\n.set gGfxTaskBufferCap, gGfxTaskBuffers+8\n");
+ s32 gHubReturnExit;
  u8 D_8076A0B0;
  u8 gScreenRenderFlags;
 diff --git a/src/global/55B20.c b/src/global/55B20.c
-index 628409b..7bfaf5b 100644
+index 4d1923e..fea3bf7 100644
 --- a/src/global/55B20.c
 +++ b/src/global/55B20.c
 @@ -1275,7 +1275,7 @@ void mapChunkReleaseAssets(u8 *cmd, u8 *end) {
@@ -731,117 +672,46 @@ index 628409b..7bfaf5b 100644
                      collisionBstLookupByHash(addr, &node, &orig);
                      assetFreeBuffer((void *)*(u32 *)(cmd + 4), 0x542, 0x22);
                      *(u32 *)(cmd + 4) = orig;
-@@ -1847,7 +1847,7 @@ extern void *D_807F5DEC;
+@@ -1847,7 +1847,7 @@ extern void *gMapDisplayListBase;
  extern u8 gRenderSetupKind;
- extern void *D_807F600C;
+ extern void *gRenderLoadedTexture;
  extern struct RenderEntry *gRenderListSorted;
 -extern Gfx D_2000180;
 +#define D_2000180 (*(Gfx *)PORT_ABS_D_2000180)
  
  u32 osVirtualToPhysical(void *);
  Gfx *func_80027034(Gfx *);
-diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index a5b547f..620cc4d 100644
---- a/src/global/63EC0.c
-+++ b/src/global/63EC0.c
-@@ -56,17 +56,21 @@ typedef struct EffectBufferEntry {
- 
- // This TU's .data (0x80748A90-0x80748B6C + 4-byte TU pad): per-type effect table rows; D_80748A94,
- // D_80748A9C and D_80748AA5 are column views of these rows (absolute lines in undefined_syms.us.txt).
-+// PORT: flags is read as bytes (heightMode at +1, drawPass at +2), so store its N64 byte order
- EffectTableEntry D_80748A90[9] = {
--    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBA, effectNodeStepUVAndPos, NULL, NULL, { 0x00000100 } },
--    { effectInitTextureTableCI4, effectBuildGdlTexture64x64CI4, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000000 } },
--    { effectInitTextureTable0, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdl, (void (*)(WaterSurface *))effectNoopCallback1, NULL, NULL, { 0x00010000 } },
--    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBAWithPrim, effectNodeStepUVAndPos, NULL, NULL, { 0x00000100 } },
--    { effectInitTextureTable2, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlDup, (void (*)(WaterSurface *))effectNoopCallback3, NULL, NULL, { 0x00020000 } },
--    { effectInitTextureTable3, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdl, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000100 } },
--    { effectInitTextureTable4, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdlDup, effectNodeUpdateAlphaOffset, NULL, NULL, { 0x00000000 } },
--    { effectInitTextureTableDual, effectBuildMultiBlockTextureGdl, effectNodeUpdateDualAlphaOffset, NULL, NULL, { 0x00000100 } },
--    { effectInitTextureTable1, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlWrapper, (void (*)(WaterSurface *))effectNoopCallback2, NULL, NULL, { 0x00010000 } },
-+    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBA, effectNodeStepUVAndPos, NULL, NULL, { PORT_BE32(0x00000100) } },
-+    { effectInitTextureTableCI4, effectBuildGdlTexture64x64CI4, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000000) } },
-+    { effectInitTextureTable0, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdl, (void (*)(WaterSurface *))effectNoopCallback1, NULL, NULL, { PORT_BE32(0x00010000) } },
-+    { effectInitTextureTableRGBA32, effectBuildGdlTexture32x32RGBAWithPrim, effectNodeStepUVAndPos, NULL, NULL, { PORT_BE32(0x00000100) } },
-+    { effectInitTextureTable2, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlDup, (void (*)(WaterSurface *))effectNoopCallback3, NULL, NULL, { PORT_BE32(0x00020000) } },
-+    { effectInitTextureTable3, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdl, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000100) } },
-+    { effectInitTextureTable4, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildSingleTextureGdlDup, effectNodeUpdateAlphaOffset, NULL, NULL, { PORT_BE32(0x00000000) } },
-+    { effectInitTextureTableDual, effectBuildMultiBlockTextureGdl, effectNodeUpdateDualAlphaOffset, NULL, NULL, { PORT_BE32(0x00000100) } },
-+    { effectInitTextureTable1, (Gfx *(*)(Gfx *, WaterSurface *, u8))effectBuildMipmapGdlWrapper, (void (*)(WaterSurface *))effectNoopCallback2, NULL, NULL, { PORT_BE32(0x00010000) } },
- };
-+__asm__(".globl D_80748A94\n.set D_80748A94, D_80748A90+0x4\n"
-+        ".globl D_80748A9C\n.set D_80748A9C, D_80748A90+0xC\n"
-+        ".globl D_80748AA5\n.set D_80748AA5, D_80748A90+0x15\n");
- s32 D_80748B68 = -2;
- 
- extern WaterSurface *gEffectNodeList;
 diff --git a/src/global/6710.c b/src/global/6710.c
-index 2c31a71..d6a55d6 100644
+index cb0e107..a82ccf3 100644
 --- a/src/global/6710.c
 +++ b/src/global/6710.c
-@@ -208,8 +208,8 @@ void audioThreadMain(void *arg) {
-     n_alClose(&sAudioAlGlobals.globals);
- }
+@@ -210,6 +210,8 @@ void audioThreadMain(void *arg) {
  
--extern u8 D_805FB000[];
--extern u8 D_805FB0D0[];
-+#define D_805FB000 ((u8 *)K0_HOST(PORT_ABS_D_805FB000))
-+#define D_805FB0D0 ((u8 *)K0_HOST(PORT_ABS_D_805FB0D0))
- extern u64 func_80741310[];
- extern u64 D_80760590[];
+ extern u64 gAudioUcodeText[];
+ extern u64 gAudioUcodeData[];
++#define rspbootTextStart ((u8 *)K0_HOST(PORT_ABS_rspbootTextStart))
++#define rspbootTextEnd ((u8 *)K0_HOST(PORT_ABS_rspbootTextEnd))
  
-diff --git a/src/global/69E60.c b/src/global/69E60.c
-index 301611c..8f61fb1 100644
---- a/src/global/69E60.c
-+++ b/src/global/69E60.c
-@@ -40,6 +40,9 @@ ActorTiltTableEntry D_80748D40[19] = {
-     { 8, 85, 75, { 65, 60 }, 45, { 10, 0, 0 } },
-     { 8, 85, 75, { 65, 60 }, 45, { 10, 0, 0 } },
- };
-+__asm__(".globl D_80748D48\n.set D_80748D48, D_80748D40+0x8\n"
-+        ".globl D_80748D4A\n.set D_80748D4A, D_80748D40+0xA\n"
-+        ".globl D_80748DA4\n.set D_80748DA4, D_80748D40+0x64\n");
- u8 D_80748E00 = 0;
- u8 D_80748E04 = 0;
  
+ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {
 diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 404aeb4..9dfcdb0 100644
+index 367715f..670db20 100644
 --- a/src/global/6AD90.c
 +++ b/src/global/6AD90.c
-@@ -2089,7 +2089,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+@@ -2065,7 +2065,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
  
      assetEnsureTableLoaded(table);
      if (noCache == 0) {
 -        if ((index >= 0x80000000U) && (index < 0xA0000000U)) {
 +        if (PORT_IS_PTR(index)) {
              collisionBstInsertByHash((void *)index, table, 0);
-             D_807F967C = 0;
-             D_807F9678 = 0;
-diff --git a/src/global/7130.c b/src/global/7130.c
-index 738d475..4d26d3d 100644
---- a/src/global/7130.c
-+++ b/src/global/7130.c
-@@ -184,6 +184,7 @@ f32 D_80770DCC;
- f32 D_80770DD0;
- f32 D_80770DD4;
- u8 D_80770DD8[4];
-+__asm__(".globl D_80770DD9\n.set D_80770DD9, D_80770DD8+0x1\n");
- f32 D_80770DDC;
- f32 D_80770DE0;
- f32 D_80770DE4;
-@@ -192,6 +193,7 @@ f32 D_80770DEC;
- f32 D_80770DF0;
- f32 D_80770DF4;
- struct GfSndState *D_80770DF8[16];
-+__asm__(".globl D_80770DFC\n.set D_80770DFC, D_80770DF8+4\n");
- u32 D_80770E38[16];
- f32 D_80770E78[16];
- f32 D_80770EB8[16];
+             sAssetLoadPersistent = 0;
+             sAssetLoadPool = 0;
 diff --git a/src/global/7CA80.c b/src/global/7CA80.c
-index 74fadd5..61f8c9b 100644
+index 856c203..a51036d 100644
 --- a/src/global/7CA80.c
 +++ b/src/global/7CA80.c
-@@ -2051,9 +2051,11 @@ s32 actorInitFloorAttachment(s32 unused) {
+@@ -2049,9 +2049,11 @@ s32 actorInitFloorAttachment(s32 unused) {
      return 1;
  }
  
@@ -855,10 +725,10 @@ index 74fadd5..61f8c9b 100644
  
  s32 actorInitAnimAndCollision(ActorInitArg *init) {
 diff --git a/src/global/80150.c b/src/global/80150.c
-index b8b25f0..f742429 100644
+index d5c75f3..e257dde 100644
 --- a/src/global/80150.c
 +++ b/src/global/80150.c
-@@ -2983,9 +2983,9 @@ u8 *tagBarrelGetKongName(TagBarrelData *data, s32 slot) {
+@@ -2979,9 +2979,9 @@ u8 *tagBarrelGetKongName(TagBarrelData *data, s32 slot) {
      return ret;
  }
  
@@ -872,13 +742,13 @@ index b8b25f0..f742429 100644
  extern s16 gScreenHeight;
  
 diff --git a/src/global/90D80.c b/src/global/90D80.c
-index 0ad000d..3c05fae 100644
+index 1c52928..3ff8a48 100644
 --- a/src/global/90D80.c
 +++ b/src/global/90D80.c
 @@ -165,8 +165,8 @@ Gfx *renderRotatedQuad(Gfx *glist, void *tex, s16 x, s16 y, s16 angle) {
  }
  
- extern u16 D_807FC79E;
+ extern u16 sRotatedSpriteDefaultTexId;
 -extern Mtx D_2000080;
 -extern Mtx D_2000180;
 +#define D_2000080 (*(Mtx *)PORT_ABS_D_2000080)
@@ -905,10 +775,10 @@ index 0ad000d..3c05fae 100644
  
  // The owner's component (Actor.customState) as actorDrawAnimatedEffect reads it: a byte pointer at 0x34.
 diff --git a/src/global/9BF30.c b/src/global/9BF30.c
-index 6036a6d..d26f5cc 100644
+index 07fdf8f..671981a 100644
 --- a/src/global/9BF30.c
 +++ b/src/global/9BF30.c
-@@ -40,9 +40,9 @@ typedef struct ProjectileState {
+@@ -45,9 +45,9 @@ typedef struct ProjectileState {
      /* 0x11 */ u8 ringType;
  } ProjectileState;
  
@@ -922,7 +792,7 @@ index 6036a6d..d26f5cc 100644
  extern PlayerStruct *gPlayerSlots;
  
 diff --git a/src/global/9DD70.c b/src/global/9DD70.c
-index 04185f7..7ba69ba 100644
+index f4e41eb..17a674e 100644
 --- a/src/global/9DD70.c
 +++ b/src/global/9DD70.c
 @@ -62,7 +62,7 @@ void mathAngleBetweenPoints3D(s16 *pitch, s16 *yaw, f32 x1, f32 y1, f32 z1, f32
@@ -944,7 +814,7 @@ index 04185f7..7ba69ba 100644
  extern void *gPuffSprites[];
  
 diff --git a/src/global/A2F10.c b/src/global/A2F10.c
-index 4dd4e57..7b2888d 100644
+index 3fe0073..e419235 100644
 --- a/src/global/A2F10.c
 +++ b/src/global/A2F10.c
 @@ -52,8 +52,8 @@ extern Actor *gCurrentActor;
@@ -956,34 +826,25 @@ index 4dd4e57..7b2888d 100644
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
 +#define D_20000C0 (*(Mtx *)PORT_ABS_D_20000C0)
  extern u32 gFrameDelta;
- extern u8 D_80750AD4;
+ extern u8 gBossRoundNumber;
  
-@@ -538,7 +538,7 @@ Gfx *actorBannerTextRender(Gfx *dl, Actor *actor) {
-     case 0x25:
-     case 0x26:
-         centered = 1;
--        _sprintf(text, D_80750338[sel]);
-+        _sprintf(text, D_807503B0[sel - 0x1E]); // PORT: D_80750338[sel] on the N64, 0x1E words past 9CE20's s16 into this table
-         break;
-     default:
-         if (sel & 0x80) {
 diff --git a/src/global/A7710.c b/src/global/A7710.c
-index 2b9da46..6d3e0fd 100644
+index a57270b..30e0fdd 100644
 --- a/src/global/A7710.c
 +++ b/src/global/A7710.c
 @@ -69,8 +69,8 @@ void hudCountdownTimerResume(Actor *actor) {
-     actor->unk155 = 0;
+     actor->subState = 0;
  }
  
 -extern Gfx D_1000118;
 -extern Mtx D_2000180;
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
 +#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
- extern Gfx D_8071FC58;
+ extern Gfx gEffectSpriteSparklePurple;
  extern PlayerStruct *gPlayerSlots;
  
 diff --git a/src/global/A8400.c b/src/global/A8400.c
-index 283276f..9997f22 100644
+index f73f87f..752e397 100644
 --- a/src/global/A8400.c
 +++ b/src/global/A8400.c
 @@ -153,8 +153,8 @@ Gfx *textBoxRenderTail(Gfx *dl, ResQueueActorState *state, s32 frame) {
@@ -998,7 +859,7 @@ index 283276f..9997f22 100644
  #define WRITE_GFX(pkt, _w0, _w1) { Gfx *_g = (Gfx *)(pkt); _g->words.w0 = (_w0); _g->words.w1 = (_w1); }
  
 diff --git a/src/global/ACDC0.c b/src/global/ACDC0.c
-index 18318d4..435b262 100644
+index 8e6a98d..7779c10 100644
 --- a/src/global/ACDC0.c
 +++ b/src/global/ACDC0.c
 @@ -56,9 +56,9 @@ typedef struct HudEntry {
@@ -1014,18 +875,17 @@ index 18318d4..435b262 100644
  
  extern HudTextList *sPauseTextLists[2];
  extern s8 sPauseTextCounts[2];
-@@ -120,6 +120,9 @@ s16 sPauseCollectibleTotals[10] = { 0xC8, 0xA, 8, 0x28, 1, 0x14, 1, 0x28, 1, 0 }
- s8 D_80750580 = 0;
- f32 sPauseBumpFade[8] = { 0.0f, -0.02f, 0.04f, -0.04f, 0.06f, 0.06f, -0.06f, -0.06f };
- s16 D_807505A4[10] = { 0, 0x333, 0x666, 0x999, 0xCCC, 0, 6, 0x46, 0x42, 0x75 };
-+__asm__(".globl D_807505AE\n.set D_807505AE, D_807505A4+0xA\n"
-+        ".globl D_807505B2\n.set D_807505B2, D_807505A4+0xE\n"
+@@ -116,6 +116,8 @@ f32 sPauseBumpFade[8] = { 0.0f, -0.02f, 0.04f, -0.04f, 0.06f, 0.06f, -0.06f, -0.
+ // Two per-kong tables in one object (a separate s16[5] would start 4-aligned at 0xD0, not 0xCE); 478F0, FCCD0
+ // and menu/3E10 read unlockFlag through it, hudPauseMenuRefreshTotals through the interior label D_807505B2.
+ PauseKongTables sPauseKongTables = { { 0, 0x333, 0x666, 0x999, 0xCCC }, { 0, 6, 0x46, 0x42, 0x75 } };
++__asm__(".globl D_807505B2\n.set D_807505B2, sPauseKongTables+0xE\n"
 +        ".globl D_80750531\n.set D_80750531, sPauseKongUnlocked+1\n");
  // battle crown flag per level index (0..8); [9] is the Isles' second crown
  s16 sPauseCrownFlags[10] = { 0x261, 0x262, 0x263, 0x264, 0x265, 0x268, 0x269, 0x266, 0x26A, 0x267 };
  s8 gPauseMenuMode = 0;
 diff --git a/src/global/BC3B0.c b/src/global/BC3B0.c
-index acb1a1f..b518320 100644
+index 29bf58f..07ea6ec 100644
 --- a/src/global/BC3B0.c
 +++ b/src/global/BC3B0.c
 @@ -31,8 +31,8 @@ typedef struct BC3B0CursorActor {
@@ -1040,7 +900,7 @@ index acb1a1f..b518320 100644
  Gfx *actorCursorDrawSprite(Gfx *dl, Actor *actor) {
      BehaviourWorkState *work = actor->customState;
 diff --git a/src/global/C0EE0.c b/src/global/C0EE0.c
-index 2a229c2..be27187 100644
+index f1ae900..4ecde29 100644
 --- a/src/global/C0EE0.c
 +++ b/src/global/C0EE0.c
 @@ -359,8 +359,8 @@ void enemyGridStateStep(void) {
@@ -1052,23 +912,23 @@ index 2a229c2..be27187 100644
 +#define D_1000118 (*(Gfx (*)[])PORT_ABS_D_1000118)
 +#define D_2000180 (*(Mtx *)PORT_ABS_D_2000180)
  
- Gfx *func_806BCF98(Gfx *dl, Actor *actor) {
+ Gfx *enemyGridDrawYesNoPrompt(Gfx *dl, Actor *actor) {
      static const u8 sYesLabel[] = "q YES";
 diff --git a/src/global/C2A90.c b/src/global/C2A90.c
-index f7c47c4..7a10b49 100644
+index cd70a83..2aee177 100644
 --- a/src/global/C2A90.c
 +++ b/src/global/C2A90.c
-@@ -223,7 +223,7 @@ void func_806BE674(u8 spawn) {
+@@ -223,7 +223,7 @@ void targetCourseSetTargetsSpawned(u8 spawn) {
      }
  }
  
 -extern Gfx D_1000118;
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
  
- Gfx *func_806BE6F0(Gfx *gdl, Actor *actor) {
+ Gfx *targetCourseDrawCountdown(Gfx *gdl, Actor *actor) {
      u8 v;
 diff --git a/src/global/CBEA0.c b/src/global/CBEA0.c
-index cae13dc..e314832 100644
+index dbf248d..f9b5f53 100644
 --- a/src/global/CBEA0.c
 +++ b/src/global/CBEA0.c
 @@ -200,8 +200,8 @@ void bannerTextUpdate(void) {
@@ -1083,7 +943,7 @@ index cae13dc..e314832 100644
  Gfx *renderBannerText(Gfx *gdl, Actor *actor) {
      f32 sx;
 diff --git a/src/global/CC800.c b/src/global/CC800.c
-index b903fab..77524c6 100644
+index 6ee830a..5dd6a47 100644
 --- a/src/global/CC800.c
 +++ b/src/global/CC800.c
 @@ -548,7 +548,7 @@ u8 playerLookupKongByActorType(s16 actorType) {
@@ -1104,26 +964,11 @@ index b903fab..77524c6 100644
      gActivePlayerActor->collision = actorSub140CreateFromModel(gActivePlayerActor);
      gActivePlayerActor->flags &= ~0x1000;
      gActivePlayerActor->flags |= row->actorFlags;
-diff --git a/src/global/F56F0.c b/src/global/F56F0.c
-index 307d63e..e6b0c33 100644
---- a/src/global/F56F0.c
-+++ b/src/global/F56F0.c
-@@ -174,8 +174,10 @@ f32 D_807539C0[7] = { 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f };
- s16 D_807539DC[8] = { 15, 15, 15, 15, 15, 15, 15, 0 };
- s16 D_807539EC[8] = { 500, 500, 500, 500, 500, 500, 500, 0 };
- s16 D_807539FC[8] = { 128, 128, 128, 128, 128, 128, 128, 0 };
-+__asm__(".globl D_80753A08\n.set D_80753A08, D_807539FC+0xC\n");
- // 89250 reads it as D_80753A08[actorType] (absolute label in undefined_syms.us.txt)
- s16 D_80753A0C[8] = { 18, 12, 12, 10, 18, 18, 8, 0 };
-+__asm__(".globl D_80753A18\n.set D_80753A18, D_80753A0C+0xC\n");
- // 89250 reads it as D_80753A18[actorType] (absolute label in undefined_syms.us.txt)
- s16 D_80753A1C[8] = { 18, 12, 12, 2, 50, 18, 8, 0 };
- s16 D_80753A2C[8] = { 20, 20, 20, 20, 20, 20, 20, 0 };
 diff --git a/src/global/FCCD0.c b/src/global/FCCD0.c
-index dd42c06..d2e6a9e 100644
+index 424212e..8c2c5a5 100644
 --- a/src/global/FCCD0.c
 +++ b/src/global/FCCD0.c
-@@ -843,8 +843,8 @@ void slotQueueSpawnSingleNode(s32 slot) {
+@@ -839,8 +839,8 @@ void slotQueueSpawnSingleNode(s32 slot) {
  }
  
  
@@ -1134,17 +979,17 @@ index dd42c06..d2e6a9e 100644
  extern u8 gSlotQueueLabelAlpha;
  
  Gfx *slotQueueDrawLabel(s32 slot, SlotQueueNode *node, Gfx *gfx) {
-@@ -892,7 +892,7 @@ Gfx *slotQueueDrawLabel(s32 slot, SlotQueueNode *node, Gfx *gfx) {
+@@ -888,7 +888,7 @@ Gfx *slotQueueDrawLabel(s32 slot, SlotQueueNode *node, Gfx *gfx) {
  }
  
- extern s16 D_807505AE[];
+ extern PauseKongTables sPauseKongTables;
 -extern Gfx D_2000180;
 +#define D_2000180 (*(Gfx *)PORT_ABS_D_2000180)
  
  Gfx *slotQueueDrawPlayerLabels(s32 slot, SlotQueueNode *node, Gfx *gfx) {
      s32 active;
 diff --git a/src/global/FE40.c b/src/global/FE40.c
-index c604b09..f168303 100644
+index f5ab3d6..24371e1 100644
 --- a/src/global/FE40.c
 +++ b/src/global/FE40.c
 @@ -26,7 +26,7 @@ void dmaReadAssetDecompress(u32 romAddr, void *dst, u32 *sizePtr, u8 decompressF
@@ -1157,7 +1002,7 @@ index c604b09..f168303 100644
              allocBuf = heapAlloc(*sizePtr);
              dmaBuf = allocBuf;
 diff --git a/src/jetpac/0.c b/src/jetpac/0.c
-index fc17b5e..fb8ece4 100644
+index af7206e..60a31d8 100644
 --- a/src/jetpac/0.c
 +++ b/src/jetpac/0.c
 @@ -70,9 +70,9 @@ extern FrameMatrices gFrameMatrices[];
@@ -1174,12 +1019,12 @@ index fc17b5e..fb8ece4 100644
  void jetpacRunFrame(void) {
      Gfx *glist;
 diff --git a/src/menu/0.c b/src/menu/0.c
-index c4934f1..950792e 100644
+index 50310ef..f38d077 100644
 --- a/src/menu/0.c
 +++ b/src/menu/0.c
-@@ -268,9 +268,9 @@ u8 targetState;
- #define WRITE_GFX(pkt, _w0, _w1) { Gfx *_g = (Gfx *)(pkt); _g->words.w0 = (_w0); _g->words.w1 = (u32)(_w1); }
- #endif
+@@ -265,9 +265,9 @@ u8 targetState;
+     }
+ }
  
 -extern u8 D_1000118[];
 -extern u8 D_20000C0[];
@@ -1191,12 +1036,12 @@ index c4934f1..950792e 100644
  
  Gfx *menuDrawOptionsOverlay(Gfx *glist, MenuRenderActor *actor) {
 diff --git a/src/menu/1AF0.c b/src/menu/1AF0.c
-index 4e5e469..b450767 100644
+index 7093573..70e4e12 100644
 --- a/src/menu/1AF0.c
 +++ b/src/menu/1AF0.c
-@@ -120,8 +120,8 @@ const u16 D_80033A50[5][4] = {
+@@ -120,8 +120,8 @@ const u16 gShopCrankyMoveTextIds[5][4] = {
  
- const u16 D_80033A78[4] = { 0, 25, 26, 27 };
+ const u16 gShopCrankySlamTextIds[4] = { 0, 25, 26, 27 };
  
 -extern Gfx D_1000118[];
 -extern Mtx D_20000C0;
@@ -1215,10 +1060,10 @@ index 4e5e469..b450767 100644
  Gfx *menuDrawTransformedWidgets(Gfx *dl, Actor *widgetActor) {
      MenuWidgetState *widget = widgetActor->customState;
 diff --git a/src/menu/3E10.c b/src/menu/3E10.c
-index 57fd47c..7963e1e 100644
+index 93818d8..5f7a47a 100644
 --- a/src/menu/3E10.c
 +++ b/src/menu/3E10.c
-@@ -2735,8 +2735,8 @@ void menuInit(void) {
+@@ -2705,8 +2705,8 @@ void menuInit(void) {
  static void func_8003026C(void) {
  }
  
@@ -1230,7 +1075,7 @@ index 57fd47c..7963e1e 100644
  
  Gfx *menuInitGfxState(Gfx *glistp, Actor *menuActor) { // PORT: IDO left the callee's $v0 as the callback result
 diff --git a/src/menu/E550.c b/src/menu/E550.c
-index 4c4080f..c428035 100644
+index a49cd5f..c41e8a1 100644
 --- a/src/menu/E550.c
 +++ b/src/menu/E550.c
 @@ -118,8 +118,8 @@ void menuUpdateLightFadeActor(void) {
@@ -1245,7 +1090,7 @@ index 4c4080f..c428035 100644
  extern s16 gScreenHeight;
  extern u8 gHiResScale;
 diff --git a/src/multiplayer/0.c b/src/multiplayer/0.c
-index 34c0d4a..197b39f 100644
+index 1e66910..d003bc3 100644
 --- a/src/multiplayer/0.c
 +++ b/src/multiplayer/0.c
 @@ -56,8 +56,8 @@ typedef struct MpControllerState {
@@ -1259,8 +1104,20 @@ index 34c0d4a..197b39f 100644
  
  extern u8 gPlayerCount;
  extern s8 gMpWinnerIndex;
+diff --git a/src/race/1770.c b/src/race/1770.c
+index d99c816..2ebc42a 100644
+--- a/src/race/1770.c
++++ b/src/race/1770.c
+@@ -196,6 +196,7 @@ void raceAdvanceCheckpoint(RacePathState *pathState, RaceParticipant *participan
+ 
+ extern u8 gSparkEffectSprite[];
+ void *gRaceSparkEffects[4] = { 0 };
++__asm__(".globl D_8002FBB0\n.set D_8002FBB0, gRaceSparkEffects\n"); // PORT: global (11BC10) links it by its address name
+ u8 gLightSlotNext = 0;
+ void raceApplyPositionOffset(f32 *tgt, f32 *pos) {
+     s16 angle;
 diff --git a/src/race/7BD0.c b/src/race/7BD0.c
-index 853c7db..bdc773f 100644
+index 7faa9b0..344b0c9 100644
 --- a/src/race/7BD0.c
 +++ b/src/race/7BD0.c
 @@ -132,9 +132,9 @@ Gfx *raceRenderMinimapIcon(Gfx *dl, Actor *actor, f32 posX, f32 posZ, u8 red, u8

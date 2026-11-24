@@ -5,11 +5,11 @@ Subject: [PATCH] port: io registers
 
 
 diff --git a/src/global/13980.c b/src/global/13980.c
-index 4c4f57f..36cc3c1 100644
+index 55328ab..83c6d7a 100644
 --- a/src/global/13980.c
 +++ b/src/global/13980.c
-@@ -129,11 +129,11 @@ void schedMain(void *arg) {
-                 if (D_8074682C < -159 && D_8074682C >= -256) {
+@@ -128,11 +128,11 @@ void schedMain(void *arg) {
+                 if (gMainLoopWatchdog < -159 && gMainLoopWatchdog >= -256) {
                      for (i = 0; i < 2; i++) {
                          faultFontInit(gFramebuffers[i & 1], 2, 2);
 -                        faultPrintf("CURRENT=%x\n", IO_READ(DPC_CURRENT_REG));
@@ -22,11 +22,11 @@ index 4c4f57f..36cc3c1 100644
 +                        faultPrintf("END=%x\n", portIoRead(DPC_END_REG));
 +                        faultPrintf("DPSTAT=%x\n", portIoRead(DPC_STATUS_REG));
 +                        faultPrintf("SPSTAT=%x\n", portIoRead(SP_STATUS_REG));
-                         faultPrintf("MAIN-PC=%x\n", D_8076154C);
+                         faultPrintf("MAIN-PC=%x\n", gMainThread.context.pc);
                      }
                  }
 diff --git a/src/global/6710.c b/src/global/6710.c
-index d6a55d6..dbdd1f2 100644
+index a82ccf3..5df5702 100644
 --- a/src/global/6710.c
 +++ b/src/global/6710.c
 @@ -225,7 +225,7 @@ s32 audioBuildTask(AudioTask *task, AudioTask *prevTask) {

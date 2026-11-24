@@ -1,15 +1,15 @@
-/* Table 17: recorded input demos (bonus-stage / attract playback). Consumer: func_8060B750 ->
- * recordInitPositionBuffers (global/10130.c); playback reads in func_8060B4D4, func_8060B55C,
- * func_8060B430, func_8060B7C4, func_8060B7D0 (10130.c). Loaded from menuSetupBonusCharacter
+/* Table 17: recorded input demos (bonus-stage / attract playback). Consumer: demoPlaybackLoad ->
+ * recordInitPositionBuffers (global/10130.c); playback reads in demoPlaybackReadPad, demoPlaybackReadCamYaw,
+ * demoApplyPositionRecord, demoGetStartKong, demoGetStartMap (10130.c). Loaded from menuSetupBonusCharacter
  * (global/117190.c) only when gMenuTargetMode == 3.
  *
  * Layout (no alignment padding; every block is memcpy'd out):
- *   s16 inputCount                                  D_807463B0
- *   InputRecord[inputCount], 4 bytes each:          D_807463A8
+ *   s16 inputCount                                  sDemoFrameCount
+ *   InputRecord[inputCount], 4 bytes each:          sDemoInputBuffer
  *     s16 durationFlags (bit 15: take next button word), s8 stickX, s8 stickY
- *   s16 buttonCount                                 D_807463A0
- *   u16 buttons[buttonCount]                        D_807ECE90 (OSContPad.button values)
- *   PositionRecord, 0x70 bytes                      D_807ECE20
+ *   s16 buttonCount                                 sDemoButtonCount
+ *   u16 buttons[buttonCount]                        sDemoButtonBuffer (OSContPad.button values)
+ *   PositionRecord, 0x70 bytes                      sDemoStartRecord
  *     0x00 f32 x, y, z; 0x0C s16 yaw; 0x0E u8 map, exit, kongIndex, pad
  *     0x12 KongInventory (0x5E): u8 unk0[5], u8 unk5, u16 coins, u16 instrumentEnergy,
  *          u16 coloredBananas[14], bananasDelivered[14], goldenBananas[14]

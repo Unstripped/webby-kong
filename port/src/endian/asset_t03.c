@@ -15,7 +15,7 @@
  *     0x12 s16 flags (bits 0x1..0x4850 tested as s16)  native s16
  *     0x14 u8 slopeType, 0x15 u8 surface, 0x16 u8 tintPath, 0x17 s8 offsetSlot   bytes, untouched
  *
- * Map-level gzip (MapFileHeader.unk9 bit 1): table 3 is not compressed by the asset table (D_80748E18[3] == 0),
+ * Map-level gzip (MapFileHeader.unk9 bit 1): table 3 is not compressed by the asset table (sAssetTableCompressed[3] == 0),
  * but most maps (including the intro maps 0x28 and 0x50) store it as a raw gzip member that
  * collisionBuildCellTable inflates after assetLoad returns. The swapper sees the gzip bytes and leaves them
  * alone; the game patch must call `portAssetSwap(3, gCurrentMap, data, (u32)(dst - data))` right after

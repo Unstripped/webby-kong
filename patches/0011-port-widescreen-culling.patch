@@ -5,12 +5,12 @@ Subject: [PATCH] port: widescreen culling
 
 
 diff --git a/src/global/2F550.c b/src/global/2F550.c
-index a0805db..96cfd97 100644
+index f233d91..5e0bbc8 100644
 --- a/src/global/2F550.c
 +++ b/src/global/2F550.c
-@@ -103,7 +103,7 @@ struct MapBspNode *D_807F5DE4;
- s32 D_807F5DE8;
- void *D_807F5DEC;
+@@ -103,7 +103,7 @@ struct MapBspNode *gMapBspRoot;
+ s32 gMapVtxBase;
+ void *gMapDisplayListBase;
  f32 sFrustumCornerRays[12];
 -
 +f32 mapWideFactor(void); // PORT: 55B20.c, the viewport rect widened to the displayed wide image

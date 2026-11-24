@@ -5,7 +5,7 @@ Subject: [PATCH] port: 3d sound
 
 
 diff --git a/src/global/13A7A0.c b/src/global/13A7A0.c
-index 8824a07..1075737 100644
+index e1a80ec..c92f44c 100644
 --- a/src/global/13A7A0.c
 +++ b/src/global/13A7A0.c
 @@ -348,6 +348,7 @@ void __n_handleEvent(GeSndEvt *event) {
@@ -16,7 +16,7 @@ index 8824a07..1075737 100644
                      chained = n_alSndpPlay(event->arg12, event->arg8.i, state->vol, state->pan, state->pitch, state->fxMix, state->handle);
                  }
                  break;
-@@ -476,6 +477,7 @@ GfSndState *__n_allocState(void *sndp, ALSound *sound) {
+@@ -475,6 +476,7 @@ GfSndState *__n_allocState(void *sndp, ALSound *sound) {
  }
  
  void __n_freeState(GfSndState *state) {
@@ -24,7 +24,7 @@ index 8824a07..1075737 100644
      if (gSndpUsedHead == state) {
          gSndpUsedHead = state->next;
      }
-@@ -518,6 +520,18 @@ u8 n_alSndpGetState(GfSndState *state) {
+@@ -517,6 +519,18 @@ u8 n_alSndpGetState(GfSndState *state) {
      }
  }
  
@@ -43,13 +43,13 @@ index 8824a07..1075737 100644
  GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 fxMix, GfSndState **handle) {
      GfSndState *state;
      GfSndState *ret;
-@@ -530,15 +544,18 @@ GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 f
+@@ -529,15 +543,18 @@ GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 f
      s32 val;
      GeSndEvt ev1;
      GeSndEvt ev2;
 +    u32 spatial; // PORT: 3D sound
  
-     ret = 0;
+     ret = NULL;
      lastId = 0;
      total = 0;
 +    spatial = portSpatialTakePending();
@@ -63,10 +63,10 @@ index 8824a07..1075737 100644
                  ev1.type = 1;
                  ev1.state = state;
 diff --git a/src/global/1435C0.c b/src/global/1435C0.c
-index 05fe098..f83df08 100644
+index a06f859..52be26c 100644
 --- a/src/global/1435C0.c
 +++ b/src/global/1435C0.c
-@@ -68,6 +68,7 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
+@@ -66,6 +66,7 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
          switch (f->em_ctrlList->type) {
          case 13:
              paramNode = (SynStartParam *)f->em_ctrlList;
@@ -74,29 +74,29 @@ index 05fe098..f83df08 100644
              if (paramNode->unity != 0) {
                  f->rs_upitch = 1;
              }
-@@ -93,8 +94,8 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
+@@ -91,8 +92,8 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
                  f->em_cvolL = 1;
                  f->em_cvolR = 1;
              } else {
--                f->em_cvolL = (D_80756490[f->em_pan] * f->em_volume) >> 15;
--                f->em_cvolR = (D_8075658E[-f->em_pan] * f->em_volume) >> 15;
-+                f->em_cvolL = (D_80756490[portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15; // PORT: 3D sound mixes centred
-+                f->em_cvolR = (D_8075658E[-portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15;
+-                f->em_cvolL = (gEqualPowerCurve[f->em_pan] * f->em_volume) >> 15;
+-                f->em_cvolR = (gEqualPowerCurve[127 - f->em_pan] * f->em_volume) >> 15;
++                f->em_cvolL = (gEqualPowerCurve[portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15; // PORT: 3D sound mixes centred
++                f->em_cvolR = (gEqualPowerCurve[127 - portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15;
              }
              f->rs_ratio = paramNode->pitch;
              f->lowpass.fgain = paramNode->fxPitch;
-@@ -107,8 +108,8 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
+@@ -105,8 +106,8 @@ Acmd *n_alEnvmixerPull(void *filter, s32 time, Acmd *cmdList) {
          case 16:
              cmd = _pullSubFrame(f, &outOffset, &samplePtr, subSamples, cmd);
              if (f->em_delta >= f->em_segEnd) {
--                f->em_ltgt = (D_80756490[f->em_pan] * f->em_volume) >> 15;
--                f->em_rtgt = (D_8075658E[-f->em_pan] * f->em_volume) >> 15;
-+                f->em_ltgt = (D_80756490[portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15; // PORT: 3D sound mixes centred
-+                f->em_rtgt = (D_8075658E[-portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15;
+-                f->em_ltgt = (gEqualPowerCurve[f->em_pan] * f->em_volume) >> 15;
+-                f->em_rtgt = (gEqualPowerCurve[127 - f->em_pan] * f->em_volume) >> 15;
++                f->em_ltgt = (gEqualPowerCurve[portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15; // PORT: 3D sound mixes centred
++                f->em_rtgt = (gEqualPowerCurve[127 - portSpatialPan(f->vvoice, f->em_pan)] * f->em_volume) >> 15;
                  f->em_delta = f->em_segEnd;
                  f->em_cvolL = f->em_ltgt;
                  f->em_cvolR = f->em_rtgt;
-@@ -237,6 +238,9 @@ s32 n_alEnvmixerParam(void *filter, s32 paramID, void *paramVal) {
+@@ -235,6 +236,9 @@ s32 n_alEnvmixerParam(void *filter, s32 paramID, void *paramVal) {
  Acmd *_pullSubFrame(N_PVoice *filter, s16 *outp, s16 *samplePtr, s32 count, Acmd *cmdList) {
      Acmd *ptr;
      N_PVoice *env;
@@ -106,7 +106,7 @@ index 05fe098..f83df08 100644
  
      ptr = cmdList;
      env = filter;
-@@ -244,18 +248,31 @@ Acmd *_pullSubFrame(N_PVoice *filter, s16 *outp, s16 *samplePtr, s32 count, Acmd
+@@ -242,13 +246,26 @@ Acmd *_pullSubFrame(N_PVoice *filter, s16 *outp, s16 *samplePtr, s32 count, Acmd
          return ptr;
      }
      ptr = n_alResamplePull(env, outp, count, cmdList);
@@ -124,26 +124,21 @@ index 05fe098..f83df08 100644
 +    }
      if (env->em_first != 0) {
          env->em_first = 0;
--        env->em_ltgt = (D_80756490[env->em_pan] * env->em_volume) >> 15;
-+        env->em_ltgt = (D_80756490[pan] * env->em_volume) >> 15;
-         env->em_lratm = _getRate((f32)env->em_cvolL, (f32)env->em_ltgt, env->em_segEnd, &env->em_lratl);
--        env->em_rtgt = (D_8075658E[-env->em_pan] * env->em_volume) >> 15;
-+        env->em_rtgt = (D_8075658E[-pan] * env->em_volume) >> 15;
-         env->em_rratm = _getRate((f32)env->em_cvolR, (f32)env->em_rtgt, env->em_segEnd, &env->em_rratl);
+-        env->em_ltgt = (gEqualPowerCurve[env->em_pan] * env->em_volume) >> 15;
++        env->em_ltgt = (gEqualPowerCurve[pan] * env->em_volume) >> 15;
+         env->em_lratm = _getRate(env->em_cvolL, env->em_ltgt, env->em_segEnd, &env->em_lratl);
+-        env->em_rtgt = (gEqualPowerCurve[127 - env->em_pan] * env->em_volume) >> 15;
++        env->em_rtgt = (gEqualPowerCurve[127 - pan] * env->em_volume) >> 15;
+         env->em_rratm = _getRate(env->em_cvolR, env->em_rtgt, env->em_segEnd, &env->em_rratl);
+-        aSetVolume(ptr++, A_VOL | A_LEFT, env->em_cvolL, env->em_dryamt, env->em_wetamt);
++        // PORT: 3D sound: bit 0 of the dry/wet amounts phase-inverts a channel (surround mode): never for 3D voices
++        aSetVolume(ptr++, A_VOL | A_LEFT, env->em_cvolL, env->em_dryamt & (spatial != 0 ? 0xFFFE : 0xFFFF), env->em_wetamt & (spatial != 0 ? 0xFFFE : 0xFFFF));
+         aSetVolume(ptr++, A_VOL | A_RIGHT, env->em_rtgt, env->em_rratm, env->em_rratl);
+         aSetVolume(ptr++, A_RATE, env->em_ltgt, env->em_lratm, env->em_lratl);
          {
-             Acmd *cmd;
- 
-             cmd = ptr++;
-             cmd->words.w0 = 0x09060000 | (env->em_cvolL & 0xFFFF);
--            cmd->words.w1 = ((env->em_dryamt & 0xFFFF) << 16) | (env->em_wetamt & 0xFFFF);
-+            // PORT: 3D sound: bit 0 of the dry/wet amounts phase-inverts a channel (surround mode): never for 3D voices
-+            cmd->words.w1 = ((env->em_dryamt & (spatial != 0 ? 0xFFFE : 0xFFFF)) << 16) | (env->em_wetamt & (spatial != 0 ? 0xFFFE : 0xFFFF));
-         }
-         {
-             Acmd *cmd;
-@@ -285,6 +302,13 @@ Acmd *_pullSubFrame(N_PVoice *filter, s16 *outp, s16 *samplePtr, s32 count, Acmd
-         cmd->words.w0 = 0x03000000;
-         cmd->words.w1 = osVirtualToPhysical(env->em_state);
+@@ -261,6 +278,13 @@ Acmd *_pullSubFrame(N_PVoice *filter, s16 *outp, s16 *samplePtr, s32 count, Acmd
+     } else {
+         aEnvMixer(ptr++, A_CONTINUE, osVirtualToPhysical(env->em_state));
      }
 +    if (spatial != 0) {
 +        Acmd *cmd;
@@ -156,120 +151,120 @@ index 05fe098..f83df08 100644
      env->em_delta += 0xB8;
      return ptr;
 diff --git a/src/global/7130.c b/src/global/7130.c
-index ee2a2e2..e77b365 100644
+index 1021832..e9026e1 100644
 --- a/src/global/7130.c
 +++ b/src/global/7130.c
-@@ -520,6 +520,9 @@ f32 sfxUpdateDistanceVolumeAndPan(f32 x, f32 y, f32 z, u8 volume, u8 range, f32
+@@ -519,6 +519,9 @@ f32 sfxUpdateDistanceVolumeAndPan(f32 x, f32 y, f32 z, u8 volume, u8 range, f32
      if (level < 10.0f) {
          return 0.0f;
      }
-+    // PORT: 3D sound: D_80770DDC is now the pan (1 - sin az) * 63.5 and D_80770DE0 = cos az
-+    portSpatialEmitter(1.0f - D_80770DDC / 63.5f, D_80770DE0, x - gPlayerSlots->camX, y - gPlayerSlots->camY, z - gPlayerSlots->camZ,
++    // PORT: 3D sound: gSfxPan is now the pan (1 - sin az) * 63.5 and gSfxFrontFactor = cos az
++    portSpatialEmitter(1.0f - gSfxPan / 63.5f, gSfxFrontFactor, x - gPlayerSlots->camX, y - gPlayerSlots->camY, z - gPlayerSlots->camZ,
 +                       gPlayerSlots->focusX - gPlayerSlots->camX, gPlayerSlots->focusY - gPlayerSlots->camY, gPlayerSlots->focusZ - gPlayerSlots->camZ, level);
  
-     panRatio = (f32)((f64)D_80770DDC * 0.00787401574803149595);
-     D_80770DE8 += level * panRatio;
-@@ -711,6 +714,7 @@ extern ALBank *gSfxBank;
- extern ALBank *D_8076D1FC;
- extern u8 D_80770DD9;
+     panRatio = (f32)((f64)gSfxPan * 0.00787401574803149595);
+     gSfxRightLevel += level * panRatio;
+@@ -709,6 +712,7 @@ extern SchedStruct gScheduler;
+ extern ALBank *gSfxBank;
+ extern ALBank *gSfxBankHigh;
  extern PlayerState *gActivePlayerState;
 +extern u8 gPlayerCount; // PORT: 3D sound (also declared below, where the decomp first uses it)
  
  
  void sfxUpdateLevelAmbient(void) {
-@@ -928,6 +932,7 @@ void sfxUpdateLevelAmbient(void) {
+@@ -932,6 +936,7 @@ void sfxUpdateLevelAmbient(void) {
  
      count = mapGetSoundEmitters(&soundEmitters);
      for (group = 0; group < 15; group++) {
 +        portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
-         D_80770DE8 = 0.0f;
-         D_80770DEC = 0.0f;
-         D_80770DF0 = 0.0f;
-@@ -1021,6 +1026,7 @@ void sfxUpdateLevelAmbient(void) {
+         gSfxRightLevel = 0.0f;
+         gSfxLeftLevel = 0.0f;
+         gSfxFrontLevel = 0.0f;
+@@ -1025,6 +1030,7 @@ void sfxUpdateLevelAmbient(void) {
              } else {
-                 pitch = D_80745B28[group].pitch;
+                 pitch = sAmbientGroupParams[group].pitch;
              }
-+            n_alSndpSetSpatial(D_80770DF8[group], portSpatialResult()); // PORT: 3D sound
-             if (angle != D_80770EF8[group]) {
-                 if (D_80770EF8[group] != 255.0f) {
-                     if (D_80770EF8[group] < angle) {
-@@ -1396,6 +1402,7 @@ void sfxUpdateSourceGroups(void) {
++            n_alSndpSetSpatial(gLoopSfxHandles[group], portSpatialResult()); // PORT: 3D sound
+             if (angle != gAmbientGroupSentPan[group]) {
+                 if (gAmbientGroupSentPan[group] != 255.0f) {
+                     if (gAmbientGroupSentPan[group] < angle) {
+@@ -1401,6 +1407,7 @@ void sfxUpdateSourceGroups(void) {
      if (gActivePlayerState != NULL) {}  // FAKE: dead test keeps &gActivePlayerState out of a register so the store/reload after the loop stays split
      for (i = 0; i < 22; i++) {
          if (gSfxVoiceSoundId[i] == 0x88) {
 +            portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
-             D_80770DE8 = 0.0f;
-             D_80770DEC = 0.0f;
-             D_80770DF0 = 0.0f;
-@@ -1435,7 +1442,9 @@ void sfxUpdateSourceGroups(void) {
-             if (D_80770DF0 < D_80770DF4) {
+             gSfxRightLevel = 0.0f;
+             gSfxLeftLevel = 0.0f;
+             gSfxFrontLevel = 0.0f;
+@@ -1440,7 +1447,9 @@ void sfxUpdateSourceGroups(void) {
+             if (gSfxFrontLevel < gSfxRearLevel) {
                  fxFlags = 0x80;
              }
 +            portSpatialPending(portSpatialResult()); // PORT: 3D sound
-             sfxPlayOnFreeSlot(0x88, volume, D_80770DDC, 1.0f, 5, fxFlags);
+             sfxPlayOnFreeSlot(0x88, volume, gSfxPan, 1.0f, 5, fxFlags);
 +            portSpatialPending(0);
          } else {
              if (sSoundSlotHandles[i] != 0) {
                  if (gSfxVoiceSoundId[i] == 0) {
-@@ -1464,6 +1473,7 @@ void sfxUpdateSourceGroups(void) {
+@@ -1469,6 +1478,7 @@ void sfxUpdateSourceGroups(void) {
              }
              if (sSoundSlotHandles[i] != 0) {
                  if (gSfxVoiceSources[i][0] != -1 && (gSfxSourceActor[gSfxVoiceSources[i][0]] != NULL || gSfxSourceModelSlot[gSfxVoiceSources[i][0]] != -1)) {
 +                    portSpatialReset(gPlayerCount == 1); // PORT: 3D sound
-                     D_80770DE8 = 0.0f;
-                     D_80770DEC = 0.0f;
+                     gSfxRightLevel = 0.0f;
+                     gSfxLeftLevel = 0.0f;
                      if (gSfxVoiceSoundId[i] >= 0xFD && gSfxVoiceSoundId[i] < 0x142) {
-@@ -1488,6 +1498,7 @@ void sfxUpdateSourceGroups(void) {
-                                     D_80770DEC = 32767.0f;
-                                     D_80770DF0 = 32767.0f;
-                                     D_80770DF4 = 32767.0f;
+@@ -1493,6 +1503,7 @@ void sfxUpdateSourceGroups(void) {
+                                     gSfxLeftLevel = 32767.0f;
+                                     gSfxFrontLevel = 32767.0f;
+                                     gSfxRearLevel = 32767.0f;
 +                                    portSpatialFlat(); // PORT: 3D sound: not positional
                                  } else {
                                      slot = hashTableLookup(gSfxSourceModelSlot[gSfxVoiceSources[i][j]]);
-                                     sfxUpdateDistanceVolumeAndPan(gModelSlots[slot].x, gModelSlots[slot].y, gModelSlots[slot].z, 0xFF, D_80770788[gSfxVoiceSources[i][j]], factor);
-@@ -1502,6 +1513,7 @@ void sfxUpdateSourceGroups(void) {
-                                     D_80770DEC = 32767.0f;
-                                     D_80770DF0 = 32767.0f;
-                                     D_80770DF4 = 32767.0f;
+                                     sfxUpdateDistanceVolumeAndPan(gModelSlots[slot].x, gModelSlots[slot].y, gModelSlots[slot].z, 0xFF, gSfxSourceRange[gSfxVoiceSources[i][j]], factor);
+@@ -1507,6 +1518,7 @@ void sfxUpdateSourceGroups(void) {
+                                     gSfxLeftLevel = 32767.0f;
+                                     gSfxFrontLevel = 32767.0f;
+                                     gSfxRearLevel = 32767.0f;
 +                                    portSpatialFlat(); // PORT: 3D sound: not positional
-                                 } else if (gSfxVoiceSoundId[i] == 0x139 && D_807706F8[i] != 0) {
+                                 } else if (gSfxVoiceSoundId[i] == 0x139 && gSfxVoiceExclusive[i] != 0) {
                                      posY = actor->y;
                                      posX = actor->x;
-@@ -1586,6 +1598,7 @@ void sfxUpdateSourceGroups(void) {
-                                     D_80770DDC = 63.0f;
-                                     D_80770DF4 = 100.0f;
-                                     D_80770DF0 = 0.0f;
+@@ -1591,6 +1603,7 @@ void sfxUpdateSourceGroups(void) {
+                                     gSfxPan = 63.0f;
+                                     gSfxRearLevel = 100.0f;
+                                     gSfxFrontLevel = 0.0f;
 +                                    portSpatialFlat(); // PORT: 3D sound: centred
                                  }
                              } else {
-                                 factor = sinApprox(D_80770BC0[i] * 0.027925);
-@@ -1717,7 +1730,9 @@ void sfxUpdateSourceGroups(void) {
-                                     if (D_80770DF0 < D_80770DF4) {
+                                 factor = sinApprox(gSfxVoiceModCounter[i] * 0.027925);
+@@ -1722,7 +1735,9 @@ void sfxUpdateSourceGroups(void) {
+                                     if (gSfxFrontLevel < gSfxRearLevel) {
                                          fxFlags |= 0x80;
                                      }
 +                                    portSpatialPending(portSpatialResult()); // PORT: 3D sound
-                                     sfxPlayOnFreeSlot((randomLcgNext() & 3) + 0x90, volume, D_80770DDC, 1.0f, 0x1E, fxFlags);
+                                     sfxPlayOnFreeSlot((randomLcgNext() & 3) + 0x90, volume, gSfxPan, 1.0f, 0x1E, fxFlags);
 +                                    portSpatialPending(0);
-                                     D_80770BC0[i] = 0.0f;
+                                     gSfxVoiceModCounter[i] = 0.0f;
                                  }
                              }
-@@ -1803,6 +1818,7 @@ void sfxUpdateSourceGroups(void) {
-                         D_80770F38 = 1.0f;
-                         volume = D_80770C18[i] * 32767.0f;
-                         D_80770DDC = 63.0f;
+@@ -1808,6 +1823,7 @@ void sfxUpdateSourceGroups(void) {
+                         sFramePitch = 1.0f;
+                         volume = gSfxVoiceCurPitch[i] * 32767.0f;
+                         gSfxPan = 63.0f;
 +                        portSpatialFlat(); // PORT: 3D sound: centred
                          break;
                      case 0xFD:
                      case 0x108:
-@@ -1940,6 +1956,7 @@ void sfxUpdateSourceGroups(void) {
-                         D_80770D10[i] = volume;
+@@ -1945,6 +1961,7 @@ void sfxUpdateSourceGroups(void) {
+                         gSfxVoiceSentVolume[i] = volume;
                          n_alSndpPostEvent(sSoundSlotHandles[i], 8, volume);
                      }
 +                    n_alSndpSetSpatial(sSoundSlotHandles[i], portSpatialResult()); // PORT: 3D sound
-                     pan = D_80770DDC;
-                     if (pan != D_80770D40[i]) {
-                         if (D_80770D40[i] != -1) {
-@@ -2086,7 +2103,16 @@ s16 sfxPlayAtPositionPooled(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, s16 pitch
+                     pan = gSfxPan;
+                     if (pan != gSfxVoiceSentPan[i]) {
+                         if (gSfxVoiceSentPan[i] != -1) {
+@@ -2091,7 +2108,16 @@ s16 sfxPlayAtPositionPooled(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, s16 pitch
      }
  
      if (level >= 1001) {
@@ -287,7 +282,7 @@ index ee2a2e2..e77b365 100644
      }
      return -1;
  }
-@@ -2209,6 +2235,11 @@ void sfxPlayAtPosition(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, f32 pitch, u8
+@@ -2214,6 +2240,11 @@ void sfxPlayAtPosition(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, f32 pitch, u8
      if (pan > 0.7853982f && pan < 5.497787296772003) {
          vol = (s32)(((sinApprox(((2.0 * pan) / 3.0) + 2.617993950843811) * 0.3) + 1.0) * vol);
      }
@@ -297,18 +292,18 @@ index ee2a2e2..e77b365 100644
 +                                                         gPlayerSlots->focusZ - gPlayerSlots->camZ)
 +                                         : 0);
      pan = (1.0f - sinApprox(pan)) * 63.5;
-     if (D_80745838 != 0) {
+     if (gAudioUnderwater != 0) {
          reverb = 30;
-@@ -2224,6 +2255,7 @@ void sfxPlayAtPosition(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, f32 pitch, u8
+@@ -2229,6 +2260,7 @@ void sfxPlayAtPosition(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, f32 pitch, u8
      } else {
-         n_alSndpPlay(D_8076D1FC, sfxId - 0x7FF, (u16)vol, (u8)pan, pitch, reverb, &D_807457C8);
+         n_alSndpPlay(gSfxBankHigh, sfxId - 0x7FF, (u16)vol, (u8)pan, pitch, reverb, &gSfxPositionalHandle);
      }
 +    portSpatialPending(0);
      osSetThreadPri(NULL, 10);
  }
  
-@@ -2301,6 +2333,14 @@ void sfxPlayAtPositionForPlayer(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, u8 pi
-             fx = (gEffectSpritePoolAlpha[2] * 100) / 255;
+@@ -2306,6 +2338,14 @@ void sfxPlayAtPositionForPlayer(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, u8 pi
+             fx = (gAmbientAudioLevels[2] * 100) / 255;
          }
  
 +        // PORT: 3D sound; angle 0 is the game centring a source at the camera
@@ -322,7 +317,7 @@ index ee2a2e2..e77b365 100644
          angle = (1.0f - sinApprox(angle)) * 63.5;
  
          if (behind != 0) {
-@@ -2308,6 +2348,7 @@ void sfxPlayAtPositionForPlayer(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, u8 pi
+@@ -2313,6 +2353,7 @@ void sfxPlayAtPositionForPlayer(f32 x, f32 y, f32 z, s16 sfxId, u8 volume, u8 pi
          }
  
          n_alSndpPlay(gSfxBank, sfxId, (u16)vol, (u8)angle, pitch, fx, &gActivePlayerState->sfxHandle);

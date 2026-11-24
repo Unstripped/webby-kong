@@ -14,7 +14,7 @@
  *     0x14 u8 unk14, 0x15 u8 unk15, 0x16 u8 flags, 0x17 pad   bytes, untouched
  *
  * Map-level gzip (MapFileHeader.unk9 bit 0): the asset table itself does not compress table 2
- * (D_80748E18[2] == 0), but most maps store the entry as a raw gzip member that collisionInitStaticCache
+ * (sAssetTableCompressed[2] == 0), but most maps store the entry as a raw gzip member that collisionInitStaticCache
  * inflates itself after assetLoad returns. The swapper then sees the compressed bytes (gzip magic 1F 8B; an
  * uncompressed entry always starts with a small BE triangle count, so its first byte is 0) and leaves them
  * alone. The game patch must then call `portAssetSwap(2, gCurrentMap, data, (u32)(gzOut - data))` right after

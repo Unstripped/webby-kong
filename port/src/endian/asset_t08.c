@@ -8,7 +8,7 @@
  *         s16 zoneCount
  *         CamZoneEntryFull zones[zoneCount]         0x1C bytes each, struct-copied into paths->zones:
  *           0x00 union (0x10 bytes), read per zone type (byte 0x16) by camUpdateZones and its helpers:
- *                type 0 CamZoneWeightLinks  u8 zones[6], u8 weights[6]   (func_8061F4B0)  -> bytes
+ *                type 0 CamZoneWeightLinks  u8 zones[6], u8 weights[6]   (camApplyZoneWeightLinks)  -> bytes
  *                type 6 CamZoneFollowOverride u8 x3                                         -> bytes
  *                type 1 fixedEye, 2/8/9 rail, 3 tether, 5 linkZone, 7 circleRadius: all s16 -> 8 x s16
  *                (type 4 and unknown types read no union field; swapped as s16, harmless)
