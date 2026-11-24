@@ -7,10 +7,12 @@ const root = import.meta.dirname;
 const web = path.join(root, 'web');
 
 // build/web also holds dk64.js, dk64.wasm and the CMake tree, so only the hashed bundles are cleared per build.
+// Build only: Vitest also runs buildStart, which would delete the bundles of an already-built page.
 function cleanAssets(): Plugin {
   let outDir = '';
   return {
     name: 'clean-assets',
+    apply: 'build',
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
     buildStart() { fs.rmSync(path.join(outDir, 'assets'), { recursive: true, force: true }); },
   };
