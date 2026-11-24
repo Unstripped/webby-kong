@@ -21,7 +21,7 @@
  * alone; the game patch must call `portAssetSwap(3, gCurrentMap, data, (u32)(dst - data))` right after
  * `gunzip(&src, &dst, window);` in collisionBuildCellTable (before the cell loop reads `*(u32 *)cursor`).
  *
- * Streaming (bit 1 clear): the entry is used only for the cell chain and freed; dynamicBufferAllocateEntry
+ * Streaming (bit 1 clear): the entry is used only for the cell chain and freed; collisionCellEnsureLoaded
  * (6AD90.c) later DMAs each cell's triangles straight from ROM into CollisionBufferEntry.tris, bypassing
  * assetLoad. That load must be followed by `portSwapCollisionTris(sCollisionCells[index].tris,
  * sCollisionCells[index].size)`. */

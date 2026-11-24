@@ -8,25 +8,40 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 14px system-ui, sans-serif; touch-action: none; overscroll-behavior: none; }
   #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #000; outline: none; }
-  #ui { position: fixed; top: 8px; left: 8px; z-index: 1; }
-  #status { margin-left: 8px; }
+  #rom-drop { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #rom-drop[hidden] { display: none; }
+  #rom-zone { pointer-events: auto; width: min(280px, 80vmin); aspect-ratio: 1; box-sizing: border-box; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    border: 1px solid #2a2a2a; border-radius: 18px; background: #0a0a0a; color: inherit; font: inherit; text-align: center;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  #rom-zone:disabled { cursor: default; }
+  #rom-zone:not(:disabled):hover, #rom-zone:focus-visible { border-color: #f5b400; outline: none; }
+  #rom-drop svg { width: min(128px, 30vmin); height: auto; overflow: visible; }
+  #rom-drop .body { fill: #6d6d72; }
+  #rom-drop .strip { fill: #58585d; }
+  #rom-drop .seam { fill: none; stroke: #4b4b50; stroke-width: 2.4; stroke-linecap: round; }
+  #rom-drop .label { fill: #26262a; }
+  #rom-drop .arrow, #rom-drop .spin { fill: none; stroke: #f5b400; stroke-linecap: round; stroke-linejoin: round; }
+  #rom-drop .arrow { stroke-width: 6; transition: transform .15s, opacity .15s; }
+  #rom-drop .spin { stroke-width: 5; opacity: 0; transform-box: fill-box; transform-origin: center; }
+  #rom-zone:not(:disabled):hover .arrow { transform: translateY(5px); }
+  #rom-drop[data-state="loading"] .arrow { opacity: 0; }
+  #rom-drop[data-state="loading"] .spin { opacity: 1; animation: rom-spin 1s linear infinite; }
+  @keyframes rom-spin { to { transform: rotate(360deg); } }
+  #rom-title { display: block; color: #f1f1f1; font-size: 16px; font-weight: 800; letter-spacing: .02em; }
+  #rom-detail { display: block; margin-top: 4px; color: #777; font-size: 12px; overflow-wrap: anywhere; }
+  #rom-drop[data-state="error"] #rom-zone, #rom-drop[data-state="failed"] #rom-zone { border-color: #6b2222; }
+  #rom-drop[data-state="error"] #rom-title, #rom-drop[data-state="failed"] #rom-title { color: #ff6b6b; }
+  /* after the error rules: a drag over an error state turns yellow */
+  #rom-drop.over #rom-zone { border-color: #f5b400; box-shadow: 0 0 0 4px #f5b40022, 0 0 40px #f5b40033; }
+  #rom-drop.over #rom-title { color: #f1f1f1; }
+  #rom-drop.over .arrow { transform: translateY(5px); }
+  @media (prefers-reduced-motion: reduce) { #rom-drop * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
-<div id="ui">
-  <label>ROM (Donkey Kong 64 USA): <input type="file" id="rom" accept=".z64,.n64,.v64"></label>
-  <span id="status">Select your ROM to start.</span>
-</div>
 <canvas id="canvas" tabindex="-1"></canvas>
-<script src="dk64.js"></script>
-<script src="saves.js"></script>
-<script src="settings.js"></script>
-<script src="main.js"></script>
-<script src="quicksave.js"></script>
-<script src="debug.js"></script>
-<script src="report.js"></script>
-<script src="nipplejs.js"></script>
-<script src="touch.js"></script>
-<script src="menu.js"></script>
+<div id="app"></div>
+<script type="module" src="/src/game/main.tsx"></script>
 </body>
 </html>

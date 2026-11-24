@@ -123,11 +123,14 @@ typedef struct {
     s32 slot, percent, goldenBananas, keys, crowns, medals, fairies, blueprints, kongs, playSeconds;
 } PortSaveSummary;
 s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/global/3C10.c */
-extern s32 gPortSaveRequest;  /* web/menu.js exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
+extern s32 gPortSaveRequest;  /* Esc menu exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
 extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
 
 /* ---- kong swap (web settings; patches/0027-port-dpad-kong-swap.patch) ---- */
 extern s32 gPortKongSwap; /* 1: D-pad Left/Right swaps to an unlocked kong (src/global/CEAE0.c); switchable live */
+
+/* ---- Disco Chunky (web settings; patches/0029-port-disco-chunky.patch) ---- */
+extern s32 gPortDiscoChunky; /* 1: Chunky uses model 0xE (afro, disco suit) instead of 0xC (src/global/CC800.c); switchable live */
 
 /* ---- right-stick camera (web settings; port/src/input.c, patches/0028-port-right-stick-camera.patch) ---- */
 extern s32 gPortStickCamera;  /* 1: gamepad right stick turns/tilts the camera, D-pad = C buttons, LB/RB add D-pad Left/Right */

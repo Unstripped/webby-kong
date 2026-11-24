@@ -93,7 +93,7 @@ extern s16 gStaticCollisionCellsX;
 extern s16 sHitBoxYawMin, sHitBoxYawMax, sHitBoxBackYawMin, sHitBoxBackYawMax;
 extern s16 D_807FB5F4, gCollisionNearestTriIndex, sCollisionTriMinYMargin, sCollisionTriMaxYMargin;
 extern u8 D_807FB5FC, gCollisionDeferredPush, D_807FB5FE, gCollisionDeferredHit;
-extern u8 gCollisionResolvePass, sCollisionHitPart, sDamageSurfaceContact, D_807FB603;
+extern u8 gCollisionResolvePass, sCollisionHitPart, sDamageSurfaceContact, gCollisionPushBothSides;
 extern u8 sWallProbeActive, sBoundaryTwoSided, gCollisionArcWidened, D_807FB607;
 extern Box *D_807FB608;
 extern s32 D_807FB60C, D_807FB610, D_807FB614, D_807FB618;
@@ -570,7 +570,7 @@ static void func_80673D48(void) {
     if (sBoundaryTwoSided != 0) {
         func_80674150();
     }
-    if (D_807FB603 == 0 || D_807FB5FE != 1 || gCollisionDeferredPush == 0) {
+    if (gCollisionPushBothSides == 0 || D_807FB5FE != 1 || gCollisionDeferredPush == 0) {
         return;
     }
     tmp = a0;

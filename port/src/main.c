@@ -13,6 +13,7 @@ static int sRefreshMisses;    /* consecutive frame intervals off that estimate *
 static int sRefreshesSinceVi; /* display refreshes since the last frame that ran a VI */
 f32 gPortDrawDistance = 4.0f;
 s32 gPortKongSwap = 1;
+s32 gPortDiscoChunky = 0;
 s32 gPortStickCamera = 1;
 s32 gPortCameraSpeed = 5;
 s32 gPortCameraInvert = 0;
@@ -317,6 +318,8 @@ int main(int argc, char **argv) {
             setAudioRate(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--hrtf") == 0 && a + 1 < argc) {
             setAudioHrtf(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--disco-chunky") == 0 && a + 1 < argc) {
+            gPortDiscoChunky = atoi(argv[++a]) != 0;
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
         }
@@ -324,7 +327,7 @@ int main(int argc, char **argv) {
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
                "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
-               "[--audio-rate 22050|44100] [--hrtf 0|1] [--progress]\n");
+               "[--audio-rate 22050|44100] [--hrtf 0|1] [--disco-chunky 0|1] [--progress]\n");
         return 2;
     }
     if (input != NULL) {
@@ -393,7 +396,7 @@ int main(int argc, char **argv) {
 #include <string.h>
 
 static double sLastMs;
-static int sMenuPaused; /* web/menu.js open: the game is frozen */
+static int sMenuPaused; /* Esc menu (web/src/game/menu/) open: the game is frozen */
 
 int portMainQsRanges(QsRange *out) {
     out[0] = QS_RANGE(sAccumMs);
@@ -405,7 +408,8 @@ int portMainQsRanges(QsRange *out) {
     out[6] = QS_RANGE(gPortStickCamera);  /* settings: a quickload keeps them */
     out[7] = QS_RANGE(gPortCameraSpeed);
     out[8] = QS_RANGE(gPortCameraInvert);
-    return 9;
+    out[9] = QS_RANGE(gPortDiscoChunky);  /* setting: a quickload keeps it */
+    return 10;
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
@@ -416,7 +420,7 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
     }
 }
 
-/* web/settings.js: applied between frames; each returns the value in effect */
+/* web/src/game/settings.ts: applied between frames; each returns the value in effect */
 EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
@@ -427,6 +431,10 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); 
 EMSCRIPTEN_KEEPALIVE s32 port_set_kong_swap(s32 on) {
     gPortKongSwap = on != 0;
     return gPortKongSwap;
+}
+EMSCRIPTEN_KEEPALIVE s32 port_set_disco_chunky(s32 on) {
+    gPortDiscoChunky = on != 0;
+    return gPortDiscoChunky;
 }
 EMSCRIPTEN_KEEPALIVE s32 port_set_stick_camera(s32 on) {
     gPortStickCamera = on != 0;
@@ -472,6 +480,8 @@ int main(int argc, char **argv) {
             portGfxSetInterp(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--kong-swap") == 0) {
             gPortKongSwap = atoi(argv[++a]) != 0;
+        } else if (strcmp(argv[a], "--disco-chunky") == 0) {
+            gPortDiscoChunky = atoi(argv[++a]) != 0;
         } else if (strcmp(argv[a], "--stick-camera") == 0) {
             gPortStickCamera = atoi(argv[++a]) != 0;
         } else if (strcmp(argv[a], "--camera-speed") == 0) {

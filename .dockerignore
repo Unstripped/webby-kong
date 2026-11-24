@@ -27,3 +27,4 @@ decomp/drafts/
 decomp/knowledge/
 decomp/reports/
 .env
+node_modules/

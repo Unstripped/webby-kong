@@ -10,13 +10,11 @@ emsdk = "6.0.13"
 # fresh clone runs with the defaults. The same file feeds the image: docker run --env-file .env ...
 _.file = ".env"
 
+[tasks.sync]
+description = "Pull, update decomp/, tools/.venv, build/tree, build/gen and build/web; skips what is current (tools/sync.py)"
+run = "python tools/sync.py"
+
 [tasks.serve]
-description = "Serve build/web with the save API and the optional passkey gate (same settings as the Docker image)"
-run = '''
-set -e
-if [ ! -x tools/.venv/bin/python ]; then
-  python -m venv tools/.venv
-fi
-tools/.venv/bin/python -m pip install --quiet --disable-pip-version-check -r tools/requirements-server.txt
-exec tools/.venv/bin/python tools/serve.py "$@"
-'''
+description = "Sync (mise run sync), then serve build/web with the save API and the optional passkey gate (same settings as the Docker image)"
+depends = ["sync"]
+run = 'exec tools/.venv/bin/python tools/serve.py "$@"'

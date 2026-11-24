@@ -38,7 +38,7 @@ static const struct { SDL_Scancode sc; u16 button; } kKeys[] = {
  * the next KEY_TAP_READS controller reads */
 #define KEY_TAP_READS 2
 static u8 sTapReads[NUM_KEYS];
-/* on-screen controller (web/touch.js via port_touch_pad): held buttons, stick, per-bit tap latches */
+/* on-screen controller (web/src/game/touch/ via port_touch_pad): held buttons, stick, per-bit tap latches */
 static struct { u16 held; s8 x, y; u8 tapReads[16]; } sTouch;
 
 int portInputQsRanges(QsRange *out) {

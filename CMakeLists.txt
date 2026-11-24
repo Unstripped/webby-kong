@@ -35,8 +35,8 @@ file(GLOB GAME_GU_SRC CONFIGURE_DEPENDS ${TREE}/src/boot/libultra/gu/*.c ${TREE}
 list(SORT GAME_GLOBAL_SRC)
 list(SORT GAME_GU_SRC)
 set(GAME_BOOT_SRC
-  ${TREE}/src/boot/1CC0.c ${TREE}/src/boot/30E0.c ${TREE}/src/boot/3630.c
-  ${TREE}/src/boot/3D20.c ${TREE}/src/boot/6690.c ${TREE}/src/boot/libultra/io/vitbl.c
+  ${TREE}/src/boot/1CC0_inflate.c ${TREE}/src/boot/30E0_gunzip.c ${TREE}/src/boot/3630_string.c
+  ${TREE}/src/boot/3D20_sprintf.c ${TREE}/src/boot/6690_texture_desc.c ${TREE}/src/boot/libultra/io/vitbl.c
   ${TREE}/src/boot/libultra/libc/ll.c ${TREE}/src/boot/libultra/libc/llcvt.c)
 
 function(game_object_library name)
@@ -185,23 +185,30 @@ target_link_options(dk64 PRIVATE ${LINK_COMMON}
   -sENVIRONMENT=web -sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_NAME=createDk64 -sINVOKE_RUN=0 ${WEB_DEBUG_FLAGS})
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 asyncify_remove_list(dk64 dk64_rsp dk64_gl)
-# Everything under web/ is its own output, so a JS-only edit reaches build/web without relinking dk64. The tree is
-# globbed (CONFIGURE_DEPENDS re-runs the glob at build time) instead of listed by hand, so a new page, stylesheet,
-# script or asset -- web/auth/, web/dashboard/, ... -- ships without an edit here. Dotfiles (.DS_Store, editor swap
-# files) are local noise, never part of the site, and are skipped.
-file(GLOB_RECURSE WEB_SRC CONFIGURE_DEPENDS LIST_DIRECTORIES false ${CMAKE_SOURCE_DIR}/web/*)
-list(SORT WEB_SRC)
-set(WEB_OUT)
-foreach(src ${WEB_SRC})
-  file(RELATIVE_PATH f ${CMAKE_SOURCE_DIR}/web ${src})
-  if(f MATCHES "(^|/)[.]")
-    continue()
-  endif()
-  get_filename_component(d ${CMAKE_BINARY_DIR}/${f} DIRECTORY)
-  add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/${f}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${d}
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${src} ${CMAKE_BINARY_DIR}/${f}
-    DEPENDS ${src})
-  list(APPEND WEB_OUT ${CMAKE_BINARY_DIR}/${f})
-endforeach()
-add_custom_target(dk64_web_files ALL DEPENDS ${WEB_OUT})
+# The page (web/) is built by Vite -- typecheck, then bundle -- into the build dir next to dk64.js / dk64.wasm. It is
+# its own target, so a JS-only edit rebuilds the page without relinking dk64. The source tree is globbed
+# (CONFIGURE_DEPENDS re-runs the glob at build time) so a new module or asset needs no edit here; dotfiles and unit
+# tests never reach the page. npm ci re-runs when package.json / package-lock.json change. OFF builds only the wasm
+# (the Docker image builds the page in its own Node stage).
+option(WEBBY_KONG_WEB "Build the page (web/) with npm + Vite into the build directory" ON)
+if(WEBBY_KONG_WEB)
+  find_program(NPM_EXECUTABLE npm REQUIRED)
+  set(NPM_STAMP ${CMAKE_SOURCE_DIR}/node_modules/.package-lock.json)
+  add_custom_command(OUTPUT ${NPM_STAMP}
+    COMMAND ${NPM_EXECUTABLE} ci --no-audit --no-fund
+    DEPENDS ${CMAKE_SOURCE_DIR}/package.json ${CMAKE_SOURCE_DIR}/package-lock.json
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "npm ci"
+    VERBATIM)
+  file(GLOB_RECURSE WEB_SRC CONFIGURE_DEPENDS LIST_DIRECTORIES false ${CMAKE_SOURCE_DIR}/web/*)
+  list(FILTER WEB_SRC EXCLUDE REGEX "/web/(.*/)?[.]|[.]test[.]tsx?$")
+  set(WEB_OUT ${CMAKE_BINARY_DIR}/index.html ${CMAKE_BINARY_DIR}/auth/index.html ${CMAKE_BINARY_DIR}/dashboard/index.html)
+  add_custom_command(OUTPUT ${WEB_OUT}
+    COMMAND ${NPM_EXECUTABLE} run typecheck
+    COMMAND ${NPM_EXECUTABLE} exec -- vite build --outDir ${CMAKE_BINARY_DIR}
+    DEPENDS ${WEB_SRC} ${NPM_STAMP} ${CMAKE_SOURCE_DIR}/vite.config.ts ${CMAKE_SOURCE_DIR}/tsconfig.json
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building the page (tsc + vite)"
+    VERBATIM)
+  add_custom_target(dk64_web_files ALL DEPENDS ${WEB_OUT})
+endif()

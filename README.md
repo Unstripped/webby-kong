@@ -27,6 +27,9 @@ start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`)
 - Keyboard, the first gamepad, and an on-screen touch controller on touch devices.
 - EEPROM saves in IndexedDB, with every version also kept by the local save server (SQLite). Several save games,
   each with its own EEPROM and history (`/play?save=<id>`).
+- Save export / import from the Esc menu: "Export save" downloads the save's 2 KB EEPROM (`.eep`); "Import save…"
+  replaces this save game's progress with an `.eep` (Project64 / mupen64plus EEPROM files are the same bytes) or a
+  RetroArch mupen64plus `.srm`, keeping the old progress in the save server's history.
 - Esc menu with the current level's collectable progress and live settings (draw distance, render scale,
   anti-aliasing, frame rate, touch controls, 3D sound, audio quality), remembered in `localStorage`.
 - Bug reports and ideas from the Esc menu: a prefilled GitHub issue with a screenshot (click the broken spot to
@@ -37,14 +40,14 @@ start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`)
 ## Quick start
 
 With Docker, mount your ROM (a file, or a directory holding one `*.z64`/`*.n64`/`*.v64`) at `/rom`; the page starts
-it without the file picker, and saves persist in the `/data` volume:
+it without the ROM drop zone, and saves persist in the `/data` volume:
 
 ```sh
 docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
-asks for the ROM.
+shows a drop zone: drop the ROM on the page or click it to choose the file.
 
 On Kubernetes, the Helm chart in `charts/webby-kong` runs the same image with a persistent `/data` volume; mount the
 ROM from any volume source with `rom.volume` (see the comments in `values.yaml` for ROM, sign-in, SMTP and Ingress):
@@ -110,6 +113,7 @@ docker run -p 8080:8080 -e WEBBY_KONG_AUTH=1 -e WEBBY_KONG_EXTERNAL_URL=https://
 - Saves belong to their user: the dashboard creates, renames and deletes your save games, and lists every player's
   saves with their progress. The Esc menu's "Exit to dashboard" saves in-game and returns there; playing that save
   again resumes on the spot. A save history from before sign-in (or made with the gate off) becomes the owner's.
+  Each save tile exports its latest EEPROM, and "Import save…" creates a new save game from an `.eep` / `.srm`.
 - Emailed invites use the `WEBBY_KONG_SMTP_*` settings in the table above; without a host the dashboard offers the
   link to copy instead.
 
@@ -118,24 +122,16 @@ From source: macOS or Linux, git and [mise](https://mise.jdx.dev).
 ```sh
 git clone https://github.com/Unstripped/webby-kong.git && cd webby-kong
 mise install
-git submodule update --init
-python -m venv tools/.venv
-tools/.venv/bin/pip install -r decomp/requirements.txt
-tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-deps  # libclang after the decomp's `clang` package
+mise run serve                   # syncs and builds (no ROM needed), then serves build/web on port 8080
 ```
 
-Build and run (no ROM needed to build):
-
-```sh
-tools/prepare.py all            # build/tree = decomp src+include + patches/*.patch; build/gen = generated sources
-emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/web          # dk64 (browser) and dk64_headless (node)
-mise run serve                   # serves build/web on port 8080 (settings: .env, see Configuration)
-```
+`mise run serve` first runs `mise run sync` (`tools/sync.py`): it fast-forwards the branch, checks out the pinned
+`decomp/`, sets up `tools/.venv`, regenerates `build/tree` and `build/gen` when their inputs changed and rebuilds
+`build/web`. Every step is skipped when already current, so run it whenever you pull or switch branches.
 
 Open `http://localhost:8080/` and pick the ROM, or set `WEBBY_KONG_ROM` in `.env` (or pass
-`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the reference decomp build
-(maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
+`--rom /path/to/dk64.z64` after `mise run serve --`) to load it automatically. Details, the manual steps, the
+reference decomp build (maintainers, after a decomp bump) and troubleshooting: [docs/building.md](docs/building.md).
 
 ## Playing
 
@@ -213,7 +209,7 @@ defaulting to that release's image); every push to `development` publishes `:lat
 
 ## License
 
-[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: `web/nipplejs.js` is nipplejs under the MIT
-license (see its header); `port/src/audio/hrir_kemar.c` is derived from the KEMAR HRTF measurements by Bill Gardner
-and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this citation
-(<https://sound.media.mit.edu/resources/KEMAR.html>).
+[CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: the npm packages bundled into the page (Preact,
+@preact/signals and nipplejs, all MIT; see `package.json`); `port/src/audio/hrir_kemar.c` is derived from the KEMAR
+HRTF measurements by Bill Gardner and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this
+citation (<https://sound.media.mit.edu/resources/KEMAR.html>).

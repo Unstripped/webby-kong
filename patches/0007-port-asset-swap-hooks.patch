@@ -4,23 +4,23 @@ Date: Tue, 17 Nov 2026 23:13:08 -0700
 Subject: [PATCH] port: asset swap hooks
 
 
-diff --git a/src/bonus/0.c b/src/bonus/0.c
-index e15cc45..e047244 100644
---- a/src/bonus/0.c
-+++ b/src/bonus/0.c
+diff --git a/src/bonus/0_controller.c b/src/bonus/0_controller.c
+index 2a4e56d..e1f257e 100644
+--- a/src/bonus/0_controller.c
++++ b/src/bonus/0_controller.c
 @@ -185,7 +185,7 @@ tail:
          for (i = 0; i < gActorGlobalState.volumeTriggerQueueCount; i++) {
              if (gActorGlobalState.volumeTriggerQueueOp[i] == 3) {
                  endOnTrigger = 1;
--                triggerKind = ((u8 *)gActorGlobalState.volumeTriggerQueueId[i])[3]; // unk278[] points at script data read as s16 (1295B0, 80150) and as bytes here
-+                triggerKind = (u8)((s16 *)gActorGlobalState.volumeTriggerQueueId[i])[1]; // low byte of the native s16[1]
+-                triggerKind = gActorGlobalState.volumeTriggerQueueId[i][1]; // low byte of the record's second s16 (1295B0 reads the same word as the actor state)
++                triggerKind = (u8)gActorGlobalState.volumeTriggerQueueId[i][1]; // low byte of the record's second s16 (1295B0 reads the same word as the actor state)
                  switch (challengeType) {
                  case 0:
                      if (counter->countLeft != 0) {
-diff --git a/src/global/12E800.c b/src/global/12E800.c
-index 2df3c7e..1e0c45a 100644
---- a/src/global/12E800.c
-+++ b/src/global/12E800.c
+diff --git a/src/global/12E800_behaviour.c b/src/global/12E800_behaviour.c
+index 443ac14..20d9f92 100644
+--- a/src/global/12E800_behaviour.c
++++ b/src/global/12E800_behaviour.c
 @@ -241,8 +241,8 @@ void behaviourPickRandomTargetY(void) {
      s32 rnd;
      s32 minY;
@@ -32,24 +32,24 @@ index 2df3c7e..1e0c45a 100644
      } else {
          maxY = (s16)gCurrentActor->waterY - gCurrentActor->eyeHeight;
      }
-diff --git a/src/global/450.c b/src/global/450.c
-index 624cb3a..b3c8354 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index c05e9e3..ae78def 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
 @@ -389,6 +389,9 @@ void mainResetEngineState(void) {
-     osInvalDCache((void *)K0BASE, 0x800000);
+     osInvalDCache((void *)0x80000000, 0x800000);
      gSegment1Data = &gSegment1DataBuffer;
-     dmaReadAssetDecompress(gSegmentTable[12].romStart, gSegment1Data, &gSegment1DataSize, 0, 0, 0, 0);
+     dmaReadAssetDecompress(gSegmentTable[12].romStart, gSegment1Data, &gSegment1DataSize, 0, 0, 0, NULL);
 +    /* segment 1: two Vp (s16) at 0x00-0x1F, then display lists */
 +    portSwap16(gSegment1Data, 0x20 / 2);
 +    portSwap32((u8 *)gSegment1Data + 0x20, (gSegment1DataSize - 0x20) / 4);
-     gGfxSubListEnabled = 0;
+     gGfxSubListEnabled = FALSE;
      controllerWaitRead();
      gFrameCounter = 0;
-diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 4e06e17..3edacfa 100644
---- a/src/global/6AD90.c
-+++ b/src/global/6AD90.c
+diff --git a/src/global/6AD90_collision.c b/src/global/6AD90_collision.c
+index 18d4800..86ea623 100644
+--- a/src/global/6AD90_collision.c
++++ b/src/global/6AD90_collision.c
 @@ -82,6 +82,7 @@ void collisionBuildCellTable(MapFileHeader *header) {
          dst = data;
          src = compressed;
@@ -58,7 +58,7 @@ index 4e06e17..3edacfa 100644
          heapFree(window);
          assetSetImmediateFree();
          assetFreeBuffer(compressed, 0x9D, 0x3A);
-@@ -1069,6 +1070,7 @@ void dynamicBufferAllocateEntry(s32 index) {
+@@ -1054,6 +1055,7 @@ void collisionCellEnsureLoaded(s32 index) {
              sCollisionCells[index].tris = heapAlloc(size);
              sCollisionCells[index].trisEnd = sCollisionCells[index].tris + size / sizeof(CollisionStaticTri);
              dmaReadAssetDecompress(sCollisionCells[index].romAddr, sCollisionCells[index].tris, &size, 0, 0, 0, 0);
@@ -66,7 +66,7 @@ index 4e06e17..3edacfa 100644
          }
      }
      sCollisionCells[index].lastUsedFrame = gFrameCounter;
-@@ -2014,6 +2016,7 @@ void dmaDrainQueueAndFreeBuffer(void) {
+@@ -2005,6 +2007,7 @@ void dmaDrainQueueAndFreeBuffer(void) {
          if (sDmaQueue[i].compressed != 0) {
              assetInflateAndFree(sDmaQueue[i].dmaDst, sDmaQueue[i].buffer);
          }
@@ -74,7 +74,7 @@ index 4e06e17..3edacfa 100644
      }
      if (sInflateWindow != NULL) {
          heapFree(sInflateWindow);
-@@ -2104,6 +2107,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+@@ -2095,6 +2098,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
          } else {
              dmaReadAssetDecompress(romAddr, buffer, &size, 0, 0, 0, 0);
          }
@@ -82,18 +82,18 @@ index 4e06e17..3edacfa 100644
      } else {
          if (sDmaQueueCount == 0xC0) {
              faultSetMessage(6, 0, 0, 0);
-@@ -2118,6 +2122,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
+@@ -2109,6 +2113,7 @@ void *assetLoad(s32 table, s32 index, u8 sync, u8 noCache) { // index: asset ind
          }
          osInvalDCache(sDmaQueue[sDmaQueueCount].dmaDst, size);
          osPiStartDma(&sDmaIoMesgs[sDmaQueueCount], 0, 0, romAddr, sDmaQueue[sDmaQueueCount].dmaDst, size, &gAssetDmaDoneQueue);
 +        portAssetQueued(sDmaQueueCount, table, index, buffer, allocSize);
          sDmaQueueCount += 1;
      }
-     assetSetTableEntry(table, index, (s32)buffer);
-diff --git a/src/global/70FD0.c b/src/global/70FD0.c
-index 5f15849..049a1c4 100644
---- a/src/global/70FD0.c
-+++ b/src/global/70FD0.c
+     assetSetTableEntry(table, index, buffer);
+diff --git a/src/global/70FD0_collision_geometry.c b/src/global/70FD0_collision_geometry.c
+index 8e150a0..19fd092 100644
+--- a/src/global/70FD0_collision_geometry.c
++++ b/src/global/70FD0_collision_geometry.c
 @@ -246,6 +246,7 @@ void collisionInitStaticCache(MapFileHeader *header) {
          gzOut = data;
          gzIn = compressed;
@@ -110,10 +110,10 @@ index 5f15849..049a1c4 100644
              }
              cnt = sStaticCollisionCells[cell].triCount;
              sStaticCollisionCells[cell].tris = heapAlloc(cnt * sizeof(CollisionStaticTriOut));
-diff --git a/src/global/BA790.c b/src/global/BA790.c
-index 1d54241..8e6c234 100644
---- a/src/global/BA790.c
-+++ b/src/global/BA790.c
+diff --git a/src/global/BA790_enemy_chaser.c b/src/global/BA790_enemy_chaser.c
+index 8308f4c..a6bde44 100644
+--- a/src/global/BA790_enemy_chaser.c
++++ b/src/global/BA790_enemy_chaser.c
 @@ -238,7 +238,7 @@ void explodingChaserUpdate(void) {
      behaviourFrameBegin();
      if (!(gCurrentActor->flags & 0x10)) {
@@ -123,10 +123,10 @@ index 1d54241..8e6c234 100644
      }
      if (gGameMode == 1) {
          for (i = 0; i < gActorGlobalState.volumeTriggerQueueCount; i++) {
-diff --git a/src/global/BC3B0.c b/src/global/BC3B0.c
-index 07ea6ec..bbddd3b 100644
---- a/src/global/BC3B0.c
-+++ b/src/global/BC3B0.c
+diff --git a/src/global/BC3B0_cursor_emitters.c b/src/global/BC3B0_cursor_emitters.c
+index c1ce3e8..9ca4f07 100644
+--- a/src/global/BC3B0_cursor_emitters.c
++++ b/src/global/BC3B0_cursor_emitters.c
 @@ -135,10 +135,10 @@ void actorUpdateLockOnCursor(void) {
      if (!(gCurrentActor->flags & 0x10)) {
          gBehaviourAnimState->flags |= 0x60;
@@ -154,15 +154,15 @@ index 07ea6ec..bbddd3b 100644
                  c->beepInterval = 10.0f;
              }
 diff --git a/src/global/C2A90.c b/src/global/C2A90.c
-index 2aee177..bc9692d 100644
+index 3da8f96..a76f30e 100644
 --- a/src/global/C2A90.c
 +++ b/src/global/C2A90.c
 @@ -57,7 +57,7 @@ u8 bananaDeliveryNpcBeginFrame(void) {
      actorUpdateFloorContactAndTilt(gCurrentActor, 0.0f);
      for (i = 0; i < gActorGlobalState.volumeTriggerQueueCount; i++) {
          if (gActorGlobalState.volumeTriggerQueueOp[i] == 3) {
--            return ((u8 *)gActorGlobalState.volumeTriggerQueueId[i])[3];
-+            return (u8)((s16 *)gActorGlobalState.volumeTriggerQueueId[i])[1];
+-            return gActorGlobalState.volumeTriggerQueueId[i][1];
++            return (u8)gActorGlobalState.volumeTriggerQueueId[i][1];
          }
      }
      return 0;

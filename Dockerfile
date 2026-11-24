@@ -2,7 +2,15 @@
 # webby-kong: the page, a ROM-free dk64.wasm and tools/serve.py. No ROM is needed to build; mount yours to play:
 #   docker run -p 8080:8080 --env-file .env -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data \
 #     ghcr.io/unstripped/webby-kong
-# The wasm is architecture-independent: it is built once on the build platform.
+# The wasm is architecture-independent: it is built once on the build platform, and so is the page (web/, Vite).
+FROM --platform=$BUILDPLATFORM node:24.22.0-slim AS web
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY tsconfig.json vite.config.ts ./
+COPY web/ web/
+RUN npm run build
+
 FROM --platform=$BUILDPLATFORM emscripten/emsdk:6.0.13 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ninja-build python3-venv \
     && rm -rf /var/lib/apt/lists/*
@@ -13,7 +21,7 @@ WORKDIR /src
 COPY . .
 RUN test -f decomp/src/boot/main.c || { echo "decomp/ is empty: git submodule update --init"; exit 1; }
 RUN python tools/prepare.py all \
-    && emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    && emcmake cmake -S . -B build/web -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWEBBY_KONG_WEB=OFF \
     && cmake --build build/web --target dk64
 
 FROM python:3.12-slim
@@ -21,7 +29,7 @@ RUN useradd --system --uid 10001 --no-create-home kong && mkdir -p /data /rom &&
 # runtime deps of the optional passkey sign-in (WEBBY_KONG_AUTH=1): webauthn + cryptography/cbor2, wheels only
 COPY tools/requirements-server.txt /app/requirements-server.txt
 RUN pip install --no-cache-dir -r /app/requirements-server.txt
-COPY web/ /srv/web/
+COPY --from=web /src/build/web/ /srv/web/
 COPY --from=build /src/build/web/dk64.js /src/build/web/dk64.wasm /srv/web/
 ARG VERSION=dev
 ARG REVISION=unknown

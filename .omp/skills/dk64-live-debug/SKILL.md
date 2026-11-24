@@ -5,7 +5,7 @@ description: Attach to the user's running Donkey Kong 64 web port tab (omp brows
 
 # DK64 live debugging
 
-All commands run from the repo root. The page exposes `window.dk64dbg` (`web/debug.js`); the C side lives in
+All commands run from the repo root. The page exposes `window.dk64dbg` (`web/src/game/debug/api.ts`); the C side lives in
 `port/src/debug.c` (state JSON, trace ring) and `port/src/gfx/gfx_gl.c` (frame grab). Trace points in game code
 come from `patches/0014-port-debug-trace-hooks.patch`.
 
@@ -20,7 +20,7 @@ come from `patches/0014-port-debug-trace-hooks.patch`.
   RDP state of every triangle drawn through that pixel on the next frame (display-list path, other modes, combiner,
   G_TEXTURE tile/levels/scale, the 8 tile descriptors with decoded sizes, the last 8 texture loads, and each vertex's
   object position, st, screen position and shade). Works from an exported marks file too, so no tab access is needed.
-- **F5** quicksaves, **F9** quickloads (`web/quicksave.js`). A reload of the same `dk64.wasm` restores the snapshot;
+- **F5** quicksaves, **F9** quickloads (`web/src/game/quicksave.ts`). A reload of the same `dk64.wasm` restores the snapshot;
   after a rebuild the page boots straight into the resume point (map + position, adventure mode only). So after a
   rebuild the user only reloads (⌘⇧R) instead of replaying to the bug. `dk64qs.status()` shows what is stored.
 - If the relay can't see their tab, ask them to press **Export** in the panel: it downloads

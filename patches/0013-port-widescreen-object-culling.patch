@@ -4,11 +4,11 @@ Date: Wed, 18 Nov 2026 10:10:21 -0700
 Subject: [PATCH] port: widescreen object culling
 
 
-diff --git a/src/global/55B20.c b/src/global/55B20.c
-index fea3bf7..3fd8b5a 100644
---- a/src/global/55B20.c
-+++ b/src/global/55B20.c
-@@ -1193,12 +1193,60 @@ u8 mapNodeTriangleContainsPoint(MapCollisionNode *tri, f32 x, f32 z) {
+diff --git a/src/global/55B20_map_chunk.c b/src/global/55B20_map_chunk.c
+index afa1aee..340583b 100644
+--- a/src/global/55B20_map_chunk.c
++++ b/src/global/55B20_map_chunk.c
+@@ -1168,12 +1168,60 @@ u8 mapNodeTriangleContainsPoint(MapCollisionNode *tri, f32 x, f32 z) {
  extern PlayerStruct *gPlayerSlots;
  extern u8 gCurrentPlayerIndex;
  
@@ -71,7 +71,7 @@ index fea3bf7..3fd8b5a 100644
      gMapChunks[chunkIndex].clipBottom = gPlayerSlots[gCurrentPlayerIndex].rect[3];
  }
  
-@@ -1228,7 +1276,7 @@ void mapChunkFrameUpdate(f32 x, f32 y, f32 z) {
+@@ -1203,7 +1251,7 @@ void mapChunkFrameUpdate(f32 x, f32 y, f32 z) {
      mapTriggerCollectZonesAtPoint(x, y, z);
      sMapVisibleChunkCount = 0;
      sMapVisiblePortalCount = 0;
@@ -80,7 +80,7 @@ index fea3bf7..3fd8b5a 100644
      mapChunkRenderNodes(x, y, z);
      effectWaterUpdateMeshes(x, y, z, gCurrentPlayerIndex);
      actorCalculateTargetDistancesAndAngles(x, y, z);
-@@ -1419,10 +1467,12 @@ void mapScreenRectBuildFrustum(s32 left, s32 top, s32 right, s32 bottom, f32 x,
+@@ -1394,10 +1442,12 @@ void mapScreenRectBuildFrustum(s32 left, s32 top, s32 right, s32 bottom, f32 x,
      f32 y0;
      f32 y1;
      f32 m[4][3];
@@ -95,25 +95,25 @@ index fea3bf7..3fd8b5a 100644
      x1 = (q * (sFrustumCornerRays.c1x - sFrustumCornerRays.c0x)) + sFrustumCornerRays.c0x;
      q = ((f32)(top - gPlayerSlots[player].rect[1])) / (f32)gPlayerSlots[player].rectHeight;
      y0 = ((sFrustumCornerRays.c2y - sFrustumCornerRays.c0y) * q) + sFrustumCornerRays.c0y;
-@@ -1891,7 +1941,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
+@@ -1863,7 +1913,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
                  gMapChunks[idx].texAnimPending = 0;
              }
              gDPPipeSync(gfx++);
 -            gDPSetScissor(gfx++, G_SC_NON_INTERLACE, gMapChunks[idx].clipLeft, gMapChunks[idx].clipTop, gMapChunks[idx].clipRight, gMapChunks[idx].clipBottom);
 +            gDPSetScissor(gfx++, G_SC_NON_INTERLACE, mapScissorX(gMapChunks[idx].clipLeft), gMapChunks[idx].clipTop, mapScissorX(gMapChunks[idx].clipRight), gMapChunks[idx].clipBottom); // PORT: widened rect
-             mapSetClipBounds((s16)gMapChunks[idx].clipLeft, (s16)gMapChunks[idx].clipTop, (s16)gMapChunks[idx].clipRight, (s16)gMapChunks[idx].clipBottom);
+             mapSetClipBounds(gMapChunks[idx].clipLeft, gMapChunks[idx].clipTop, gMapChunks[idx].clipRight, gMapChunks[idx].clipBottom);
              gfx = fogRender(gfx);
              if (flags & 0x10) {
-@@ -1967,7 +2017,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
+@@ -1939,7 +1989,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
          idx = sMapVisibleChunks[i];
          if (gMapChunks[idx].state == 1) {
              gDPPipeSync(gfx++);
 -            gDPSetScissor(gfx++, G_SC_NON_INTERLACE, gMapChunks[idx].clipLeft, gMapChunks[idx].clipTop, gMapChunks[idx].clipRight, gMapChunks[idx].clipBottom);
 +            gDPSetScissor(gfx++, G_SC_NON_INTERLACE, mapScissorX(gMapChunks[idx].clipLeft), gMapChunks[idx].clipTop, mapScissorX(gMapChunks[idx].clipRight), gMapChunks[idx].clipBottom); // PORT: widened rect
-             mapSetClipBounds((s16)gMapChunks[idx].clipLeft, (s16)gMapChunks[idx].clipTop, (s16)gMapChunks[idx].clipRight, (s16)gMapChunks[idx].clipBottom);
+             mapSetClipBounds(gMapChunks[idx].clipLeft, gMapChunks[idx].clipTop, gMapChunks[idx].clipRight, gMapChunks[idx].clipBottom);
              gRenderSetupKind = 0xFF;
              if (flag) {
-@@ -2496,22 +2546,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2469,22 +2519,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
      s16 y;
      s32 i;
      u8 flag;
@@ -144,7 +144,7 @@ index fea3bf7..3fd8b5a 100644
          }
          if (gPlayerSlots[gCurrentPlayerIndex].rect[3] < y) {
              y = gPlayerSlots[gCurrentPlayerIndex].rect[3];
-@@ -2534,6 +2586,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2507,6 +2559,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
          *outTop = -1;
          *outRight = -1;
          *outBottom = -1;
@@ -153,18 +153,18 @@ index fea3bf7..3fd8b5a 100644
      }
  }
  
-@@ -2705,6 +2759,7 @@ s16 top;
- s16 right;
- s16 bottom;
- {
+@@ -2676,6 +2730,7 @@ u8 mapSearchTableGetValue(void *key) {
+ 
+ 
+ void mapSetClipBounds(s16 left, s16 top, s16 right, s16 bottom) {
 +    portGfxWideClipX(&left, &right); // PORT: Hor+ shows more at the sides; don't cull objects there
      sMapClipLeft = left;
      sMapClipTop = top;
      sMapClipRight = right;
-diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index 2539911..05740f6 100644
---- a/src/global/63EC0.c
-+++ b/src/global/63EC0.c
+diff --git a/src/global/63EC0_effect_water.c b/src/global/63EC0_effect_water.c
+index 5e71ca3..57b5b29 100644
+--- a/src/global/63EC0_effect_water.c
++++ b/src/global/63EC0_effect_water.c
 @@ -364,15 +364,17 @@ Gfx *effectWaterRenderSurfaces(Gfx *gdl, s32 viewMode, u8 waterType) {
      return gdl;
  }

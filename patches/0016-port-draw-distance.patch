@@ -4,10 +4,10 @@ Date: Thu, 19 Nov 2026 11:13:12 -0700
 Subject: [PATCH] port: draw distance
 
 
-diff --git a/include/proto/global/61AA0.h b/include/proto/global/61AA0.h
-index 9b5fdd7..b950097 100644
---- a/include/proto/global/61AA0.h
-+++ b/include/proto/global/61AA0.h
+diff --git a/include/proto/global/61AA0_render_caches.h b/include/proto/global/61AA0_render_caches.h
+index 49c48b9..f4294e6 100644
+--- a/include/proto/global/61AA0_render_caches.h
++++ b/include/proto/global/61AA0_render_caches.h
 @@ -21,6 +21,9 @@ Gfx *renderSetSegment6AndFog(Gfx *, s16, u8);
  #ifndef PROTO_SKIP_renderScaleDistanceByFov
  f32 renderScaleDistanceByFov(f32);
@@ -18,18 +18,18 @@ index 9b5fdd7..b950097 100644
  #ifndef PROTO_SKIP_billboardCacheInit
  void billboardCacheInit(void);
  #endif
-diff --git a/src/global/1295B0.c b/src/global/1295B0.c
-index 28cab6c..0e2f50f 100644
---- a/src/global/1295B0.c
-+++ b/src/global/1295B0.c
+diff --git a/src/global/1295B0_spawn_nodes.c b/src/global/1295B0_spawn_nodes.c
+index a76ed54..c255677 100644
+--- a/src/global/1295B0_spawn_nodes.c
++++ b/src/global/1295B0_spawn_nodes.c
 @@ -13,6 +13,7 @@
- #include "proto/global/19A00.h"
- #include "proto/global/201B0.h"
- #include "proto/global/55B20.h"
-+#include "proto/global/61AA0.h"
- #include "proto/global/69E60.h"
- #include "proto/global/7130.h"
- #include "proto/global/79890.h"
+ #include "proto/global/19A00_actor_script.h"
+ #include "proto/global/201B0_camera.h"
+ #include "proto/global/55B20_map_chunk.h"
++#include "proto/global/61AA0_render_caches.h"
+ #include "proto/global/69E60_actor_physics.h"
+ #include "proto/global/7130_sfx.h"
+ #include "proto/global/79890_collision_hit.h"
 @@ -963,7 +964,7 @@ void spawnNodesUpdate(void) {
          if (active) {
              gBehaviourWorkState = node->actor->customState;
@@ -39,10 +39,10 @@ index 28cab6c..0e2f50f 100644
          rangeSq = rangeSq * rangeSq;
          if (active) {
              node->chunkIndex = node->actor->chunkIndex;
-diff --git a/src/global/35000.c b/src/global/35000.c
-index ce20772..2d721b5 100644
---- a/src/global/35000.c
-+++ b/src/global/35000.c
+diff --git a/src/global/35000_render_entry.c b/src/global/35000_render_entry.c
+index 45cca06..f942fc6 100644
+--- a/src/global/35000_render_entry.c
++++ b/src/global/35000_render_entry.c
 @@ -271,6 +271,12 @@ void renderEntrySetDistanceOverride(RenderEntry *list, void *targetId, u8 listIn
  }
  
@@ -96,10 +96,10 @@ index ce20772..2d721b5 100644
              return glist;
          }
          if (mapPointOutsideClipBounds(actor->x, actor->y, actor->z, actor->cullMarginX, actor->cullMarginY)) {
-diff --git a/src/global/36880.c b/src/global/36880.c
-index 1ad2a29..fa7a048 100644
---- a/src/global/36880.c
-+++ b/src/global/36880.c
+diff --git a/src/global/36880_model_slot.c b/src/global/36880_model_slot.c
+index 3459cdc..e830924 100644
+--- a/src/global/36880_model_slot.c
++++ b/src/global/36880_model_slot.c
 @@ -2405,9 +2405,9 @@ Gfx *renderModelAnimatedSlot(ModelType1RenderView *obj, Gfx *gfx, f32 camX, f32
          dy *= dy;
          dz *= dz;
@@ -163,10 +163,10 @@ index 1ad2a29..fa7a048 100644
                      }
                      if (tgt->animTextureId != -1) {
                          found = 0;
-diff --git a/src/global/61AA0.c b/src/global/61AA0.c
-index f944f94..610f105 100644
---- a/src/global/61AA0.c
-+++ b/src/global/61AA0.c
+diff --git a/src/global/61AA0_render_caches.c b/src/global/61AA0_render_caches.c
+index 20dc779..5ede084 100644
+--- a/src/global/61AA0_render_caches.c
++++ b/src/global/61AA0_render_caches.c
 @@ -71,6 +71,7 @@ void renderCalcPlayerDistanceAlpha(f32 x, f32 y, f32 z, f32 maxDist, s16 actorTy
      f32 fadeStart;
      f32 fadeEnd;

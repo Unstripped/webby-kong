@@ -4,11 +4,11 @@ Date: Wed, 18 Nov 2026 07:48:09 -0700
 Subject: [PATCH] port: widescreen culling
 
 
-diff --git a/src/global/2F550.c b/src/global/2F550.c
-index f233d91..5e0bbc8 100644
---- a/src/global/2F550.c
-+++ b/src/global/2F550.c
-@@ -103,7 +103,7 @@ struct MapBspNode *gMapBspRoot;
+diff --git a/src/global/2F550_map_render.c b/src/global/2F550_map_render.c
+index deb4bc4..5aa15c6 100644
+--- a/src/global/2F550_map_render.c
++++ b/src/global/2F550_map_render.c
+@@ -95,7 +95,7 @@ struct MapBspNode *gMapBspRoot;
  s32 gMapVtxBase;
  void *gMapDisplayListBase;
  f32 sFrustumCornerRays[12];
@@ -17,12 +17,12 @@ index f233d91..5e0bbc8 100644
  
  void frustumCalculateCornerRays(f32 fovY, f32 aspect, f32 depth) {
      f32 scale;
-@@ -117,7 +117,7 @@ void frustumCalculateCornerRays(f32 fovY, f32 aspect, f32 depth) {
+@@ -109,7 +109,7 @@ void frustumCalculateCornerRays(f32 fovY, f32 aspect, f32 depth) {
      s32 i;
  
      halfPitch = fovY * 0.5;
 -    halfYaw = halfPitch * aspect;
 +    halfYaw = portGfxWideHalfYaw(halfPitch * aspect, mapWideFactor());
      guRotateF(pitchMtx, halfPitch, 1.0f, 0.0f, 0.0f);
-     guMtxXFMF(pitchMtx, 0.0f, 0.0f, (-depth), &dirX, &dirY, &dirZ);
+     guMtxXFMF(pitchMtx, 0.0f, 0.0f, -depth, &dirX, &dirY, &dirZ);
      guRotateF(yawMtx, halfYaw, 0.0f, 1.0f, 0.0f);

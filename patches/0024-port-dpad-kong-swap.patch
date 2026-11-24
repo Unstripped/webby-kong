@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Mon, 23 Nov 2026 14:44:04 -0700
+Subject: [PATCH] port: dpad kong swap
+
+
+diff --git a/src/global/CEAE0_player_update.c b/src/global/CEAE0_player_update.c
+index 92bfd33..f8b1bfa 100644
+--- a/src/global/CEAE0_player_update.c
++++ b/src/global/CEAE0_player_update.c
+@@ -416,6 +416,97 @@ extern EffectGridAsset gEffectSpriteMelonSpin;
+ void func_80026D40(void *, u8);
+ f32 sqrtf(f32);
+ 
++// PORT: D-pad Left/Right swaps to the previous/next unlocked kong where a tag barrel could be used
++// (web setting gPortKongSwap). Gameplay input never reads the D-pad (playerInputUpdate, E4090.c).
++extern f32 gScreenFadeProgress;
++extern s32 gGlobalCutsceneFlags;
++extern u8 gGameMode;
++s32 menuIsTransitionType6(void);
++int rumbleShouldPause(void);
++u8 screenWipeGetCooldown(void);
++void tagBarrelSpawnActorSmokePuffs(u8 spray, u8 playSound);
++
++static s32 playerPortKongSwapAllowed(void) {
++    PlayerState *ps = gActivePlayerState;
++
++    // single-player adventure, no camera-path cutscene (mode 1) or map transition (mode 6)
++    if (gPlayerCount != 1 || gGameMode != 0 || !menuIsTransitionType6() || gCurrentActor != gActivePlayerActor) {
++        return 0;
++    }
++    // levels and lobbies 0-6, Isles 7, Helm 8; not bonus/minigame, multiplayer, cutscene, arcade or shop maps
++    if (mapGetWorldIndex(gCurrentMap) > 8) {
++        return 0;
++    }
++    if (gGlobalOverlayFlags & (0x1           // boss
++                               | 0x2000      // race
++                               | 0x4000      // bonus barrel
++                               | 0x80000     // minecart
++                               | 0x100000    // battle crown
++                               | 0x4000000   // multiplayer
++                               | 0x10000000  // training barrels
++                               | 0x40000000  // menu/shop
++                               )) {
++        return 0;
++    }
++    if (gGlobalCutsceneFlags & 2) {  // K. Rool fight and ending maps
++        return 0;
++    }
++    // paused, wiping, fading, camera cutscene or scripted sequence (0x10: gameplay HUD on)
++    if (rumbleShouldPause() || screenWipeGetCooldown() != 0 || gScreenFadeProgress != 0.0f || !(gGlobalPauseFlags & 0x10)) {
++        return 0;
++    }
++    // a normal-size kong (not Krusha, Rambi, Enguarde, Mini Monkey or Hunky Chunky), hands free, nothing pending
++    if (gPlayerCharacterId[0] >= 5 || gPlayerSlots[0].sizeMode != 1 || (ps->stateFlags & 0x20018170) || (ps->stateFlags2 & 0x70) || ps->heldActor != NULL || ps->barrelCooldown != 0 || gPlayerSlots[0].queuedState >= 0) {
++        return 0;
++    }
++    // on the ground: idle, walk/run, or either with the gun drawn (playerResumeLocomotion picks a ground state)
++    switch (gCurrentActor->state) {
++        case 0x0C:
++        case 0x0D:
++        case 0x5D:
++        case 0x5E:
++            return 1;
++    }
++    return 0;
++}
++
++static void playerPortDpadKongSwap(void) {
++    u16 pressed = gPadPressedButtons[0] & (L_JPAD | R_JPAD);
++    s32 dir;
++    s32 cur;
++    s32 next;
++    s32 i;
++
++    if (pressed == 0 || !gPortKongSwap) {
++        return;
++    }
++    dir = (pressed & R_JPAD) ? 1 : -1;
++    if (!playerPortKongSwapAllowed()) {
++        sfxPlayOnFreeSlot(0x98, 0x7FFF, 63.0f, 1.0f, 0, 0);  // the tag barrel's "locked" sound
++        return;
++    }
++    // kong index 0-4: DK, Diddy, Lanky, Tiny, Chunky (actor type index + 2); unlock flags as tagBarrelInitUnlockedKongs
++    cur = gPlayerCharacterId[0];
++    next = cur;
++    for (i = 0; i < 4; i++) {
++        next = (next + dir + 5) % 5;
++        if (flagGet(mapGetConfigValue(0, next), 0)) {
++            break;
++        }
++    }
++    if (i == 4) {  // no other kong unlocked
++        sfxPlayOnFreeSlot(0x98, 0x7FFF, 63.0f, 1.0f, 0, 0);
++        return;
++    }
++    // the tag barrel's commit (80150.c) without its health refill, camera reset and screen wipe
++    playerSetKongByActorType(next + 2);
++    playerSetActiveGlobals(gCurrentActor);
++    playerKongStopAudioChannels(gCurrentActor, next + 2);
++    gActivePlayerState->gunDrawn = 0;
++    playerResumeLocomotion(gCurrentActor);
++    tagBarrelSpawnActorSmokePuffs(0, 1);
++}
++
+ void playerUpdateCommon(s32 mode) {
+     f32 dist;
+     f32 screenX;
+@@ -506,6 +597,7 @@ void playerUpdateCommon(s32 mode) {
+         }
+     }
+     gCurrentActor->renderFlags &= ~0x1000;
++    playerPortDpadKongSwap();  // PORT
+     gPlayerStateHandlers[gCurrentActor->state].fn();
+     gActivePlayerState->hitStatus = collisionGetHitStatus();
+     if (gPlayerCount == 1) {
