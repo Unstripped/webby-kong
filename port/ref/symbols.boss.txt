@@ -175,7 +175,6 @@ bossAttachActor 0x8002DC60 0x80 STT_FUNC
 gBossRaisedMaskStep 0x80035B34 0x1 STT_OBJECT
 boss_RODATA_END 0x80036DC0 0x0 STT_NOTYPE
 bossDrawRoundText 0x800286B8 0x160 STT_FUNC
-sArmydilloSmokeBones 0x8003598C 0x6 STT_OBJECT
 bossUpdateAttachment 0x8002DCE0 0x9C STT_FUNC
 gBossSavedPlayerCollisionMode 0x80035B38 0x1 STT_OBJECT
 bossPickFarthestWaypoint 0x80027A30 0x178 STT_FUNC

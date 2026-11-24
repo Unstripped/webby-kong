@@ -4,10 +4,10 @@ Date: Tue, 17 Nov 2026 23:10:45 -0700
 Subject: [PATCH] port: framebuffer coherence
 
 
-diff --git a/src/global/103AB0.c b/src/global/103AB0.c
-index c75909d..1027053 100644
---- a/src/global/103AB0.c
-+++ b/src/global/103AB0.c
+diff --git a/src/global/103AB0_view_effects.c b/src/global/103AB0_view_effects.c
+index 500fd5e..ace95b0 100644
+--- a/src/global/103AB0_view_effects.c
++++ b/src/global/103AB0_view_effects.c
 @@ -231,7 +231,7 @@ u16 *sepiaCopyFramebufferTile(u16 *dst, u16 *src) {
  
      for (i = 0; i < 0x40; i++) {
@@ -17,15 +17,15 @@ index c75909d..1027053 100644
          }
      }
      return dst;
-@@ -257,6 +257,7 @@ u16 *playerViewCaptureSepiaPhoto(void) {
+@@ -256,6 +256,7 @@ u16 *playerViewCaptureSepiaPhoto(void) {
      }
      buf = heapAlloc(0xA000);
      dst = buf;
 +    portGfxSyncRdram(gFramebuffers[gGfxBufferIndex], gScreenWidth * gScreenHeight * 2);
-     src = (u16 *)gFramebuffers[gGfxBufferIndex] + gScreenWidth * 56 + 80;
-     row = 0;
-     do {
-@@ -287,7 +288,7 @@ void color5551CopyLerpToWhite(u16 *src, s16 **outBuf, f32 t) {
+     src = gFramebuffers[gGfxBufferIndex] + gScreenWidth * 56 + 80;
+     for (row = 0; row < 2; row++) {
+         for (col = 0; col < 5; col++) {
+@@ -282,7 +283,7 @@ void color5551CopyLerpToWhite(u16 *src, s16 **outBuf, f32 t) {
      heapFreeDeferred(*outBuf);
      dst = *outBuf;
      for (i = 0; i < 0x5000; i++) {
@@ -34,7 +34,7 @@ index c75909d..1027053 100644
      }
  }
  
-@@ -441,6 +442,7 @@ u16 zbufferReadDepth(s16 x, s16 y) {
+@@ -436,6 +437,7 @@ u16 zbufferReadDepth(s16 x, s16 y) {
          return 0xFFFF;
      }
      depth += gScreenWidth * y + x;
@@ -42,10 +42,10 @@ index c75909d..1027053 100644
      z = *depth;
      exponent = (z >> 13) & 7;
      mantissa = (z >> 2) & 0x7FF;
-diff --git a/src/global/10E1D0.c b/src/global/10E1D0.c
-index 8e9d480..940c19a 100644
---- a/src/global/10E1D0.c
-+++ b/src/global/10E1D0.c
+diff --git a/src/global/10E1D0_screen_transition.c b/src/global/10E1D0_screen_transition.c
+index f7a94d6..f593ee5 100644
+--- a/src/global/10E1D0_screen_transition.c
++++ b/src/global/10E1D0_screen_transition.c
 @@ -363,18 +363,20 @@ void fbCopySetAlpha(void *dstBuf, void *srcBuf) {
      s32 *src = srcBuf;
      s32 *dst = dstBuf;
@@ -114,10 +114,10 @@ index 8e9d480..940c19a 100644
  }
  
  void transitionSetState(u8 state) {
-diff --git a/src/global/15050.c b/src/global/15050.c
-index 7bff2a0..a26fc16 100644
---- a/src/global/15050.c
-+++ b/src/global/15050.c
+diff --git a/src/global/15050_heap.c b/src/global/15050_heap.c
+index cf03d0f..5d8a1af 100644
+--- a/src/global/15050_heap.c
++++ b/src/global/15050_heap.c
 @@ -223,9 +223,10 @@ void loadOverlay(u8 keepSurvivors, u8 overlayId, s32 bufferSize) {
          pix = (u8 *)gFramebuffers[fb];
          p = (u32 *)(pix + (gHiResScale * 0x12C00 * gHiResScale) / 2 * 4); // FAKE: p (loop 2's survivor payload) reused for the framebuffer end: the inner-loop refs raise p's adjsave 30 -> 75, so p takes v1 before hp (30) and hp gets a3 (0x320-0x354); a separate end pointer ties them at 30 and hp takes v1 (9 lines)
@@ -130,10 +130,10 @@ index 7bff2a0..a26fc16 100644
      }
  }
  
-diff --git a/src/global/2DE90.c b/src/global/2DE90.c
-index 487bee7..108da39 100644
---- a/src/global/2DE90.c
-+++ b/src/global/2DE90.c
+diff --git a/src/global/2DE90_screen_wipe.c b/src/global/2DE90_screen_wipe.c
+index 85fccb1..85e8ddf 100644
+--- a/src/global/2DE90_screen_wipe.c
++++ b/src/global/2DE90_screen_wipe.c
 @@ -318,7 +318,7 @@ void screenBlurApply(void) {
              }
              idx = sBlurKernelWidth / 2;
@@ -170,10 +170,10 @@ index 487bee7..108da39 100644
              }
          }
          sBlurPassCount++;
-diff --git a/src/global/450.c b/src/global/450.c
-index b3c8354..2c87c44 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index ae78def..8a56ea7 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
 @@ -257,7 +257,7 @@ void viModeApplyHighRes(void) {
      fb = gFramebuffers[0];
      end = fb + 320 * 240;

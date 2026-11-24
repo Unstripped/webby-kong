@@ -1,6 +1,6 @@
 /* Table 23: per-map player spawn points. Consumer: playerLoadSpawnerAsset (global/CC800.c), called from
  * mapLoadLevel (global/450.c); count = entry size / 10 (assetGetCachedSizeOrResolve). Records are read
- * through raceGridSpawnPoint by playerWarpToSpawnPoint (CC800.c), actorInitFromSpawnPoint (936B0.c) and
+ * through mapGetSpawnPoint by playerWarpToSpawnPoint (CC800.c), actorInitFromSpawnPoint (936B0.c) and
  * multiplayer/0.c; playerCheckSpawnerFlagFixup writes y of records 18/23 natively.
  *
  * Layout: G01Pos[size / 10], 10 bytes each:

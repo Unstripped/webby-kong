@@ -4,37 +4,43 @@ Date: Tue, 17 Nov 2026 23:05:01 -0700
 Subject: [PATCH] port: thread spins
 
 
-diff --git a/src/global/0.c b/src/global/0.c
-index 63d7776..3278fbc 100644
---- a/src/global/0.c
-+++ b/src/global/0.c
-@@ -119,6 +119,7 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
+diff --git a/src/global/0_init.c b/src/global/0_init.c
+index 482b281..4688502 100644
+--- a/src/global/0_init.c
++++ b/src/global/0_init.c
+@@ -120,7 +120,9 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltReason) {
+         osViBlack(TRUE);
          audioThreadStop(1);
-         gMainThreadHalted = 1;
-         while (1) {
+         gMainThreadHalted = TRUE;
+-        while (TRUE) {}
++        while (TRUE) {
 +            portIdleWait();
-         }
++        }
      }
-     osRecvMesg(queue, &receivedMsg, 1);
-@@ -128,11 +129,13 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
-     osSetThreadPri(NULL, 0xB);
+     osRecvMesg(queue, &msg, OS_MESG_BLOCK);
+     gMainThreadHalted = TRUE;
+@@ -128,10 +130,14 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltReason) {
+     osStopThread(&gMainThread);
+     osSetThreadPri(NULL, 11);
      sHaltStartTime = osGetTime();
-     while (osGetTime() < sHaltStartTime + 0x22ADD7) {
+-    while (osGetTime() < sHaltStartTime + 0x22ADD7) {}
++    while (osGetTime() < sHaltStartTime + 0x22ADD7) {
 +        portIdleWait();
-     }
-     osViBlack(1);
++    }
+     osViBlack(TRUE);
      __osSpSetStatus(0xAAAA82);
      osDpSetStatus(0x1D6);
      rumbleShutdown();
-     while (1) {
+-    while (TRUE) {}
++    while (TRUE) {
 +        portIdleWait();
-     }
++    }
  }
-diff --git a/src/global/450.c b/src/global/450.c
-index 1bdcb64..5a76a30 100644
---- a/src/global/450.c
-+++ b/src/global/450.c
-@@ -432,6 +432,7 @@ void mainThreadLoop(void *arg) {
+diff --git a/src/global/450_main_loop.c b/src/global/450_main_loop.c
+index fc32cc2..23fd554 100644
+--- a/src/global/450_main_loop.c
++++ b/src/global/450_main_loop.c
+@@ -434,6 +434,7 @@ void mainThreadLoop(void *arg) {
      while (1) {
          gMainLoopWatchdog = 0xC8;
          while (gMainThreadHalted != 0) {
@@ -42,10 +48,10 @@ index 1bdcb64..5a76a30 100644
          }
          if ((gScreenRenderFlags & 1) && gMapLoadCountdown == 0) {
              mapLoadLevel();
-diff --git a/src/global/5230.c b/src/global/5230.c
-index e190f3c..04b7e8d 100644
---- a/src/global/5230.c
-+++ b/src/global/5230.c
+diff --git a/src/global/5230_frame_timing.c b/src/global/5230_frame_timing.c
+index 9728d97..331dcfe 100644
+--- a/src/global/5230_frame_timing.c
++++ b/src/global/5230_frame_timing.c
 @@ -118,6 +118,7 @@ void frameTimingUpdate(void) {
              p = &gScheduler.retraceCount;
              limit = sFrameTimingLastRetrace + gFrameDelta;

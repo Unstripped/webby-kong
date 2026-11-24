@@ -288,7 +288,7 @@ label global asm/global/data/165D50_807F70B0.bss.s sCeilingClampActive 0x807F946
 label global asm/global/data/165D50_807F70B0.bss.s D_807F9468 0x807F9468 0x4 bss
 label global asm/global/data/165D50_807F70B0.bss.s D_807F946C 0x807F946C 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s sAllowObjectAttach 0x807F946D 0x1 bss
-label global asm/global/data/165D50_807F70B0.bss.s D_807F946E 0x807F946E 0x2 bss
+label global asm/global/data/165D50_807F70B0.bss.s sFloorHitStatus 0x807F946E 0x2 bss
 label global asm/global/data/165D50_807F70B0.bss.s sRiddenActor 0x807F9470 0x4 bss
 label global asm/global/data/165D50_807F70B0.bss.s sRiderPointX 0x807F9474 0x4 bss
 label global asm/global/data/165D50_807F70B0.bss.s sRiderPointY 0x807F9478 0x4 bss
@@ -390,7 +390,7 @@ label global asm/global/data/165D50_807F70B0.bss.s gCollisionDeferredHit 0x807FB
 label global asm/global/data/165D50_807F70B0.bss.s gCollisionResolvePass 0x807FB600 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s sCollisionHitPart 0x807FB601 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s sDamageSurfaceContact 0x807FB602 0x1 bss
-label global asm/global/data/165D50_807F70B0.bss.s D_807FB603 0x807FB603 0x1 bss
+label global asm/global/data/165D50_807F70B0.bss.s gCollisionPushBothSides 0x807FB603 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s sWallProbeActive 0x807FB604 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s sBoundaryTwoSided 0x807FB605 0x1 bss
 label global asm/global/data/165D50_807F70B0.bss.s gCollisionArcWidened 0x807FB606 0x1 bss
@@ -542,8 +542,8 @@ label global asm/global/data/165D50_807FC7E0.bss.s gCurrentKongInventory 0x807FD
 label global asm/global/data/165D50_807FC7E0.bss.s gSavedPlayerStateFlags 0x807FD56C 0x4 bss
 label global asm/global/data/165D50_807FC7E0.bss.s gSavedHeldActorType 0x807FD570 0x4 bss
 label global asm/global/data/165D50_807FC7E0.bss.s gMapHeaderSpawnPos 0x807FD574 0x2 bss
-label global asm/global/data/165D50_807FC7E0.bss.s D_807FD576 0x807FD576 0x2 bss
-label global asm/global/data/165D50_807FC7E0.bss.s D_807FD578 0x807FD578 0x8 bss
+label global asm/global/data/165D50_807FC7E0.bss.s gMapHeaderSpawnY 0x807FD576 0x2 bss
+label global asm/global/data/165D50_807FC7E0.bss.s gMapHeaderSpawnZ 0x807FD578 0x8 bss
 label global asm/global/data/165D50_807FC7E0.bss.s gActivePlayerState 0x807FD580 0x4 bss
 label global asm/global/data/165D50_807FC7E0.bss.s gCurrentCharacterIndex 0x807FD584 0x2 bss
 label global asm/global/data/165D50_807FC7E0.bss.s gPlayerMoveYawForced 0x807FD586 0x8A bss
@@ -655,13 +655,13 @@ label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingCallback 0x807F
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingDepth 0x807FDB18 0x2 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingStartDelay 0x807FDB1A 0x2 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingFrameDelay 0x807FDB1C 0x1 bss
-label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingFade 0x807FDB1D 0x3 bss
+label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingScreenSpace 0x807FDB1D 0x3 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingScaleX 0x807FDB20 0x4 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingScaleY 0x807FDB24 0x4 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingHasScale 0x807FDB28 0x4 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingSpeed 0x807FDB2C 0x4 bss
-label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingParam 0x807FDB30 0x4 bss
-label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingZOffset 0x807FDB34 0x2 bss
+label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingStartFrame 0x807FDB30 0x4 bss
+label global asm/global/data/165D50_807FD6F0.bss.s sEffectScreenRotation 0x807FDB34 0x2 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingFlags 0x807FDB36 0x2 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingChunkFilter 0x807FDB38 0x2 bss
 label global asm/global/data/165D50_807FD6F0.bss.s sEffectPendingMaxDist 0x807FDB3A 0x2 bss
@@ -851,7 +851,8 @@ label jetpac asm/jetpac/data/AC30.bss.s D_8002F22C 0x8002F22C 0x190 bss
 label jetpac asm/jetpac/data/AC30.bss.s D_8002F3BC 0x8002F3BC 0x4 bss
 label jetpac asm/jetpac/data/AC30.bss.s D_8002F3C0 0x8002F3C0 0x8 bss
 label jetpac asm/jetpac/data/AC30.bss.s D_8002F3C8 0x8002F3C8 0x8 bss
-label jetpac asm/jetpac/data/AC30.bss.s jetpacGrid 0x8002F3D0 0x7F0 bss
+label jetpac asm/jetpac/data/AC30.bss.s jetpacGrid 0x8002F3D0 0x7E0 bss
+label jetpac asm/jetpac/data/AC30.bss.s gRaceSparkEffects 0x8002FBB0 0x10 bss
 label jetpac asm/jetpac/data/AC30.bss.s gLightSlotNext 0x8002FBC0 0x13010 bss
 label jetpac asm/jetpac/data/AC30.bss.s jetpacTiledSpriteTiles 0x80042BD0 0x3000 bss
 label jetpac asm/jetpac/data/AC30.bss.s jetpacTiledSpriteCount 0x80045BD0 0x10 bss

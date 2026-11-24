@@ -4,11 +4,11 @@ Date: Mon, 23 Nov 2026 14:44:04 -0700
 Subject: [PATCH] port: dpad kong swap
 
 
-diff --git a/src/global/CEAE0.c b/src/global/CEAE0.c
-index d57fc81..600865d 100644
---- a/src/global/CEAE0.c
-+++ b/src/global/CEAE0.c
-@@ -416,6 +416,97 @@ extern s32 gEffectSpriteMelonSpin;
+diff --git a/src/global/CEAE0_player_update.c b/src/global/CEAE0_player_update.c
+index 92bfd33..f8b1bfa 100644
+--- a/src/global/CEAE0_player_update.c
++++ b/src/global/CEAE0_player_update.c
+@@ -416,6 +416,97 @@ extern EffectGridAsset gEffectSpriteMelonSpin;
  void func_80026D40(void *, u8);
  f32 sqrtf(f32);
  

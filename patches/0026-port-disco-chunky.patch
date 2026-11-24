@@ -4,11 +4,11 @@ Date: Tue, 24 Nov 2026 11:39:27 -0700
 Subject: [PATCH] port: disco chunky
 
 
-diff --git a/src/global/CC800.c b/src/global/CC800.c
-index 2730899..b3a35b0 100644
---- a/src/global/CC800.c
-+++ b/src/global/CC800.c
-@@ -345,6 +345,16 @@ extern s32 gCurrentMap;
+diff --git a/src/global/CC800_player_setup.c b/src/global/CC800_player_setup.c
+index 93777d5..ffeeff8 100644
+--- a/src/global/CC800_player_setup.c
++++ b/src/global/CC800_player_setup.c
+@@ -335,6 +335,16 @@ extern s32 gCurrentMap;
  extern f32 gKongAccelY[];
  extern f32 gKongTerminalSpeedY[];
  
@@ -25,7 +25,7 @@ index 2730899..b3a35b0 100644
  void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
      const KongCharacterEntry *row;
      u32 slot = playerIndex;
-@@ -357,7 +367,7 @@ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
+@@ -347,7 +357,7 @@ void playerSetupCharacterForSlot(s32 spawnIndex, u8 playerIndex) {
          gPlayerCharacterId[0] = 0;
      }
      row = &gKongCharacterTable[gPlayerCharacterId[slot]];
@@ -34,19 +34,19 @@ index 2730899..b3a35b0 100644
      gSpawnedActor->flags &= ~0x1000;
      gSpawnedActor->flags |= row->actorFlags;
      gSpawnedActor->shadowScale[0] = 0x42;
-@@ -600,7 +610,7 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
+@@ -590,7 +600,7 @@ void playerApplyCharacterModel(const KongCharacterEntry *row) {
      gCurrentCharacterIndex = row->characterIndex;
      controllerAnimFree(gActivePlayerActor);
      actorSub140Free(gActivePlayerActor->collision);
--    controllerAnimInit(gActivePlayerActor, (u16)row->model); // PORT: m.modelId is the word's low half, +2 on the N64 only
-+    controllerAnimInit(gActivePlayerActor, playerPortCharacterModel(row)); // PORT: Disco Chunky; reads the word, not m.modelId
+-    controllerAnimInit(gActivePlayerActor, (u16)row->model); // PORT: the N64 reads the word's low half (+2)
++    controllerAnimInit(gActivePlayerActor, playerPortCharacterModel(row)); // PORT: Disco Chunky; reads the whole model word
      gActivePlayerActor->collision = actorSub140CreateFromModel(gActivePlayerActor);
      gActivePlayerActor->flags &= ~0x1000;
      gActivePlayerActor->flags |= row->actorFlags;
-diff --git a/src/global/CEAE0.c b/src/global/CEAE0.c
-index 600865d..bc23a63 100644
---- a/src/global/CEAE0.c
-+++ b/src/global/CEAE0.c
+diff --git a/src/global/CEAE0_player_update.c b/src/global/CEAE0_player_update.c
+index f8b1bfa..c1adb0c 100644
+--- a/src/global/CEAE0_player_update.c
++++ b/src/global/CEAE0_player_update.c
 @@ -507,6 +507,30 @@ static void playerPortDpadKongSwap(void) {
      tagBarrelSpawnActorSmokePuffs(0, 1);
  }

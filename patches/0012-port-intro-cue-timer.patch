@@ -4,10 +4,10 @@ Date: Wed, 18 Nov 2026 09:29:25 -0700
 Subject: [PATCH] port: intro cue timer
 
 
-diff --git a/src/global/201B0.c b/src/global/201B0.c
-index 1144232..a68ad1d 100644
---- a/src/global/201B0.c
-+++ b/src/global/201B0.c
+diff --git a/src/global/201B0_camera.c b/src/global/201B0_camera.c
+index 79568a2..3ddb06e 100644
+--- a/src/global/201B0_camera.c
++++ b/src/global/201B0_camera.c
 @@ -1146,6 +1146,13 @@ void camUpdate(Actor *camActor, f32 *eyeX, f32 *eyeY, f32 *eyeZ, f32 *focusX, f3
      camUpdateFollowTargetDistance(camActor);
      camActor->roll = mathAngleEaseToward(camActor->roll, target->roll, 20.0f);

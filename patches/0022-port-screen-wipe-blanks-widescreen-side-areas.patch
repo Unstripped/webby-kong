@@ -4,10 +4,10 @@ Date: Sat, 21 Nov 2026 07:58:23 -0700
 Subject: [PATCH] port: screen wipe blanks widescreen side areas
 
 
-diff --git a/src/global/2DE90.c b/src/global/2DE90.c
-index 108da39..0da1497 100644
---- a/src/global/2DE90.c
-+++ b/src/global/2DE90.c
+diff --git a/src/global/2DE90_screen_wipe.c b/src/global/2DE90_screen_wipe.c
+index 85e8ddf..5ba6484 100644
+--- a/src/global/2DE90_screen_wipe.c
++++ b/src/global/2DE90_screen_wipe.c
 @@ -212,6 +212,9 @@ Gfx *screenWipeDraw(Gfx *glist) {
                  }
                  break;

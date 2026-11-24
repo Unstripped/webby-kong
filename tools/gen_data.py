@@ -148,14 +148,21 @@ def load_elves(ref=True):
     return {seg: make(seg) for seg in SEGMENTS}
 
 
-def overlay_clashes(elves):
+def overlay_clashes(elves, index):
+    """{ovl: names renamed to <ovl>__<name>}: overlay ELF names another segment's ELF also defines, and overlay asm
+    labels named like another segment's C object (splat names every overlay's object at a shared VRAM from one
+    symbol_addrs entry, e.g. jetpac bss gRaceSparkEffects at race's 0x8002FBB0)."""
+    labels, _ = ref_asm_data()
     out = {}
     for ovl in OVERLAYS:
         others = set()
         for seg, e in elves.items():
             if seg != ovl:
                 others.update(e.defined)
-        out[ovl] = sorted(n for n in elves[ovl].defined if n in others and not SEG_SYM_RE.search(n))
+        names = {n for n in elves[ovl].defined if n in others and not SEG_SYM_RE.search(n)}
+        names.update(l.name for l in labels[ovl]
+                     if l.name in index.c_defined and index.c_defined[l.name][0] != ovl)
+        out[ovl] = sorted(names)
     return out
 
 
@@ -222,7 +229,8 @@ def game_flags():
             "-include", str(ROOT / "port/include/port/prelude.h")] + [f"-I{p}" for p in inc]
 
 
-BOOT_SOURCES = ["1CC0.c", "30E0.c", "3630.c", "3D20.c", "6690.c", "libultra/io/vitbl.c",
+BOOT_SOURCES = ["1CC0_inflate.c", "30E0_gunzip.c", "3630_string.c", "3D20_sprintf.c", "6690_texture_desc.c",
+                "libultra/io/vitbl.c",
                 "libultra/libc/ll.c", "libultra/libc/llcvt.c"]
 
 
@@ -654,13 +662,14 @@ def ref_asm_data():
 
 def collect_labels(index, elves):
     """-> ({seg: [Label]}, {seg: [(vram, size, width)]}): the asm labels of port/ref, split at C-declared interior
-    names, plus shadow snapshots; and the asm ROM byte runs."""
+    names, plus shadow snapshots; and the asm ROM byte runs. Overlay labels named like another segment's C object
+    are renamed through overlay_clashes."""
     labels, runs = ref_asm_data()
     per_seg = {}
     for seg in SEGMENTS:
         out = []
         for l in labels[seg]:
-            if l.name in index.c_defined:
+            if l.name in index.c_defined and (index.c_defined[l.name][0] == seg or seg not in OVERLAYS):
                 REPORT.error(f"{l.name}: defined in C and in {l.file}")
                 continue
             out.append(l)
@@ -1064,8 +1073,7 @@ def report_unresolved(index, per_seg, elves, abs_syms):
                 REPORT.note(f"UNRESOLVED {name}: absolute 0x{v:08X} (PORT_ABS_{name}){where}")
 
 
-def run_full(elves, clashes, abs_syms, ovl_fns, fills):
-    index = Index().build()
+def run_full(elves, index, clashes, abs_syms, ovl_fns, fills):
     per_seg, runs = collect_labels(index, elves)
     for seg in SEGMENTS:
         add_label_fills(fills, seg, per_seg[seg], runs.get(seg, []), clashes)
@@ -1207,7 +1215,8 @@ def main():
     else:
         check_ref_fingerprint()
         elves = load_elves()
-        clashes = overlay_clashes(elves)
+        index = Index().build()
+        clashes = overlay_clashes(elves, index)
         abs_syms = abs_symbols(elves)
         fills = RomFill(abs_syms)
         gen_overlay_headers(clashes)
@@ -1218,7 +1227,7 @@ def main():
         if args.headers:
             msg = "gen: headers written"
         else:
-            msg = f"gen: {run_full(elves, clashes, abs_syms, ovl_fns, fills)} labels"
+            msg = f"gen: {run_full(elves, index, clashes, abs_syms, ovl_fns, fills)} labels"
     (GEN / "report.txt").write_text("\n".join(REPORT.lines) + "\n")
     print(f"{msg}, {REPORT.errors} errors (build/gen/report.txt)")
     return 1 if REPORT.errors else 0
