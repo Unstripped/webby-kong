@@ -40,14 +40,14 @@ start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`)
 ## Quick start
 
 With Docker, mount your ROM (a file, or a directory holding one `*.z64`/`*.n64`/`*.v64`) at `/rom`; the page starts
-it without the file picker, and saves persist in the `/data` volume:
+it without the ROM drop zone, and saves persist in the `/data` volume:
 
 ```sh
 docker run -p 8080:8080 -v /path/to/dk64.z64:/rom/dk64.z64:ro -v webby-kong-saves:/data ghcr.io/unstripped/webby-kong
 ```
 
 `:latest` follows `development`; releases are tagged with their version (`:v0.1.0`). Without a ROM mount the page
-asks for the ROM.
+shows a drop zone: drop the ROM on the page or click it to choose the file.
 
 On Kubernetes, the Helm chart in `charts/webby-kong` runs the same image with a persistent `/data` volume; mount the
 ROM from any volume source with `rom.volume` (see the comments in `values.yaml` for ROM, sign-in, SMTP and Ingress):

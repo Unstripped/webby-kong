@@ -183,7 +183,7 @@
   const style = document.createElement('style');
   style.textContent = `
 #dk64dbg-overlay {
-  position: fixed; top: 40px; left: 10px; z-index: 2; width: 420px; box-sizing: border-box;
+  position: fixed; top: 10px; left: 10px; z-index: 2; width: 420px; box-sizing: border-box;
   padding: 10px 12px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.09);
   background: rgba(16,18,24,.84); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 8px 28px rgba(0,0,0,.45); color: #d7dce5;
