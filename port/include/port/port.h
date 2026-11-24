@@ -96,7 +96,7 @@ typedef struct {
     s32 spawnArmed; /* game-internal: the position override survives until mapRequestTransition loads the map */
 } PortResumePoint;
 extern PortResumePoint gPortResume;
-/* D_8076AEE2 (spawn override flags) bit set by a resume spawn: playerWarpToSpawnPoint faces D_8076AEF0 exactly */
+/* gSavedSlotSpawnFlags (spawn override flags) bit set by a resume spawn: playerWarpToSpawnPoint faces gSavedSlotSpawnYaw exactly */
 #define PORT_SPAWN_EXACT_YAW 0x4000
 s32 mapCaptureResumePoint(PortResumePoint *out, const char **reason); /* src/global/3C10.c */
 void menuStartGameAtResume(void);                                      /* src/global/117190.c */

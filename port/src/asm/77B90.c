@@ -79,25 +79,25 @@ s32 actorCheckCameraBoundaryCondition(s8);
 /* bss (asm/global/data/165D50_807F70B0.bss.s) */
 extern Cell *sStaticCollisionCells;
 extern s32 sStaticCollisionCellCount;
-extern u8 D_807FB547;
+extern u8 gCollisionHit;
 extern Box D_807FB550;
 extern s32 D_807FB5A8, D_807FB5AC, D_807FB5B0;
 extern u16 *D_807FB5B4, *D_807FB5B8;
 extern Cell *D_807FB5BC;
 extern StaticTri *D_807FB5C0;
-extern s32 D_807FB5C4, D_807FB5C8, D_807FB5CC, D_807FB5D0;
-extern Box *D_807FB5D4, *D_807FB5D8;
-extern s32 D_807FB5DC;
-extern s32 D_807FB5E0, D_807FB5E4;
-extern s16 D_807FB5E8;
-extern s16 D_807FB5EC, D_807FB5EE, D_807FB5F0, D_807FB5F2;
-extern s16 D_807FB5F4, D_807FB5F6, D_807FB5F8, D_807FB5FA;
-extern u8 D_807FB5FC, D_807FB5FD, D_807FB5FE, D_807FB5FF;
-extern u8 D_807FB600, D_807FB601, D_807FB602, D_807FB603;
-extern u8 D_807FB604, D_807FB605, D_807FB606, D_807FB607;
+extern s32 gCollisionPlanePointX, gCollisionPlanePointY, gCollisionPlanePointZ, gCollisionPlaneDist;
+extern Box *gCollisionNearestBox, *gCollisionHitBox;
+extern s32 gCollisionNearestTri;
+extern s32 gStaticCollisionCellSizeX, gStaticCollisionCellSizeZ;
+extern s16 gStaticCollisionCellsX;
+extern s16 sHitBoxYawMin, sHitBoxYawMax, sHitBoxBackYawMin, sHitBoxBackYawMax;
+extern s16 D_807FB5F4, gCollisionNearestTriIndex, sCollisionTriMinYMargin, sCollisionTriMaxYMargin;
+extern u8 D_807FB5FC, gCollisionDeferredPush, D_807FB5FE, gCollisionDeferredHit;
+extern u8 gCollisionResolvePass, sCollisionHitPart, sDamageSurfaceContact, D_807FB603;
+extern u8 sWallProbeActive, sBoundaryTwoSided, gCollisionArcWidened, D_807FB607;
 extern Box *D_807FB608;
 extern s32 D_807FB60C, D_807FB610, D_807FB614, D_807FB618;
-extern u8 D_807FB61C, D_807FB61D;
+extern u8 gCollisionNearestFound, D_807FB61D;
 
 /* register model */
 static s32 sT3, sT4, sT5, sT6;
@@ -122,10 +122,10 @@ static void func_80672EBC(s32 x, s32 z) {
     s32 cell;
 
     if (x > 0) {
-        x = x / D_807FB5E0;
+        x = x / gStaticCollisionCellSizeX;
         if (z > 0) {
-            z = z / D_807FB5E4;
-            cell = x + (s32)((u32)z * (u32)(s32)D_807FB5E8);
+            z = z / gStaticCollisionCellSizeZ;
+            cell = x + (s32)((u32)z * (u32)(s32)gStaticCollisionCellsX);
         } else {
             cell = 0;
         }
@@ -139,8 +139,8 @@ static void func_80672EBC(s32 x, s32 z) {
 /* func_80673240: static tri Y range [(minY-D5F8)*8, (maxY+D5FA)*8] strictly contains sphere Y. */
 static s32 func_80673240(void) {
     StaticTri *t = (StaticTri *)sS0;
-    s32 lo = (s32)((u32)SUB32(t->minY, D_807FB5F8) << 3);
-    s32 hi = (s32)((u32)((u32)(s32)t->maxY + (u32)(s32)D_807FB5FA) << 3);
+    s32 lo = (s32)((u32)SUB32(t->minY, sCollisionTriMinYMargin) << 3);
+    s32 hi = (s32)((u32)((u32)(s32)t->maxY + (u32)(s32)sCollisionTriMaxYMargin) << 3);
 
     return lo < sT4 && sT4 < hi;
 }
@@ -375,7 +375,7 @@ static s32 func_8067443C(void) {
     return hi;
 }
 
-/* func_80674330: widen the arc [*D_807FB5B4, *D_807FB5B8] by [a0, a1]; flag D_807FB606 if it grew. */
+/* func_80674330: widen the arc [*D_807FB5B4, *D_807FB5B8] by [a0, a1]; flag gCollisionArcWidened if it grew. */
 static void func_80674330(s32 a0, s32 a1) {
     s32 t0;
     u32 v0, v1, ua0, ua1;
@@ -415,7 +415,7 @@ static void func_80674330(s32 a0, s32 a1) {
     *D_807FB5B4 = (u16)v0;
     *D_807FB5B8 = (u16)v1;
     if (t0 < func_8067443C()) {
-        D_807FB606 = 1;
+        gCollisionArcWidened = 1;
     }
 }
 
@@ -431,7 +431,7 @@ static void func_80674080(s32 a1In) {
     }
 }
 
-/* func_80674150: nearest hit from the previous position (radius 800); records D_807FB5D4/DC/F6. */
+/* func_80674150: nearest hit from the previous position (radius 800); records gCollisionNearestBox/DC/F6. */
 static void func_80674150(void) {
     s32 t3 = sT3, t4 = sT4, t5 = sT5, t6 = sT6;
     s64 v1 = sV1, a0 = sA0, a1 = sA1, s2 = sS2;
@@ -441,12 +441,12 @@ static void func_80674150(void) {
     sT4 = D_807FB5AC;
     sT5 = D_807FB5B0;
     sT6 = 0x320;
-    if (func_8067457C(a1) && sS2 < (s64)D_807FB5D0) {
-        D_807FB5D4 = sS0;
-        D_807FB5D0 = (s32)sS2;
-        D_807FB5DC = (s32)(u32)D_807FB5C0;
-        D_807FB5F6 = (s16)sFp;
-        D_807FB61C = 1;
+    if (func_8067457C(a1) && sS2 < (s64)gCollisionPlaneDist) {
+        gCollisionNearestBox = sS0;
+        gCollisionPlaneDist = (s32)sS2;
+        gCollisionNearestTri = (s32)(u32)D_807FB5C0;
+        gCollisionNearestTriIndex = (s16)sFp;
+        gCollisionNearestFound = 1;
     }
     sT3 = t3; sT4 = t4; sT5 = t5; sT6 = t6;
     sV1 = v1; sA0 = a0; sA1 = a1; sS2 = s2;
@@ -499,9 +499,9 @@ static s32 func_806739D8(void) {
     s32 v0 = 0;
     s32 yaw = (u16)sS0->unk48;
 
-    v0 = func_80673A40((u16)D_807FB5EC, (u16)D_807FB5EE, yaw, v0);
+    v0 = func_80673A40((u16)sHitBoxYawMin, (u16)sHitBoxYawMax, yaw, v0);
     if (v0 == 0) {
-        v0 = func_80673A40((u16)D_807FB5F0, (u16)D_807FB5F2, yaw, v0);
+        v0 = func_80673A40((u16)sHitBoxBackYawMin, (u16)sHitBoxBackYawMax, yaw, v0);
     }
     return v0;
 }
@@ -524,7 +524,7 @@ static void func_80673D48(void) {
     s64 v;
     s32 yaw, a0, a1, front, tmp;
 
-    if (D_807FB604 != 0) {
+    if (sWallProbeActive != 0) {
         /* func_80673C34 */
         actorUpdateFacingAndOffset(b, D_807FB5A8, D_807FB5AC, D_807FB5B0);
         return;
@@ -536,12 +536,12 @@ static void func_80673D48(void) {
         }
     }
     if (b->unk4F != 0) {
-        D_807FB601 = b->unk4F;
+        sCollisionHitPart = b->unk4F;
         return;
     }
-    D_807FB547 = 1;
+    gCollisionHit = 1;
     if (b->unk51 != 0) {
-        D_807FB602 |= 1;
+        sDamageSurfaceContact |= 1;
         return;
     }
     if (D_807FB61D != 0) {
@@ -567,27 +567,27 @@ static void func_80673D48(void) {
     if (D_807FB61D != 0) {
         func_80674080(a1);
     }
-    if (D_807FB605 != 0) {
+    if (sBoundaryTwoSided != 0) {
         func_80674150();
     }
-    if (D_807FB603 == 0 || D_807FB5FE != 1 || D_807FB5FD == 0) {
+    if (D_807FB603 == 0 || D_807FB5FE != 1 || gCollisionDeferredPush == 0) {
         return;
     }
     tmp = a0;
     a0 = a1;
     a1 = tmp;
-    if (D_807FB600 != 1) {
+    if (gCollisionResolvePass != 1) {
         return;
     }
     goto L_FA4;
 
 L_F50:
-    if (D_807FB5FE == 1 && D_807FB5FD != 0) {
-        if (D_807FB600 == 1) {
+    if (D_807FB5FE == 1 && gCollisionDeferredPush != 0) {
+        if (gCollisionResolvePass == 1) {
             goto L_FA4;
         }
-        D_807FB5D8 = b;
-        D_807FB5FF = 1;
+        gCollisionHitBox = b;
+        gCollisionDeferredHit = 1;
         return;
     }
     func_80674150();
@@ -654,9 +654,9 @@ u8 func_806734E4(s32 x, s32 y, s32 z, s32 r, s16 *arcMin, s16 *arcMax) {
     D_807FB60C = 999999;
     D_807FB61D = 1;
     D_807FB5FC = 0;
-    D_807FB601 = 0;
-    D_807FB61C = 0;
-    D_807FB5D0 = 999999;
+    sCollisionHitPart = 0;
+    gCollisionNearestFound = 0;
+    gCollisionPlaneDist = 999999;
     D_807FB5FE = 0;
     D_807FB5B4 = (u16 *)arcMin;
     D_807FB5B8 = (u16 *)arcMax;
@@ -667,12 +667,12 @@ u8 func_806734E4(s32 x, s32 y, s32 z, s32 r, s16 *arcMin, s16 *arcMax) {
 }
 
 /*
- * func_806732A8: rebuild the scratch box for static tri `tri` (index `index`
+ * collisionBuildHitBox: rebuild the scratch box for static tri `tri` (index `index`
  * in cell D_807FB5BC) and return it. The asm copies $s0 into $v0 before
  * returning, so $v0 == &D_807FB550; the game's declaration
- * `CollisionBox *func_806732A8(s32, s16)` (70FD0.c) already matches.
+ * `CollisionBox *collisionBuildHitBox(s32, s16)` (70FD0.c) already matches.
  */
-Box *func_806732A8(s32 tri, s16 index) {
+Box *collisionBuildHitBox(s32 tri, s16 index) {
     Box *s0 = sS0;
     s32 fp = sFp;
     Box *ret;
@@ -688,7 +688,7 @@ Box *func_806732A8(s32 tri, s16 index) {
 
 /*
  * func_80673708: resolve the sphere against boxes [start, end); arc results via arcMin/arcMax.
- * D_807FB5F6 written by func_80674150 on this path takes $fp, which here is the caller's
+ * gCollisionNearestTriIndex written by func_80674150 on this path takes $fp, which here is the caller's
  * unrelated $s8; the port uses the last static-tri index instead (sFp).
  */
 s32 func_80673708(s32 x, s32 y, s32 z, s32 r, Box *start, Box *end, s16 *arcMin, s16 *arcMax) {
@@ -696,11 +696,11 @@ s32 func_80673708(s32 x, s32 y, s32 z, s32 r, Box *start, Box *end, s16 *arcMin,
     s32 t3 = sT3, t4 = sT4, t5 = sT5, t6 = sT6;
 
     D_807FB5FC = 0;
-    D_807FB5D0 = 999999;
+    gCollisionPlaneDist = 999999;
     D_807FB5FE = 1;
-    D_807FB5FF = 0;
-    D_807FB601 = 0;
-    D_807FB61C = 0;
+    gCollisionDeferredHit = 0;
+    sCollisionHitPart = 0;
+    gCollisionNearestFound = 0;
     D_807FB5B4 = (u16 *)arcMin;
     D_807FB5B8 = (u16 *)arcMax;
     sT3 = x;
@@ -713,11 +713,11 @@ s32 func_80673708(s32 x, s32 y, s32 z, s32 r, Box *start, Box *end, s16 *arcMin,
         }
         if (func_80673B78()) {
             func_80673D48();
-            if (D_807FB5FF != 0) {
+            if (gCollisionDeferredHit != 0) {
                 break;
             }
         } else if (sS0->unk51 != 0) {
-            D_807FB602 |= 2;
+            sDamageSurfaceContact |= 2;
         }
     }
     sS0 = s0;
@@ -754,8 +754,8 @@ void func_806742C0(s16 a, s16 b, s16 *arcMin, s16 *arcMax) {
 }
 
 /*
- * func_806744A8: closest point on box's plane to the sphere centre -> D_807FB5C4/C8/CC,
- * |distance| -> D_807FB5D0. On a miss the asm stores its leftover $v1 = ny, $a0 = nz,
+ * func_806744A8: closest point on box's plane to the sphere centre -> gCollisionPlanePointX/C8/CC,
+ * |distance| -> gCollisionPlaneDist. On a miss the asm stores its leftover $v1 = ny, $a0 = nz,
  * $a1 = x (reproduced).
  */
 s32 func_806744A8(Box *box, s32 x, s32 y, s32 z, s32 r) {
@@ -769,10 +769,10 @@ s32 func_806744A8(Box *box, s32 x, s32 y, s32 z, s32 r) {
     sT5 = z;
     sT6 = r;
     hit = func_8067457C(x);
-    D_807FB5C4 = (s32)sV1;
-    D_807FB5C8 = (s32)sA0;
-    D_807FB5CC = (s32)sA1;
-    D_807FB5D0 = (s32)sS2;
+    gCollisionPlanePointX = (s32)sV1;
+    gCollisionPlanePointY = (s32)sA0;
+    gCollisionPlanePointZ = (s32)sA1;
+    gCollisionPlaneDist = (s32)sS2;
     sS0 = s0;
     sT3 = t3; sT4 = t4; sT5 = t5; sT6 = t6;
     return hit;

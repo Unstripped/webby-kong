@@ -5,7 +5,7 @@ Subject: [PATCH] port: screen wipe blanks widescreen side areas
 
 
 diff --git a/src/global/2DE90.c b/src/global/2DE90.c
-index 2804464..645208f 100644
+index 108da39..0da1497 100644
 --- a/src/global/2DE90.c
 +++ b/src/global/2DE90.c
 @@ -212,6 +212,9 @@ Gfx *screenWipeDraw(Gfx *glist) {

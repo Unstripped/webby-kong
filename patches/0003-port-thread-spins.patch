@@ -5,10 +5,10 @@ Subject: [PATCH] port: thread spins
 
 
 diff --git a/src/global/0.c b/src/global/0.c
-index 63618bf..09f0f5e 100644
+index 63d7776..3278fbc 100644
 --- a/src/global/0.c
 +++ b/src/global/0.c
-@@ -120,6 +120,7 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
+@@ -119,6 +119,7 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
          audioThreadStop(1);
          gMainThreadHalted = 1;
          while (1) {
@@ -16,7 +16,7 @@ index 63618bf..09f0f5e 100644
          }
      }
      osRecvMesg(queue, &receivedMsg, 1);
-@@ -129,11 +130,13 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
+@@ -128,11 +129,13 @@ void mainThreadHalt(OSMesgQueue *queue, s32 haltCode) {
      osSetThreadPri(NULL, 0xB);
      sHaltStartTime = osGetTime();
      while (osGetTime() < sHaltStartTime + 0x22ADD7) {
@@ -31,26 +31,26 @@ index 63618bf..09f0f5e 100644
      }
  }
 diff --git a/src/global/450.c b/src/global/450.c
-index 9248250..1017a3a 100644
+index 1bdcb64..5a76a30 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -441,6 +441,7 @@ void mainThreadLoop(void *arg) {
+@@ -432,6 +432,7 @@ void mainThreadLoop(void *arg) {
      while (1) {
-         D_8074682C = 0xC8;
+         gMainLoopWatchdog = 0xC8;
          while (gMainThreadHalted != 0) {
 +            portIdleWait();
          }
-         if ((gScreenRenderFlags & 1) && D_8076A0B2 == 0) {
+         if ((gScreenRenderFlags & 1) && gMapLoadCountdown == 0) {
              mapLoadLevel();
 diff --git a/src/global/5230.c b/src/global/5230.c
-index f8c7363..c927fbf 100644
+index e190f3c..04b7e8d 100644
 --- a/src/global/5230.c
 +++ b/src/global/5230.c
 @@ -118,6 +118,7 @@ void frameTimingUpdate(void) {
              p = &gScheduler.retraceCount;
-             limit = D_8076AF10 + gFrameDelta;
+             limit = sFrameTimingLastRetrace + gFrameDelta;
              while (*p < limit) {
 +                portIdleWait();
              }
          }
-         D_8076AF10 = SCHED_RETRACE_COUNT;
+         sFrameTimingLastRetrace = SCHED_RETRACE_COUNT;

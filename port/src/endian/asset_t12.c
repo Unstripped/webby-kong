@@ -11,7 +11,7 @@
  *     itemCount x item:
  *       u8   flags                                  ResItem.flags (byte): 1 text, 2 grid, 4 has data
  *       if flags & 4: 4 bytes data                  copied to ResItem.data -> ResRow.data; its only reader,
- *                                                   func_806A3700 (global/A8400.c), is an empty stub, so
+ *                                                   textBoxRowStartHook (global/A8400.c), is an empty stub, so
  *                                                   the bytes are left untouched
  *       if flags & 1: one span record               resParseVariant/resParseRecord (loop runs exactly once)
  *         u8   spanCount                            ResRecord.count (byte)

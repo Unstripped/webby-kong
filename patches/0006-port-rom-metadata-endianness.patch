@@ -5,10 +5,10 @@ Subject: [PATCH] port: rom metadata endianness
 
 
 diff --git a/src/global/450.c b/src/global/450.c
-index 79f0b81..f133207 100644
+index 7367e7a..624cb3a 100644
 --- a/src/global/450.c
 +++ b/src/global/450.c
-@@ -272,8 +272,8 @@ void viModeApplyHighRes(void) {
+@@ -263,8 +263,8 @@ void viModeApplyHighRes(void) {
  
      compressedBuf = (s32 *)(gFramebuffers[1] + 0x6400);
      seg11DmaRead(0x38, 0x10, compressedBuf);
@@ -20,51 +20,51 @@ index 79f0b81..f133207 100644
      gzipSrc = (u8 *)compressedBuf;
      gzipDst = (u8 *)gFramebuffers[1];
 diff --git a/src/global/5A50.c b/src/global/5A50.c
-index cc9e6f0..1edbf07 100644
+index 3399559..a11b4f7 100644
 --- a/src/global/5A50.c
 +++ b/src/global/5A50.c
-@@ -118,9 +118,11 @@ void func_806010A0(void) {
+@@ -115,9 +115,11 @@ void audioLoadSeqRomOffsets(void) {
  
      size1 = 0x80;
-     dmaReadAssetDecompress(D_8000DDCC, &sSeqRomOffsets, &size1, 0, 0, 0, 0);
-+    portSwap32(&sSeqRomOffsets, 0x80 / 4);
-     offset = sSeqRomOffsets;
+     dmaReadAssetDecompress(gSegmentTable[11].romStart, sSeqRomOffsets, &size1, 0, 0, 0, 0);
++    portSwap32(sSeqRomOffsets, 0x80 / 4);
+     offset = sSeqRomOffsets[0];
      size2 = 0x2C0;
-     dmaReadAssetDecompress(D_8000DDCC + offset, &sSeqRomOffsets, &size2, 0, 0, 0, 0);
-+    portSwap32(&sSeqRomOffsets, 0x2C0 / 4);
+     dmaReadAssetDecompress(gSegmentTable[11].romStart + offset, sSeqRomOffsets, &size2, 0, 0, 0, 0);
++    portSwap32(sSeqRomOffsets, 0x2C0 / 4);
  }
  
  void seqPlayerPlay(u8 playerIndex) {
 diff --git a/src/global/6AD90.c b/src/global/6AD90.c
-index 9dfcdb0..7173421 100644
+index 670db20..4e06e17 100644
 --- a/src/global/6AD90.c
 +++ b/src/global/6AD90.c
-@@ -1980,6 +1980,7 @@ void collisionInitTables(void) {
+@@ -1959,6 +1959,7 @@ void collisionInitTables(void) {
      size = 0x80;
-     D_807F9520 = heapAlloc(0x80);
-     dmaReadAssetDecompress(D_8000DDCC, D_807F9520, &size, 0, 0, 0, 0);
-+    portSwap32(D_807F9520, 0x80 / 4);
+     sAssetTableStarts = heapAlloc(0x80);
+     dmaReadAssetDecompress(gSegmentTable[11].romStart, sAssetTableStarts, &size, 0, 0, 0, 0);
++    portSwap32(sAssetTableStarts, 0x80 / 4);
  
      for (i = 0; i < 0x20; i++) {
-         D_807F9528[i] = 0;
-@@ -2193,7 +2194,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
+         sAssetTableOffsets[i] = NULL;
+@@ -2169,7 +2170,7 @@ s32 assetResolveRomRange(s32 tableId, s32 assetIndex, s32 *outRomAddr, u32 *outS
          size = 8;
          start &= 0x7FFFFFFF;
-         dmaReadAssetDecompress(D_8000DDCC + start, &header, &size, 0, 0, 0, 0);
+         dmaReadAssetDecompress(gSegmentTable[11].romStart + start, &header, &size, 0, 0, 0, 0);
 -        target = (s16)(header >> 48);
 +        target = (s16)portReadBE16(&header);
          assetResolveRomRange(tableId, target, outRomAddr, outSize);
          index = target;
      } else {
-@@ -2228,9 +2229,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
+@@ -2204,9 +2205,11 @@ void assetEnsureTableLoaded(s32 tableIndex) {
      }
-     start = D_807F9520[tableIndex];
-     dmaReadAssetDecompress(D_8000DDCC + start, &header, &headerSize, 0, 0, 0, 0);
+     start = sAssetTableStarts[tableIndex];
+     dmaReadAssetDecompress(gSegmentTable[11].romStart + start, &header, &headerSize, 0, 0, 0, 0);
 +    header = portReadBE64(&header);
      size = (u32)(header >> 32) - start;
-     D_807F9528[tableIndex] = heapAlloc(size);
-     dmaReadAssetDecompress(D_8000DDCC + start, D_807F9528[tableIndex], &size, 0, 0, 0, 0);
-+    portSwap32(D_807F9528[tableIndex], size / 4);
+     sAssetTableOffsets[tableIndex] = heapAlloc(size);
+     dmaReadAssetDecompress(gSegmentTable[11].romStart + start, sAssetTableOffsets[tableIndex], &size, 0, 0, 0, 0);
++    portSwap32(sAssetTableOffsets[tableIndex], size / 4);
      switch (tableIndex) {
          case 4:
          case 7:

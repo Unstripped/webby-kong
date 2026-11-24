@@ -5,7 +5,7 @@ Subject: [PATCH] port: widescreen object culling
 
 
 diff --git a/src/global/55B20.c b/src/global/55B20.c
-index 7bfaf5b..ab7d4c1 100644
+index fea3bf7..3fd8b5a 100644
 --- a/src/global/55B20.c
 +++ b/src/global/55B20.c
 @@ -1193,12 +1193,60 @@ u8 mapNodeTriangleContainsPoint(MapCollisionNode *tri, f32 x, f32 z) {
@@ -33,7 +33,7 @@ index 7bfaf5b..ab7d4c1 100644
 +
 +/* PORT: the frustum corner rays' widening, so they span rect[0] - extra .. rect[2] + extra (frustumCalculateCornerRays) */
 +f32 mapWideFactor(void) {
-+    f32 w = gPlayerSlots[gCurrentPlayerIndex].unk278;
++    f32 w = gPlayerSlots[gCurrentPlayerIndex].rectWidth;
 +
 +    return w > 0.0f ? (w + 2.0f * mapWideExtraF(gCurrentPlayerIndex)) / w : 1.0f;
 +}
@@ -73,10 +73,10 @@ index 7bfaf5b..ab7d4c1 100644
  
 @@ -1228,7 +1276,7 @@ void mapChunkFrameUpdate(f32 x, f32 y, f32 z) {
      mapTriggerCollectZonesAtPoint(x, y, z);
-     D_807F6C80 = 0;
-     D_807F6C08 = 0;
--    mapChunkTraversePortals(gPlayerSlots[gCurrentPlayerIndex].unk290, 0, gPlayerSlots[gCurrentPlayerIndex].rect[0], gPlayerSlots[gCurrentPlayerIndex].rect[1], gPlayerSlots[gCurrentPlayerIndex].rect[2], gPlayerSlots[gCurrentPlayerIndex].rect[3], x, y, z);
-+    mapChunkTraversePortals(gPlayerSlots[gCurrentPlayerIndex].unk290, 0, gPlayerSlots[gCurrentPlayerIndex].rect[0] - mapWideExtra(), gPlayerSlots[gCurrentPlayerIndex].rect[1], gPlayerSlots[gCurrentPlayerIndex].rect[2] + mapWideExtra(), gPlayerSlots[gCurrentPlayerIndex].rect[3], x, y, z); // PORT: wide side areas
+     sMapVisibleChunkCount = 0;
+     sMapVisiblePortalCount = 0;
+-    mapChunkTraversePortals(gPlayerSlots[gCurrentPlayerIndex].camChunk, 0, gPlayerSlots[gCurrentPlayerIndex].rect[0], gPlayerSlots[gCurrentPlayerIndex].rect[1], gPlayerSlots[gCurrentPlayerIndex].rect[2], gPlayerSlots[gCurrentPlayerIndex].rect[3], x, y, z);
++    mapChunkTraversePortals(gPlayerSlots[gCurrentPlayerIndex].camChunk, 0, gPlayerSlots[gCurrentPlayerIndex].rect[0] - mapWideExtra(), gPlayerSlots[gCurrentPlayerIndex].rect[1], gPlayerSlots[gCurrentPlayerIndex].rect[2] + mapWideExtra(), gPlayerSlots[gCurrentPlayerIndex].rect[3], x, y, z); // PORT: wide side areas
      mapChunkRenderNodes(x, y, z);
      effectWaterUpdateMeshes(x, y, z, gCurrentPlayerIndex);
      actorCalculateTargetDistancesAndAngles(x, y, z);
@@ -86,14 +86,14 @@ index 7bfaf5b..ab7d4c1 100644
      f32 m[4][3];
 +    f32 wideExtra;
  
--    q = ((f32)(left - gPlayerSlots[player].rect[0])) / (f32)gPlayerSlots[player].unk278;
+-    q = ((f32)(left - gPlayerSlots[player].rect[0])) / (f32)gPlayerSlots[player].rectWidth;
 +    wideExtra = mapWideExtraF(player); // PORT: the corner rays span the wide image, rect[0] - wideExtra .. rect[2] + wideExtra
-+    q = ((f32)(left - gPlayerSlots[player].rect[0]) + wideExtra) / ((f32)gPlayerSlots[player].unk278 + 2.0f * wideExtra);
++    q = ((f32)(left - gPlayerSlots[player].rect[0]) + wideExtra) / ((f32)gPlayerSlots[player].rectWidth + 2.0f * wideExtra);
      x0 = (q * (sFrustumCornerRays.c1x - sFrustumCornerRays.c0x)) + sFrustumCornerRays.c0x;
--    q = ((f32)(right - gPlayerSlots[player].rect[0])) / (f32)gPlayerSlots[player].unk278;
-+    q = ((f32)(right - gPlayerSlots[player].rect[0]) + wideExtra) / ((f32)gPlayerSlots[player].unk278 + 2.0f * wideExtra);
+-    q = ((f32)(right - gPlayerSlots[player].rect[0])) / (f32)gPlayerSlots[player].rectWidth;
++    q = ((f32)(right - gPlayerSlots[player].rect[0]) + wideExtra) / ((f32)gPlayerSlots[player].rectWidth + 2.0f * wideExtra);
      x1 = (q * (sFrustumCornerRays.c1x - sFrustumCornerRays.c0x)) + sFrustumCornerRays.c0x;
-     q = ((f32)(top - gPlayerSlots[player].rect[1])) / (f32)gPlayerSlots[player].unk27A;
+     q = ((f32)(top - gPlayerSlots[player].rect[1])) / (f32)gPlayerSlots[player].rectHeight;
      y0 = ((sFrustumCornerRays.c2y - sFrustumCornerRays.c0y) * q) + sFrustumCornerRays.c0y;
 @@ -1891,7 +1941,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
                  gMapChunks[idx].texAnimPending = 0;
@@ -105,7 +105,7 @@ index 7bfaf5b..ab7d4c1 100644
              gfx = fogRender(gfx);
              if (flags & 0x10) {
 @@ -1967,7 +2017,7 @@ Gfx *mapChunksRender(Gfx *gfx, MapBspNode *view, f32 x, f32 y, f32 z, s32 flags)
-         idx = D_807F6C58[i];
+         idx = sMapVisibleChunks[i];
          if (gMapChunks[idx].state == 1) {
              gDPPipeSync(gfx++);
 -            gDPSetScissor(gfx++, G_SC_NON_INTERLACE, gMapChunks[idx].clipLeft, gMapChunks[idx].clipTop, gMapChunks[idx].clipRight, gMapChunks[idx].clipBottom);
@@ -113,7 +113,7 @@ index 7bfaf5b..ab7d4c1 100644
              mapSetClipBounds((s16)gMapChunks[idx].clipLeft, (s16)gMapChunks[idx].clipTop, (s16)gMapChunks[idx].clipRight, (s16)gMapChunks[idx].clipBottom);
              gRenderSetupKind = 0xFF;
              if (flag) {
-@@ -2505,22 +2555,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2496,22 +2546,24 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
      s16 y;
      s32 i;
      u8 flag;
@@ -128,7 +128,7 @@ index 7bfaf5b..ab7d4c1 100644
      *outBottom = gPlayerSlots[gCurrentPlayerIndex].rect[1];
      flag = 0;
      for (i = 0; i < count; i++) {
-         flag |= camProjectToScreen(D_807F6D78[i].x, D_807F6D78[i].y, D_807F6D78[i].z, &sx, &sy, 0, 1.0f, gCurrentPlayerIndex); x = (s16)sx; y = (s16)sy; // LAYOUT: same-line statements steer sra scheduling
+         flag |= camProjectToScreen(sMapClippedPoly[i].x, sMapClippedPoly[i].y, sMapClippedPoly[i].z, &sx, &sy, 0, 1.0f, gCurrentPlayerIndex); x = (s16)sx; y = (s16)sy; // LAYOUT: same-line statements steer sra scheduling
 -        if (x < gPlayerSlots[gCurrentPlayerIndex].rect[0]) {
 -            x = gPlayerSlots[gCurrentPlayerIndex].rect[0];
 +        if (x < wideLeft) {
@@ -144,7 +144,7 @@ index 7bfaf5b..ab7d4c1 100644
          }
          if (gPlayerSlots[gCurrentPlayerIndex].rect[3] < y) {
              y = gPlayerSlots[gCurrentPlayerIndex].rect[3];
-@@ -2543,6 +2595,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
+@@ -2534,6 +2586,8 @@ void mapPolyProjectToScreenRect(s32 count, s32 *outLeft, s32 *outTop, s32 *outRi
          *outTop = -1;
          *outRight = -1;
          *outBottom = -1;
@@ -153,19 +153,19 @@ index 7bfaf5b..ab7d4c1 100644
      }
  }
  
-@@ -2714,6 +2768,7 @@ s16 top;
+@@ -2705,6 +2759,7 @@ s16 top;
  s16 right;
  s16 bottom;
  {
 +    portGfxWideClipX(&left, &right); // PORT: Hor+ shows more at the sides; don't cull objects there
-     D_807F7358 = left;
-     D_807F735A = top;
-     D_807F735C = right;
+     sMapClipLeft = left;
+     sMapClipTop = top;
+     sMapClipRight = right;
 diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index a911acb..2657ce8 100644
+index 2539911..05740f6 100644
 --- a/src/global/63EC0.c
 +++ b/src/global/63EC0.c
-@@ -385,15 +385,17 @@ Gfx *effectWaterRenderSurfaces(Gfx *gdl, s32 viewMode, u8 waterType) {
+@@ -364,15 +364,17 @@ Gfx *effectWaterRenderSurfaces(Gfx *gdl, s32 viewMode, u8 waterType) {
      return gdl;
  }
  

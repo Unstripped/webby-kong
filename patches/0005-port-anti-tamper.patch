@@ -5,7 +5,7 @@ Subject: [PATCH] port: anti-tamper
 
 
 diff --git a/src/boss/0.c b/src/boss/0.c
-index ac87876..4309594 100644
+index 4e7a09d..7776eac 100644
 --- a/src/boss/0.c
 +++ b/src/boss/0.c
 @@ -557,20 +557,8 @@ void bossArmydilloStep(void) {
@@ -17,7 +17,7 @@ index ac87876..4309594 100644
 -            u32 end = (u32) effectNodeSetSubVal;
 -            s32 checksum = 0;
 -            gCurrentActor->state = scriptData[state->scriptPos++];
--            gCurrentActor->unk155 = 0;
+-            gCurrentActor->subState = 0;
 -            while (checkPtr < end) {
 -                checksum += *(s32 *) checkPtr;
 -                checkPtr += 4;
@@ -27,17 +27,17 @@ index ac87876..4309594 100644
 -            }
 -        }
 +        gCurrentActor->state = scriptData[state->scriptPos++];
-+        gCurrentActor->unk155 = 0;
++        gCurrentActor->subState = 0;
      }
      currentActorAnimTryIdleVariant(0, &gBehaviourWorkState->idleAnimFrame);
-     if ((gActorGlobalState.bossFightPhase == 9) || (gActorGlobalState.unk15 != 0)) {
+     if ((gActorGlobalState.bossFightPhase == 9) || (gActorGlobalState.damaged != 0)) {
 diff --git a/src/critter/5110.c b/src/critter/5110.c
-index 5f6c89f..db4917e 100644
+index c835fa8..60890aa 100644
 --- a/src/critter/5110.c
 +++ b/src/critter/5110.c
-@@ -124,6 +124,8 @@ void critterBattleArenaUpdate(void) {
+@@ -125,6 +125,8 @@ void critterBattleArenaUpdate(void) {
          }
-         ((void (*)(void *, s32, s32))critterBitwiseNot(~(s32)osRecvMesg))(&D_807655F0, 0, 1);
+         ((void (*)(void *, s32, s32))critterBitwiseNot(~(s32)osRecvMesg))(&gPiDmaMesgQueue, 0, 1);
          ((void (*)(void *, s32))critterBitwiseNot(~(s32)osInvalDCache))(alignedBuf, 0x10);
 +        alignedBuf[0] = PORT_BE32(alignedBuf[0]);
 +        alignedBuf[1] = PORT_BE32(alignedBuf[1]);
@@ -45,10 +45,10 @@ index 5f6c89f..db4917e 100644
          if (alignedBuf[0] != 0x0A78F00E) {
              rewardFlag = (gCurrentMap == 0xB6) ? 0x184 : 0x183;
 diff --git a/src/global/15050.c b/src/global/15050.c
-index ca6f88d..f0f7f73 100644
+index 779a305..7bff2a0 100644
 --- a/src/global/15050.c
 +++ b/src/global/15050.c
-@@ -712,9 +712,6 @@ void heapTickDeferredFrees(void) {
+@@ -711,9 +711,6 @@ void heapTickDeferredFrees(void) {
      s32 addrBias = 0x4BFFD668;
  
      heapTickDeferredFreesHook(notExpected, addrBias);
@@ -59,12 +59,12 @@ index ca6f88d..f0f7f73 100644
          if (--gHeapDeferredFrees[i].delay == 0 && flag == 0) {
              heapFreeToPool(gHeapDeferredFrees[i].ptr);
 diff --git a/src/global/63EC0.c b/src/global/63EC0.c
-index 620cc4d..a911acb 100644
+index 6cd2e76..2539911 100644
 --- a/src/global/63EC0.c
 +++ b/src/global/63EC0.c
-@@ -699,6 +699,8 @@ void effectUpdateAndDispatch(void) {
-     osRecvMesg(&D_807655F0, NULL, OS_MESG_BLOCK);
-     D_80746834 = 0;
+@@ -672,6 +672,8 @@ void effectUpdateAndDispatch(void) {
+     osRecvMesg(&gPiDmaMesgQueue, NULL, OS_MESG_BLOCK);
+     gWaitPointId = 0;
      osInvalDCache(dmaWords, 0x10);
 +    dmaWords[0] = PORT_BE32(dmaWords[0]);
 +    dmaWords[1] = PORT_BE32(dmaWords[1]);
@@ -72,12 +72,12 @@ index 620cc4d..a911acb 100644
      dmaWords[1] -= 0x3E0EF0F0;
      if (dmaWords[0] != 0x3050A14A || dmaWords[1] != 0xBCFCF506) {
 diff --git a/src/global/F600.c b/src/global/F600.c
-index b5c116a..59f6a90 100644
+index f7c4d68..774a476 100644
 --- a/src/global/F600.c
 +++ b/src/global/F600.c
-@@ -183,17 +183,7 @@ void controllerUpdate(void) {
+@@ -179,17 +179,7 @@ void controllerUpdate(void) {
      if (compact != 0) {
-         controllerCompactPads(D_807ECDE8);
+         controllerCompactPads(gInputContPads);
      }
 -    sum = 0;
      gButtonsPressed = BUTTONS_PRESSED(gContPadCur.button, gContPadPrev.button);
@@ -94,7 +94,7 @@ index b5c116a..59f6a90 100644
      for (i = 0; i < 4; i++) {
          if (compact != 0) {
 diff --git a/src/menu/1AF0.c b/src/menu/1AF0.c
-index b450767..57d85c6 100644
+index 70e4e12..717acb5 100644
 --- a/src/menu/1AF0.c
 +++ b/src/menu/1AF0.c
 @@ -905,7 +905,6 @@ void menuUpdateCandyShopActor(void) {
@@ -106,7 +106,7 @@ index b450767..57d85c6 100644
      behaviourFrameBegin();
      if (gCurrentMap == 0x19) {
 @@ -913,22 +912,6 @@ void menuUpdateCandyShopActor(void) {
-         inventory = gPlayerInventoryTable[0].kong[gPlayerCharacterId[0]].unk0;
+         inventory = gPlayerInventoryTable[0].kong[gPlayerCharacterId[0]].upgrades;
  
          if (!(gCurrentActor->flags & 0x10)) {
 -

@@ -1,5 +1,5 @@
 /* Asset table 1: map geometry, indexed by map id (mapLoadLevel, 450.c: `mapChunkAsset = assetLoad(1, gCurrentMap,
- * 1, 1)`). The buffer stays resident for the whole map; mapHeaderLoad (2F550.c) keeps it in D_807F5DE0 and the
+ * 1, 1)`). The buffer stays resident for the whole map; mapHeaderLoad (2F550.c) keeps it in gMapFileBase and the
  * per-subsystem init calls it makes turn the stored offsets into pointers in place.
  *
  * Layout (offsets from the start of the inflated entry; every section boundary below was checked against all 216
@@ -14,7 +14,7 @@
  *   0x0A..0x2D s16 x18 (far clip, fogDist, matrix cache size, grid dims, light/fog params) native
  *   0x2E pad
  *   0x30..0x73 s32 x17 section offsets                                                     native
- *     0x30 BSP tree, 0x34 dlBase, 0x38 DL end == vertex base (segment 6, D_807F5DE8), 0x3C unused (garbage in
+ *     0x30 BSP tree, 0x34 dlBase, 0x38 DL end == vertex base (segment 6, gMapVtxBase), 0x3C unused (garbage in
  *     ROM, never read), 0x40 track points, 0x44 sound emitters, 0x48 texture anims, 0x4C water surfaces,
  *     0x50 actor target quads, 0x54 trigger zones, 0x58 cells, 0x5C cell boxes, 0x60 grid triangle vectors,
  *     0x64 chunk collision table, 0x68 chunk records, 0x6C portal slots (C name portalsOff -> gMapPortalSlots),
