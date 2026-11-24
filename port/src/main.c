@@ -12,6 +12,7 @@ static double sRefreshMs;     /* display refresh interval estimate; 0 until the 
 static int sRefreshMisses;    /* consecutive frame intervals off that estimate */
 static int sRefreshesSinceVi; /* display refreshes since the last frame that ran a VI */
 f32 gPortDrawDistance = 4.0f;
+s32 gPortKongSwap = 1;
 
 /* --drawdist <1..16>: multiplier on object draw distances and enemy spawn ranges (renderExtendDistance); 1 = N64.
  * Returns the value in effect. */
@@ -377,7 +378,8 @@ int portMainQsRanges(QsRange *out) {
     out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
     out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
     out[4] = QS_RANGE(gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
-    return 5;
+    out[5] = QS_RANGE(gPortKongSwap);     /* setting: a quickload keeps it */
+    return 6;
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
@@ -396,6 +398,10 @@ EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples()
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_kong_swap(s32 on) {
+    gPortKongSwap = on != 0;
+    return gPortKongSwap;
+}
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -432,6 +438,8 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--interp") == 0) {
             portGfxSetInterp(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--kong-swap") == 0) {
+            gPortKongSwap = atoi(argv[++a]) != 0;
         } else if (strcmp(argv[a], "--save-file") == 0) {
             portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }

@@ -45,6 +45,8 @@ def describe(r: dict) -> str:
     lines = [f"version: {version}", f"build: {r.get('buildId') or '-'}"]
     if r.get("crash"):
         lines.append(f"crash: {r['crash']}")
+        for frame in r.get("stack") or []:
+            lines.append(f"  at {frame}")
     lines.append("settings: " + json.dumps(r.get("settings") or {}, separators=(",", ":")))
     if r.get("resume"):
         lines.append(f"resume: --resume {resume_arg(r['resume'])}  (headless starts with an empty save)")

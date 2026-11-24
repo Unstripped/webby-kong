@@ -126,6 +126,9 @@ s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/glo
 extern s32 gPortSaveRequest;  /* web/menu.js exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
 extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
 
+/* ---- kong swap (web settings; patches/0028-port-dpad-kong-swap.patch) ---- */
+extern s32 gPortKongSwap; /* 1: D-pad Left/Right swaps to an unlocked kong (src/global/CEAE0.c); switchable live */
+
 /* ---- audio output rate and 3D sound (port/src/audio/spatial.c, hrtf.c; --audio-rate, --hrtf, web settings) ---- */
 extern s32 gPortAudioRate; /* synthesizer and AI rate: 22050 (N64) or 44100; fixed at boot, restored by a quickload */
 extern s32 gPortAudioHrtf; /* 1: positional sound effects are rendered binaurally (headphones); switchable live */

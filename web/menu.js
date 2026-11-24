@@ -374,6 +374,8 @@
       () => 'Game logic stays at 30; higher rates add interpolated frames, up to the display\'s refresh rate'),
     segSetting('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
       () => 'Auto: shown on touch screens without a gamepad'),
+    segSetting('kongswap', 'Kong swap', [[0, 'Off'], [1, 'On']],
+      () => 'D-pad ◀ ▶ (keys F / H) switches to an unlocked kong where a swap barrel could be used'),
     segSetting('audio3d', '3D sound', [[0, 'Off'], [1, 'Headphones']],
       () => 'Positional effects come from their direction, front and back included'),
     segSetting('audiorate', 'Audio quality', [[22050, '22 kHz (N64)'], [44100, '44 kHz']], () => {

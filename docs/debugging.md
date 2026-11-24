@@ -31,12 +31,14 @@ Esc → Report a bug (or a crash, which opens the same view) builds a prefilled 
 (`web/report.js`): a table of version, location, settings and browser, recent trace events and console lines, and
 one `DK64R1.` blob (base64url of deflate-raw JSON) holding the EEPROM save, the resume point, level progress,
 settings and, when the player clicked the screenshot, the pixel probe at that spot. The RDRAM quicksave is never
-included: it is ROM-derived.
+included: it is ROM-derived. A crash (wasm trap or `abort()`) adds its call stack, innermost first, as
+`name [function index]+module offset` per wasm frame (from the name section; the offset is into that build's
+`dk64.wasm`, so match the report's Build id), both in a "Crash stack" section and in the blob.
 
 - F2 → Load report… takes the issue text (or just the blob), replaces this browser's save with the reporter's
   (the previous one stays in the save server history) and reloads into their location and settings.
-- `gh issue view N | python3 tools/report.py` prints the version, settings, the headless `--resume` argument and
-  the probe; `--save OUT` writes the EEPROM, `--json` the whole report.
+- `gh issue view N | python3 tools/report.py` prints the version, settings, the crash stack, the headless
+  `--resume` argument and the probe; `--save OUT` writes the EEPROM, `--json` the whole report.
 
 ## Logpoints and live debugging
 
