@@ -395,6 +395,8 @@
       () => 'Auto: shown on touch screens without a gamepad'),
     segSetting('kongswap', 'Kong swap', [[0, 'Off'], [1, 'On']],
       () => 'D-pad ◀ ▶ (LB / RB with the right-stick camera on; keys F / H) switches to an unlocked kong where a swap barrel could be used'),
+    segSetting('discochunky', 'Disco Chunky', [[0, 'Off'], [1, 'On']],
+      () => 'Chunky wears his afro and disco suit; on screen he changes in a puff of smoke once he is on the ground'),
     segSetting('stickcam', 'Right-stick camera', [[0, 'Off'], [1, 'On']],
       () => 'Gamepad right stick turns the camera 360° and tilts it; D-pad = C buttons, LB / RB = D-pad ◀ ▶'),
     rangeSetting('camspeed', 'Camera turn speed', 1, 10, ['Slow', 'Fast'], (v) => String(v),
