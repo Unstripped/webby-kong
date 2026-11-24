@@ -6,7 +6,8 @@ owner (user_id NULL), whose saves the owner account adopts when the gate comes o
 save answers 404 exactly like a missing one.
 
   GET    /api/saves                 {"saves": [save...] (most recently played first), "dashboard": bool}
-  POST   /api/saves                 {"name"?} -> 201 {"save"}; no name -> "Save N"
+  POST   /api/saves                 {"name"?, "eeprom"?} -> 201 {"save"}; no name -> "Save N"; eeprom (base64 of 2048
+                                    bytes) becomes the save's first version (mtime = now)
   GET    /api/saves/<id>            {"save", "dashboard"}
   PATCH  /api/saves/<id>            {"name"} -> {"save"}
   DELETE /api/saves/<id>            204; the save and its EEPROM history are gone
@@ -29,12 +30,15 @@ Recovery with the sqlite3 CLI (DB defaults to ~/.local/share/webby-kong/saves.sq
                          cast(strftime('%s','now') as integer)*1000, sha1, bytes, save_id from eeprom where id=N"
                        (the newest mtime wins the next time that save is played)
 """
+import base64
+import binascii
 import contextlib
 import hashlib
 import json
 import math
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -200,6 +204,20 @@ def _resume(value):
     return json.dumps(stored, separators=(",", ":"))
 
 
+def _eeprom(value):
+    """POST /api/saves "eeprom": base64 of exactly EEPROM_SIZE bytes -> the bytes, or ApiError."""
+    error = ApiError(400, "eeprom_invalid", f"eeprom must be {EEPROM_SIZE} bytes, base64-encoded")
+    if not isinstance(value, str):
+        raise error
+    try:
+        data = base64.b64decode(value, validate=True)
+    except binascii.Error:
+        raise error from None
+    if len(data) != EEPROM_SIZE:
+        raise error
+    return data
+
+
 def save_json(row):
     return {
         "id": row["id"],
@@ -233,8 +251,19 @@ def _create(ctx, match):
         name = f"Save {count + 1}"
     else:
         name = _name(raw)
-    cur = ctx.conn.execute("INSERT INTO saves (user_id, name) VALUES (?, ?)", (ctx.user_id, name))
-    _json(ctx.handler, 201, {"save": save_json(_save(ctx.conn, cur.lastrowid, ctx.user_id))})
+    eeprom = None if body.get("eeprom") is None else _eeprom(body["eeprom"])
+    conn = ctx.conn
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cur = conn.execute("INSERT INTO saves (user_id, name) VALUES (?, ?)", (ctx.user_id, name))
+        if eeprom is not None:
+            conn.execute("INSERT INTO eeprom (mtime_ms, sha1, bytes, save_id) VALUES (?, ?, ?, ?)",
+                         (int(time.time() * 1000), hashlib.sha1(eeprom).hexdigest(), eeprom, cur.lastrowid))
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    _json(ctx.handler, 201, {"save": save_json(_save(conn, cur.lastrowid, ctx.user_id))})
 
 
 def _get(ctx, match):

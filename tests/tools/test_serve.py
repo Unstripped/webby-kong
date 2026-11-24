@@ -1,5 +1,6 @@
 """tools/serve.py: the save games API (tools/saves.py) that web/saves.js relies on and the mounted ROM web/main.js
 loads."""
+import base64
 import contextlib
 import functools
 import hashlib
@@ -177,6 +178,26 @@ class SaveServerTest(unittest.TestCase):
         newest = self.create()["id"]
         self.assertEqual(self.call("DELETE", f"{saves.API}/{newest}")[0].status, 204)
         self.assertGreater(self.create()["id"], newest)
+
+    def test_create_with_an_eeprom_stores_it_as_the_first_version(self):
+        before = int(time.time() * 1000)
+        resp, data = self.call_json("POST", saves.API, {"name": "Imported",
+                                                        "eeprom": base64.b64encode(SAVE_A).decode()})
+        self.assertEqual(resp.status, 201, data)
+        save = json.loads(data)["save"]
+        self.assertEqual(save["name"], "Imported")
+        self.assertIsNone(save["played_at"])
+        resp, data = self.request("GET", save=save["id"])
+        self.assertEqual((resp.status, data), (200, SAVE_A))
+        self.assertGreaterEqual(int(resp.getheader("X-Save-Mtime")), before)
+        self.assertEqual(self.versions(save["id"]), 1)
+
+    def test_a_bad_eeprom_creates_nothing(self):
+        for bad in (base64.b64encode(SAVE_A[:-1]).decode(), "not base64!", 5):
+            resp, data = self.call_json("POST", saves.API, {"name": "Imported", "eeprom": bad})
+            self.assertEqual((resp.status, json.loads(data)["error"]), (400, "eeprom_invalid"), bad)
+        resp, data = self.call("GET", saves.API)
+        self.assertEqual([s["id"] for s in json.loads(data)["saves"]], [self.save])
 
     def test_an_upload_held_while_its_save_is_deleted_stores_nothing(self):
         sock = socket.create_connection(("::1", self.port), timeout=5)

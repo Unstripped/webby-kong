@@ -72,6 +72,21 @@
     }
   }
 
+  async function idbDelete() {
+    const db = await idbOpen();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(key());
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }
+
   // [[start, length] x3]: RDRAM, .data, .bss (port_qs_table)
   function ranges(m) {
     const t = m.ccall('port_qs_table', 'number') >>> 2;
@@ -190,6 +205,13 @@
     location.replace(u.href);
   }
 
+  // menu.js Import save: drops this save game's snapshot. It holds the replaced save in RDRAM (sEepromImage) and
+  // port .bss (gPortEeprom), so restoring it later would bring the old progress back.
+  async function forget() {
+    snap = null;
+    await idbDelete();
+  }
+
   function newest(a, b) {
     if (!a) return b;
     if (!b) return a;
@@ -233,5 +255,5 @@
     };
   }
 
-  window.dk64qs = { save, load, bootInto, started, status, autoResume };
+  window.dk64qs = { save, load, bootInto, started, status, autoResume, forget };
 })();
