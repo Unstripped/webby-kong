@@ -25,7 +25,7 @@ describe('settings', () => {
     expect(settings.get('touch')).toBe('on');
     expect(settings.args()).toEqual([
       '--drawdist', '2', '--scale', '0', '--msaa', '4', '--interp', '1', '--hrtf', '1', '--audio-rate', '44100',
-      '--kong-swap', '1', '--stick-camera', '1', '--camera-speed', '5', '--camera-invert', '0',
+      '--kong-swap', '1', '--disco-chunky', '0', '--stick-camera', '1', '--camera-speed', '5', '--camera-invert', '0',
     ]);
   });
 

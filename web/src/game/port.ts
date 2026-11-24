@@ -36,6 +36,7 @@ export type PortExport =
   | 'port_set_camera_speed'
   | 'port_set_camera_invert'
   | 'port_set_kong_swap'
+  | 'port_set_disco_chunky'
   | 'port_debug_probe'
   | 'port_debug_probe_result';
 

@@ -1,5 +1,5 @@
 // Player settings (draw distance, render scale, MSAA, 60 fps, touch controller, 3D sound, audio rate, kong swap,
-// right-stick camera):
+// Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
 import { signal } from '@preact/signals';
@@ -16,6 +16,7 @@ export interface SettingsValues {
   audio3d: number;
   audiorate: number;
   kongswap: number;
+  discochunky: number;
   stickcam: number;
   camspeed: number;
   caminvert: number;
@@ -48,6 +49,7 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   audio3d: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_audio_hrtf' },
   audiorate: { def: 44100, valid: isNum((v) => v === 22050 || v === 44100), parse: num, fn: null },
   kongswap: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_kong_swap' },
+  discochunky: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_disco_chunky' },
   stickcam: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_stick_camera' },
   camspeed: { def: 5, valid: isNum((v) => Number.isInteger(v) && v >= 1 && v <= 10), parse: num, fn: 'port_set_camera_speed' },
   caminvert: { def: 0, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_camera_invert' },
@@ -124,7 +126,8 @@ export function args(): string[] {
   return [
     '--drawdist', String(v.drawdist), '--scale', String(v.scale), '--msaa', String(v.msaa),
     '--interp', String(v.interp), '--hrtf', String(v.audio3d), '--audio-rate', String(v.audiorate),
-    '--kong-swap', String(v.kongswap), '--stick-camera', String(v.stickcam),
+    '--kong-swap', String(v.kongswap), '--disco-chunky', String(v.discochunky),
+    '--stick-camera', String(v.stickcam),
     '--camera-speed', String(v.camspeed), '--camera-invert', String(v.caminvert),
   ];
 }
