@@ -85,14 +85,15 @@ def write_if_changed(path: Path, text: str):
 
 
 def decomp_fingerprint():
-    """SHA-1 of the decomp inputs port/ref is derived from; needs no git (Docker build contexts have no .git)."""
+    """SHA-1 of the decomp inputs port/ref is derived from; needs no git (Docker build contexts have no .git); CRLF
+    counts as LF (a Windows checkout may convert)."""
     files = {p for sub in ("src", "include") for p in (DECOMP / sub).rglob("*")
              if p.is_file() and p.suffix in (".c", ".h")}
     for pat in ("*.yaml", "symbol_addrs*.txt", "undefined_syms.us.txt", "data_inc.us.txt", "handwritten_asm.json"):
         files.update(p for p in DECOMP.glob(pat) if p.is_file())
     h = hashlib.sha1()
     for rel, p in sorted((p.relative_to(DECOMP).as_posix(), p) for p in files):
-        h.update(rel.encode() + b"\0" + p.read_bytes() + b"\0")
+        h.update(rel.encode() + b"\0" + p.read_bytes().replace(b"\r\n", b"\n") + b"\0")
     return h.hexdigest()
 
 
