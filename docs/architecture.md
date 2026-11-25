@@ -137,7 +137,8 @@ flowchart LR
   0013) and the screen bounds objects are culled against (`portGfxWideClipX`, patch 0013).
 - Draw distance: objects (trees, buildings, pickups, actors) draw and enemies spawn out to 4× the game's
   distances, capped at each map's far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64
-  behaviour, any value 1–16 sets the factor.
+  behaviour, any value 1–16 sets the factor. Banana fairies keep the N64 spawn range: a spawned fairy starts the
+  non-positional "fairy nearby" song, which would otherwise play from across the map.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and
