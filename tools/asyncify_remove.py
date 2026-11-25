@@ -7,7 +7,7 @@ The objects are the RSP task HLE (display lists, audio) and the WebGL backend. T
 leaf helpers the game calls (RDRAM syncs); none of them reaches a fiber switch. Asyncify still instruments them
 because they call printf or SDL (indirect calls), and that instrumentation costs a large share of every frame.
 Names come from the objects rather than the sources, so the list is exact and follows renames; names wasm-opt
-inlines before asyncify runs still draw a warning, which tools/link_check.sh drops.
+inlines before asyncify runs still draw a warning, which tools/link_check.py drops.
 
 A function listed here must never be on the stack when a fiber switches: both builds link with ASSERTIONS, so
 asyncify traps if one is.

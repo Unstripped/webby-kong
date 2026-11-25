@@ -81,7 +81,7 @@ def write_if_changed(path: Path, text: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.read_text() == text:
         return
-    path.write_text(text)
+    path.write_text(text, newline="\n")  # LF on every host: port/ref is committed
 
 
 def decomp_fingerprint():
@@ -476,7 +476,7 @@ def parse_int(tok):
 
 
 def parse_asm_file(path: Path, seg):
-    rel = str(path.relative_to(DECOMP))
+    rel = path.relative_to(DECOMP).as_posix()
     kind_default = "data"
     for k in ("rodata", "bss", "data"):
         if path.name.endswith(f".{k}.s"):
@@ -600,7 +600,7 @@ def parse_asm_labels():
         out = []
         for f in fl:
             labels = parse_asm_file(f, seg)
-            rel = str(f.relative_to(DECOMP))
+            rel = f.relative_to(DECOMP).as_posix()
             if rel in DATA_IN_TEXT:
                 lo, hi = DATA_IN_TEXT[rel]
                 labels = split_labels([l for l in labels if lo <= l.vram < hi], lo, hi, names)
@@ -1207,7 +1207,8 @@ def write_ref():
             continue
         check(f"shadow {name}", seg, vram, data)
     (REF / "decomp_fingerprint.txt").write_text(
-        "# decomp_fingerprint() of the decomp the files beside this were generated from\n" + decomp_fingerprint() + "\n")
+        "# decomp_fingerprint() of the decomp the files beside this were generated from\n" + decomp_fingerprint() + "\n",
+        newline="\n")
     REPORT.note(f"ref: {len(runs)} asm runs, {n_inc} data_inc rows and the shadow entries match the ROM streams")
 
 

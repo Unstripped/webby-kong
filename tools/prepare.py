@@ -13,7 +13,9 @@
   all     tree, then gen (no ROM needed)
 """
 import argparse
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DECOMP = ROOT / "decomp"
 TREE = ROOT / "build" / "tree"
 PATCHES = ROOT / "patches"
-VENV_PY = ROOT / "tools" / ".venv" / "bin" / "python"
+VENV_PY = ROOT / "tools" / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
 def git(*args, cwd=TREE, check=True):
@@ -39,6 +41,12 @@ def require_reference_build():
                  "then tools/prepare.py ref")
 
 
+def remove_read_only(func, path, _exc):
+    """rmtree onexc: git writes its objects read-only, which Windows refuses to delete."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def init_tree(tree=TREE):
     """Recreate build/tree (or `tree`); refuses while it holds uncommitted changes or an unfinished am/rebase/merge."""
     if (tree / ".git").exists():
@@ -48,7 +56,7 @@ def init_tree(tree=TREE):
             sys.exit(f"prepare: build/tree has {'an unfinished ' + busy[0] if busy else 'uncommitted changes'}; "
                      "finish or commit them (then export) or move build/tree away first")
     if tree.exists():
-        shutil.rmtree(tree)
+        shutil.rmtree(tree, onexc=remove_read_only)
     tree.mkdir(parents=True)
     git("init", "-q", "-b", "main", cwd=tree)
     git("config", "user.name", "webby-kong port", cwd=tree)
@@ -83,10 +91,12 @@ def cmd_rebase(args):
                        capture_output=True)
     if r.returncode != 0:
         sys.exit(f"prepare: {args.old} is not a commit in decomp/")
-    old = subprocess.run(["git", "-C", str(DECOMP), "archive", args.old, "src", "include"],
-                         check=True, capture_output=True).stdout
     init_tree()
-    subprocess.run(["tar", "-x", "-C", str(TREE)], input=old, check=True)
+    # checkout with a throwaway index rather than `git archive | tar -x`: decomp's own checkout settings apply (with
+    # core.symlinks=false, as on Windows, symlinks are written as files, the way commit_decomp_base copies them)
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "-C", str(DECOMP), f"--work-tree={TREE}", "checkout", args.old, "--", "src", "include"],
+                       env={**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}, check=True)
     git("add", "-A")
     git("commit", "-q", "-m", f"decomp {args.old}")
     git("tag", "old-base")

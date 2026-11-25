@@ -16,7 +16,7 @@ locally from the repository root:
 ```sh
 python3 -m compileall -q tools tests/tools
 npm ci && npm run typecheck && npm test
-sh -n tools/link_check.sh && sh -n .githooks/pre-commit
+sh -n .githooks/pre-commit
 python3 -m unittest discover -s tests/tools -v
 npx playwright install chromium   # once
 npm run build && npm run test:e2e

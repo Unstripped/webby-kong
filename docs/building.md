@@ -46,6 +46,8 @@ tools/.venv/bin/pip install -r tools/requirements.txt --force-reinstall --no-dep
 tools/.venv/bin/pip install -r tools/requirements-server.txt
 ```
 
+On Windows the venv's programs are in `tools\.venv\Scripts\` (`pip.exe`, `python.exe`) instead of `bin/`.
+
 The order matters: the decomp's requirements install a `clang` package, and the second command then reinstalls
 `libclang` from `tools/requirements.txt` over it (without touching other dependencies).
 
@@ -67,6 +69,9 @@ cp /path/to/dk64.z64 decomp/donkey-kong.z64
 cd decomp && docker compose build && tools/dk make setup BASEROM=donkey-kong.z64 && tools/dk make   # ends with OK
 cd .. && tools/prepare.py ref   # rewrites port/ref; checks every filled byte run against the ROM's segments
 ```
+
+Any byte order works for `BASEROM` (`.z64`, `.n64`, `.v64`). On Windows `tools/dk` (a sh script) is
+`python tools/dkd/client.py`, and the Python tools run as `python tools/prepare.py ref`.
 
 `decomp/{asm,assets,bin,build}` are ROM-derived: keep them private. `port/ref/` holds names, addresses and sizes
 only, and passes `tools/check_no_roms.py`.
