@@ -110,7 +110,8 @@ add_library(dk64_rsp OBJECT ${CMAKE_SOURCE_DIR}/port/src/audio/naudio.c
 target_compile_options(dk64_rsp PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_rsp PRIVATE ${PORT_INCLUDES})
 add_library(dk64_gl OBJECT ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_gl.c
-  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c)
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_texpack.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_rt64hash.c)
 target_compile_options(dk64_gl PRIVATE ${PORT_C_FLAGS} -sUSE_SDL=2)
 target_include_directories(dk64_gl PRIVATE ${PORT_INCLUDES})
 

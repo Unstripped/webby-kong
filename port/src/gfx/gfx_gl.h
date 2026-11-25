@@ -78,4 +78,8 @@ void gfxFbSyncRdram(u32 addr, u32 len);
 int gfxFbQsRanges(QsRange *out);
 int gfxCombinerQsRanges(QsRange *out);
 void gfxFbQsRestored(void);
+/* gfx_gl.c for gfx_texpack.c: drop every cached texture (looked up again on next use); forget the GL state shadow
+ * after GL calls made outside a frame */
+void gfxGlTexCacheFlush(void);
+void gfxGlStateReset(void);
 #endif
