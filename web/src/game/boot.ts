@@ -9,6 +9,7 @@ import * as report from './report';
 import { accepting, over, removeDrop, setDrop, setOver } from './romdrop';
 import * as saves from './saves';
 import * as settings from './settings';
+import * as texpacks from './texpacks/packs';
 import * as touch from './touch/pad';
 
 const ROM_SHA1 = 'cf806ff2603640a748fca5026ded28802f1f4a50';
@@ -122,6 +123,7 @@ export async function start(romBytes: ArrayBuffer): Promise<void> {
   qs.started().catch((err) => console.warn('quicksave resume failed', err));
   touch.started();
   menu.started();
+  texpacks.started().catch((err) => console.warn('texture packs failed', err));
   const ctx = module.SDL2 && module.SDL2.audioContext;
   if (ctx && ctx.state !== 'running') void ctx.resume();
   document.getElementById('canvas')!.focus();

@@ -12,6 +12,7 @@ import {
   importSave,
   lastProgress,
   progressMsg,
+  packsShown,
   saveNote,
 } from './control';
 import { COLUMNS, iconSrc, KONGS, LEVELS, WIDE } from './data';
@@ -106,6 +107,9 @@ export function MainView({ shown, showReport }: { shown: boolean; showReport: (k
           <GameButton class="alt" disabled={actionsDisabled.value} onClick={() => fileIn.current?.click()}>
             {'Import save\u2026'}
           </GameButton>
+          <GameButton class="alt" onClick={() => (packsShown.value = true)}>
+            {'Texture packs\u2026'}
+          </GameButton>
           <GameButton
             class="alt"
             disabled={actionsDisabled.value}
@@ -114,8 +118,8 @@ export function MainView({ shown, showReport }: { shown: boolean; showReport: (k
           >
             {exitText.value}
           </GameButton>
-          {/* gate off: Resume alone spans the bottom row */}
-          <GameButton style={{ gridColumn: shownExit ? '' : '1 / -1' }} onClick={() => close()}>
+          {/* gate on: Resume alone spans the bottom row (gate off, it sits beside Texture packs) */}
+          <GameButton style={{ gridColumn: shownExit ? '1 / -1' : '' }} onClick={() => close()}>
             Resume
           </GameButton>
         </div>

@@ -210,6 +210,8 @@ defaulting to that release's image); every push to `development` publishes `:lat
 ## License
 
 [CC0 1.0 Universal](LICENSE), the same as the decomp. Exceptions: the npm packages bundled into the page (Preact,
-@preact/signals and nipplejs, all MIT; see `package.json`); `port/src/audio/hrir_kemar.c` is derived from the KEMAR
-HRTF measurements by Bill Gardner and Keith Martin, copyright 1994 MIT Media Laboratory, free to use with this
-citation (<https://sound.media.mit.edu/resources/KEMAR.html>).
+@preact/signals, nipplejs and fzstd, all MIT; see `package.json`); `port/third_party/xxhash/` (xxHash, BSD-2-Clause,
+see its `LICENSE`); the TMEM load and texture hash code ported from RT64 (`loadToTmem` in `port/src/gfx/gfx_tmem.c`
+and `port/src/gfx/gfx_rt64hash.c`, MIT, see `port/third_party/rt64/LICENSE`); `port/src/audio/hrir_kemar.c` is
+derived from the KEMAR HRTF measurements by Bill Gardner and Keith Martin, copyright 1994 MIT Media Laboratory, free
+to use with this citation (<https://sound.media.mit.edu/resources/KEMAR.html>).
