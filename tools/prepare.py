@@ -47,6 +47,17 @@ def remove_read_only(func, path, _exc):
     func(path)
 
 
+def copy_lf(src, dst):
+    """copytree copy_function: text with LF line endings whatever the checkout's core.autocrlf (Git for Windows
+    defaults to CRLF), so patches/ apply to the same bytes on every host; a file with a NUL byte is copied as is."""
+    data = Path(src).read_bytes()
+    if b"\0" not in data:
+        data = data.replace(b"\r\n", b"\n")
+    Path(dst).write_bytes(data)
+    shutil.copymode(src, dst)
+    return dst
+
+
 def init_tree(tree=TREE):
     """Recreate build/tree (or `tree`); refuses while it holds uncommitted changes or an unfinished am/rebase/merge."""
     if (tree / ".git").exists():
@@ -68,7 +79,7 @@ def commit_decomp_base(tree=TREE):
     """Commit decomp/{src,include} as the tree's `base`."""
     for sub in ("src", "include"):
         shutil.rmtree(tree / sub, ignore_errors=True)
-        shutil.copytree(DECOMP / sub, tree / sub, symlinks=True)
+        shutil.copytree(DECOMP / sub, tree / sub, symlinks=True, copy_function=copy_lf)
     git("add", "-A", cwd=tree)
     git("commit", "-q", "-m", "base", cwd=tree)
     git("tag", "base", cwd=tree)
@@ -92,10 +103,11 @@ def cmd_rebase(args):
     if r.returncode != 0:
         sys.exit(f"prepare: {args.old} is not a commit in decomp/")
     init_tree()
-    # checkout with a throwaway index rather than `git archive | tar -x`: decomp's own checkout settings apply (with
-    # core.symlinks=false, as on Windows, symlinks are written as files, the way commit_decomp_base copies them)
+    # a throwaway index, not git archive | tar -x (tar cannot create decomp's symlinks on Windows); autocrlf off so the
+    # old base holds the committed LF bytes, like commit_decomp_base's copy_lf
     with tempfile.TemporaryDirectory() as tmp:
-        subprocess.run(["git", "-C", str(DECOMP), f"--work-tree={TREE}", "checkout", args.old, "--", "src", "include"],
+        subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(DECOMP), f"--work-tree={TREE}", "checkout",
+                        args.old, "--", "src", "include"],
                        env={**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}, check=True)
     git("add", "-A")
     git("commit", "-q", "-m", f"decomp {args.old}")

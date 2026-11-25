@@ -71,3 +71,82 @@ jobs:
         run: npm run build
       - name: End-to-end tests (no ROM)
         run: npm run test:e2e
+  # The Windows job runs only when a change can affect what `mise run sync` / `mise run serve` execute natively on
+  # Windows; keep PATTERN in step with tools/sync.py, tools/prepare.py and CMakeLists.txt. Skipped counts as passed.
+  windows-changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      tooling: ${{ steps.diff.outputs.tooling }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          PATTERN: '^(\.gitattributes|\.gitmodules|decomp|mise\.toml|CMakeLists\.txt|package(-lock)?\.json|vite\.config\.ts|\.github/workflows/ci\.yml|tools/(sync|prepare|gen_data|asyncify_remove|link_check|serve|saves)\.py|tools/requirements[^/]*\.txt|tools/auth/.+)$'
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base=HEAD^1 ;;  # the PR merge commit's first parent is the base branch
+            push) base=$BEFORE ;;         # main pushes too: release.yml calls this workflow
+            *) base= ;;
+          esac
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            hits=$(git diff --name-only "$base" HEAD | grep -E "$PATTERN" || true)
+          else
+            hits="(no comparable base for $GITHUB_EVENT_NAME: running anyway)"
+          fi
+          echo "tooling=$([ -n "$hits" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          printf 'Windows-relevant changes:\n%s\n' "${hits:-(none)}"
+  windows:
+    name: Windows (mise run sync + serve)
+    needs: windows-changes
+    if: needs.windows-changes.outputs.tooling == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Git settings under test (runner defaults, kept on purpose)
+        shell: bash
+        run: |
+          git config --show-origin --get-all core.autocrlf || true
+          git config --show-origin --get-all core.symlinks || true
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: jdx/mise-action@v5
+        with:
+          cache_save_post: true  # also keep the emscripten cache the first build fills
+      - name: mise run sync
+        shell: bash
+        run: mise run sync -- --no-pull
+      - name: mise run serve (smoke test)
+        shell: python
+        run: |
+          import subprocess, time, urllib.request
+          from pathlib import Path
+
+          LOG = Path("build/ci-serve.log")
+
+          def get(path):
+              with urllib.request.urlopen("http://localhost:8080" + path, timeout=10) as r:
+                  return r.read()
+
+          with LOG.open("w") as log:
+              server = subprocess.Popen("mise run --skip-deps serve -- --port 8080 --db build/ci-saves.sqlite3",
+                                        shell=True, stdout=log, stderr=subprocess.STDOUT)
+          try:
+              for _ in range(60):
+                  try:
+                      get("/")
+                      break
+                  except OSError:
+                      if server.poll() is not None:
+                          break
+                      time.sleep(2)
+              assert b"<title>Donkey Kong 64 (web)</title>" in get("/"), "/ is not the game page"
+              assert b'"saves"' in get("/api/saves"), "/api/saves did not answer with the save list"
+              assert get("/dk64.wasm")[:4] == b"\0asm", "/dk64.wasm is not a wasm module"
+              print("serve smoke test passed")
+          finally:
+              subprocess.run(["taskkill", "/F", "/T", "/PID", str(server.pid)], capture_output=True)
+              print(LOG.read_text(errors="replace"))
