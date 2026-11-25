@@ -96,7 +96,7 @@ s32 osAiSetNextBuffer(void *buf, u32 len) {
     }
 #ifndef PORT_HEADLESS
     if (sDev) {
-        SDL_QueueAudio(sDev, samples, len);
+        SDL_QueueAudio(sDev, portPackMix(samples, len / 4), len); /* audio pack songs mixed in (audio/pack.c) */
     }
 #else
     sFakeQueued += len;
