@@ -6,6 +6,8 @@ Static files are served like `python3 -m http.server -d build/web 8080`. web/src
   /api/saves...     save games: list/create/rename/delete, and per save the latest EEPROM (GET), a new version
                     (PUT, kept as history) and the "Exit to dashboard" resume point. Endpoints, schema and the
                     sqlite3 recovery recipes: tools/saves.py
+  /api/packs...     community audio packs: list, upload (raw zip), download, delete. Endpoints, format checks and
+                    storage (<db dir>/packs): tools/packs.py; the format: docs/audio-packs.md
   GET /api/rom      the --rom file (or the first *.z64/*.n64/*.v64 in the --rom directory), looked up per request;
                     404 if none. web/src/game/boot.ts starts it without the file picker (the Docker image mounts /rom)
 
@@ -39,6 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import auth
+import packs
 import saves
 from auth import config as auth_config
 
@@ -210,6 +213,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.send_rom()
         if saves.is_api(path):
             return saves.handle(self, self.db_path, auth.user_id(self), auth.enabled())
+        if packs.is_api(path):
+            return packs.handle(self, self.db_path, auth.user_id(self), auth.enabled())
         return super().do_GET()
 
     def send_rom(self):
@@ -227,8 +232,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_PUT(self):
         if auth.enabled() and (auth.handle(self) or not auth.gate(self)):
             return
-        if saves.is_api(urllib.parse.urlsplit(self.path).path):
+        path = urllib.parse.urlsplit(self.path).path
+        if saves.is_api(path):
             return saves.handle(self, self.db_path, auth.user_id(self), auth.enabled())
+        if packs.is_api(path):
+            return packs.handle(self, self.db_path, auth.user_id(self), auth.enabled())
         self.send_error(501, "Unsupported method (%r)" % self.command)
 
     do_POST = do_PUT
@@ -252,6 +260,7 @@ def main(argv=None):
     require_web_files(settings.dir, settings.auth.enabled)
     settings.db.parent.mkdir(parents=True, exist_ok=True)
     saves.init(settings.db)
+    packs.init(settings.db)
     auth.configure(settings.db, config=settings.auth)
 
     Handler.db_path = settings.db

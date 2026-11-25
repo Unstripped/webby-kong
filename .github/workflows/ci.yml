@@ -84,7 +84,7 @@ jobs:
       - id: diff
         env:
           BEFORE: ${{ github.event.before }}
-          PATTERN: '^(\.gitattributes|\.gitmodules|decomp|mise\.toml|CMakeLists\.txt|package(-lock)?\.json|vite\.config\.ts|\.github/workflows/ci\.yml|tools/(sync|prepare|gen_data|asyncify_remove|link_check|serve|saves)\.py|tools/requirements[^/]*\.txt|tools/auth/.+)$'
+          PATTERN: '^(\.gitattributes|\.gitmodules|decomp|mise\.toml|CMakeLists\.txt|package(-lock)?\.json|vite\.config\.ts|\.github/workflows/ci\.yml|tools/(sync|prepare|gen_data|asyncify_remove|link_check|serve|saves|packs)\.py|tools/requirements[^/]*\.txt|tools/auth/.+)$'
         run: |
           case "$GITHUB_EVENT_NAME" in
             pull_request) base=HEAD^1 ;;  # the PR merge commit's first parent is the base branch

@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import auth  # noqa: E402
+import packs  # noqa: E402
 import saves  # noqa: E402
 import serve  # noqa: E402
 
@@ -46,6 +47,7 @@ class AuthServer:
         (self.dir / "auth" / "index.html").write_text("<!doctype html><title>Webby</title>")
         self.db_path = self.dir / "saves.sqlite3"
         saves.init(self.db_path)
+        packs.init(self.db_path)
         self.config = auth.configure(self.db_path, environ)
 
         class Quiet(serve.Handler):
@@ -598,6 +600,35 @@ class AuthEnabledTest(unittest.TestCase):
         with contextlib.closing(self.app.db()) as conn:
             self.assertIsNone(conn.execute("SELECT 1 FROM saves WHERE id = ?", (save["id"],)).fetchone())
             self.assertIsNone(conn.execute("SELECT 1 FROM eeprom WHERE save_id = ?", (save["id"],)).fetchone())
+
+    # --- audio packs: shared with everyone, deleted by the uploader or the owner --------------------------------
+
+    def upload_pack(self, cookie):
+        sys.path.insert(0, str(ROOT / "tests" / "tools"))
+        from test_packs import make_zip
+        headers = {"Cookie": f"webby_session={cookie}", "Origin": ORIGIN, "Content-Type": "application/zip"}
+        conn = http.client.HTTPConnection("::1", self.app.port, timeout=8)
+        conn.request("POST", "/api/packs", body=make_zip(), headers=headers)
+        resp = conn.getresponse()
+        payload = resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 201, payload)
+        return self.json_of(payload)["pack"]
+
+    def test_packs_are_shared_and_only_the_uploader_or_owner_deletes(self):
+        owner_cookie, _ = self.owner()
+        bob_cookie, _ = self.register("bob")
+        carol_cookie, _ = self.register("carol")
+        pack = self.upload_pack(bob_cookie)
+        self.assertEqual((pack["uploader"], pack["can_delete"]), ("bob", True))
+        listed = self.json_of(self.get("/api/packs", cookie=carol_cookie)[1])["packs"]
+        self.assertEqual([(p["id"], p["uploader"], p["can_delete"]) for p in listed], [(pack["id"], "bob", False)])
+        resp, payload = self.delete(f"/api/packs/{pack['id']}", cookie=carol_cookie)
+        self.assertEqual((resp.status, self.json_of(payload)["error"]), (403, "not_yours"))
+        self.assertTrue(self.json_of(self.get("/api/packs", cookie=owner_cookie)[1])["packs"][0]["can_delete"])
+        self.assertEqual(self.delete(f"/api/packs/{pack['id']}", cookie=owner_cookie)[0].status, 204)
+        self.assertFalse((packs.pack_dir(self.app.db_path) / f"{pack['id']}.zip").exists())
+        self.assertEqual(self.get("/api/packs")[0].status, 401)
 
     # --- invite tokens at rest and one-shot email ---------------------------------------------------------------
 
