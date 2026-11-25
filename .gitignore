@@ -16,3 +16,12 @@ __pycache__/
 /node_modules/
 /test-results/
 /playwright-report/
+
+# Never commit audio or packs: audio packs are uploaded to a server (docs/audio-packs.md)
+*.wav
+*.ogg
+*.oga
+*.opus
+*.mp3
+*.flac
+*.zip

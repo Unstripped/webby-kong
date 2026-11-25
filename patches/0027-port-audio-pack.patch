@@ -1,0 +1,236 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 25 Nov 2026 12:26:02 -0700
+Subject: [PATCH] port: audio pack
+
+
+diff --git a/src/global/13A7A0_n_sndplayer.c b/src/global/13A7A0_n_sndplayer.c
+index 1a368e5..18b4d82 100644
+--- a/src/global/13A7A0_n_sndplayer.c
++++ b/src/global/13A7A0_n_sndplayer.c
+@@ -549,6 +549,9 @@ GfSndState *n_alSndpPlay(void *bank, s16 sndId, u16 vol, u8 pan, f32 pitch, u8 f
+     lastId = 0;
+     total = 0;
+     spatial = portSpatialTakePending();
++    if (sndId) {
++        portPackNoteSfx(bank, sndId); // PORT: audio pack: the F2 panel's recent sound ids
++    }
+     if (sndId) {
+         do {
+             sound = ((ALBank *)bank)->instArray[0]->soundArray[sndId - 1];
+diff --git a/src/global/144E00_n_load.c b/src/global/144E00_n_load.c
+index 782e9b0..922214c 100644
+--- a/src/global/144E00_n_load.c
++++ b/src/global/144E00_n_load.c
+@@ -2,6 +2,85 @@
+ #include "audio_synth.h"
+ #include "proto/global/144E00_n_load.h"
+ 
++// PORT: audio pack: a pack's replaced sounds are RAW16 waves (5A50_seq_player.c audioPortApplyPack), which the
++// game's loader cannot pull. This follows libultra's alRaw16Pull with the three commands the game's ucode has:
++// LOADBUFF (0x04), DMEMMOVE (0x0A) and CLEARBUFF (0x02).
++static Acmd *rawLoad(Acmd *cmd, s32 dmem, s32 dram, s32 nbytes) {
++    cmd->words.w0 = 0x04000000 | ((nbytes & 0xFFF) << 12) | (dmem & 0xFFF);
++    cmd->words.w1 = dram;
++    return cmd + 1;
++}
++
++static Acmd *n_alRaw16Pull(N_PVoice *f, s16 *outp, s32 count, Acmd *cmd) {
++    s32 base = (s32)f->dc_table->base;
++    s32 nSam, nbytes, over, dramLoc, dramAlign, dmemAlign, op;
++
++    f->dc_first = 0;
++    *outp += 0x20; // the resampler's history sits before the samples, as after an ADPCM decode
++    if (f->dc_sample + count > f->dc_loop.end && f->dc_loop.count) {
++        nSam = f->dc_loop.end - f->dc_sample;
++        if (nSam < 0) {
++            nSam = 0;
++        }
++        dramAlign = 0;
++        if (nSam > 0) {
++            dramLoc = f->dc_dma(f->dc_memin, nSam * 2, f->dc_dmaState);
++            dramAlign = dramLoc & 7;
++            cmd = rawLoad(cmd, *outp, dramLoc - dramAlign, nSam * 2 + dramAlign);
++        }
++        *outp += dramAlign;
++        f->dc_memin = base + f->dc_loop.start * 2;
++        f->dc_sample = f->dc_loop.start;
++        op = *outp;
++        while (count > nSam) {
++            op += nSam * 2;
++            count -= nSam;
++            if (f->dc_loop.count != -1 && f->dc_loop.count != 0) {
++                f->dc_loop.count--;
++            }
++            nSam = f->dc_loop.end - f->dc_loop.start;
++            if (count < nSam) {
++                nSam = count;
++            }
++            dramLoc = f->dc_dma(f->dc_memin, nSam * 2, f->dc_dmaState);
++            dramAlign = dramLoc & 7;
++            dmemAlign = (op & 7) ? 8 - (op & 7) : 0;
++            op += dmemAlign; // LOADBUFF writes 8-aligned DMEM: load past the samples so far, then move back
++            cmd = rawLoad(cmd, op, dramLoc - dramAlign, nSam * 2 + dramAlign);
++            if (dramAlign || dmemAlign) {
++                cmd->words.w0 = 0x0A000000 | ((op + dramAlign) & 0xFFFF);
++                cmd->words.w1 = (((op - dmemAlign) & 0xFFFF) << 16) | ((nSam * 2) & 0xFFFF);
++                cmd++;
++            }
++            op -= dmemAlign;
++        }
++        f->dc_sample += count;
++        f->dc_memin += count * 2;
++        return cmd;
++    }
++    nbytes = count * 2;
++    over = f->dc_memin + nbytes - (base + f->dc_table->len);
++    if (over < 0) {
++        over = 0;
++    } else if (over > nbytes) {
++        over = nbytes;
++    }
++    if (over < nbytes) {
++        dramLoc = f->dc_dma(f->dc_memin, nbytes - over, f->dc_dmaState);
++        dramAlign = dramLoc & 7;
++        cmd = rawLoad(cmd, *outp, dramLoc - dramAlign, nbytes - over + dramAlign);
++        *outp += dramAlign;
++    }
++    f->dc_sample += count;
++    f->dc_memin += nbytes;
++    if (over) { // past the end of the wave: silence
++        cmd->words.w0 = 0x02000000 | ((*outp + nbytes - over) & 0xFFFF);
++        cmd->words.w1 = over;
++        cmd++;
++    }
++    return cmd;
++}
++
+ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 count, Acmd *cmdList) {
+     Acmd *cmd;
+     s16 state;
+@@ -29,6 +108,9 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 count, Acmd *cmdList) {
+     if (count == 0) {
+         return cmd;
+     }
++    if (f->dc_table->type == AL_RAW16_WAVE) { // PORT: audio pack
++        return n_alRaw16Pull(f, outp, count, cmd);
++    }
+     state = 0;
+     initCmd = cmd++;
+     initCmd->words.w0 = (f->dc_bookSize & 0xFFFFFF) | 0x0B000000;
+diff --git a/src/global/5A50_seq_player.c b/src/global/5A50_seq_player.c
+index 93543a3..36d90f1 100644
+--- a/src/global/5A50_seq_player.c
++++ b/src/global/5A50_seq_player.c
+@@ -14,6 +14,7 @@
+ #include "proto/global/13C920_csp_output_mode.h"
+ #include "proto/global/15050_heap.h"
+ #include "proto/global/FE40_asset_dma.h"
++#include "proto/global/13ECE0_seqp_voice.h" // PORT: audio pack (alCents2Ratio)
+ 
+ void alCSPSendMidi(); // ORIG: target passes seqPlayerSendMidi's s32 byte2 unmasked (lw t8,48(sp) at 0xc74, sw t8,16(sp) at 0xca0, no andi): the original TU had no u8 prototype for alCSPSendMidi in scope
+ 
+@@ -37,6 +38,62 @@ extern void *gSeqBuffers[];
+ s32 gSeqBufferSizes[4] = { 0x407E, 0x11B6, 0x7B6, 0x156 };
+ void audioLoadSeqRomOffsets(void);
+ 
++// PORT: audio pack: a replaced sound is a copy of the bank's ALSound whose RAW16 wave lives in the page's PCM
++// pool (ROM-space offsets >= PORT_PACK_PCM_BASE, port/src/ultra/pi.c); envelope, key map and pan stay the game's
++typedef struct {
++    ALSound sound;
++    ALWaveTable wave;
++    ALRawLoop loop;
++} PortPackSound;
++typedef char portPackSoundFits[sizeof(PortPackSound) <= PORT_PACK_SFX_SLOT ? 1 : -1];
++
++static void audioPortApplyPack(ALBank *bank, s32 idBase) {
++    ALInstrument *inst;
++    ALSound *orig;
++    ALKeyMap *km;
++    PortPackSound *p;
++    f32 ratio;
++    u32 origLoop;
++    u32 out[5];
++    s32 i, id, k;
++
++    portPackRegisterBank(bank, idBase);
++    inst = bank->instArray[0];
++    for (i = 0; i < portPackSfxCount(); i++) {
++        id = portPackSfxId(i);
++        k = id - idBase - 1;
++        if (k < 0 || k >= inst->soundCount || (idBase == 0 && id >= 0x800)) {
++            continue;
++        }
++        orig = inst->soundArray[k];
++        km = orig->keyMap;
++        // the sound player's pitch for this sound (__n_allocState): bake at the rate it will consume samples
++        ratio = alCents2Ratio(km->keyBase * 100 + ((km->keyMax & 0x20) ? 0 : km->detune) - 6000);
++        origLoop = 0;
++        if (orig->wavetable->type == AL_ADPCM_WAVE && orig->wavetable->waveInfo.adpcmWave.loop != NULL) {
++            origLoop = orig->wavetable->waveInfo.adpcmWave.loop->count;
++        }
++        if (!portPackSfxBake(i, 22050.0f * ratio, origLoop, out)) {
++            continue;
++        }
++        p = portPackSfxSlot();
++        if (p == NULL) {
++            break;
++        }
++        p->sound = *orig;
++        p->wave.base = (u8 *)(PORT_PACK_PCM_BASE + out[0]);
++        p->wave.len = out[1];
++        p->wave.type = AL_RAW16_WAVE;
++        p->wave.flags = 1;
++        p->loop.start = out[2];
++        p->loop.end = out[3];
++        p->loop.count = out[4];
++        p->wave.waveInfo.rawWave.loop = out[4] ? &p->loop : NULL;
++        p->sound.wavetable = &p->wave;
++        inst->soundArray[k] = &p->sound;
++    }
++}
++
+ void audioInit(void) {
+     GeSndpConfig sndp;
+     ALBankFile *bankB;
+@@ -86,6 +143,8 @@ void audioInit(void) {
+     portSwapBankFile(bankB);
+     alBnkfNew(bankB, (u8 *)gSegmentTable[17].romStart);
+     gSfxBank = bankB->bankArray[0];
++    audioPortApplyPack((ALBank *)gSfxBank, 0);         // PORT: audio pack
++    audioPortApplyPack((ALBank *)gSfxBankHigh, 0x7FF); // PORT: audio pack
+     seqp.maxVoices = 0x2C;
+     seqp.maxEvents = 0x40;
+     seqp.debugFlags = 0;
+diff --git a/src/global/7130_sfx.c b/src/global/7130_sfx.c
+index 5e37a74..7c1c1eb 100644
+--- a/src/global/7130_sfx.c
++++ b/src/global/7130_sfx.c
+@@ -2389,6 +2389,7 @@ void seqLoadAndPlay(s32 seqIndex, u8 seqId, f32 volume) {
+     gSeqVolumeFading[seqIndex] = 0;
+     gSeqVolume[seqIndex] = volume;
+     gSeqCurrentId[seqIndex] = seqId;
++    portPackSeqStart(seqIndex, seqId); // PORT: audio pack
+     buf = heapAlloc(0x8000);
+     {
+         s32 addr = gSegmentTable[11].romStart + sSeqRomOffsets[seqId];
+@@ -2420,7 +2421,8 @@ void seqUpdateVolume(s32 seqIndex) {
+         }
+         break;
+     }
+-    alSeqpSetVol((ALSeqPlayer *)gSeqPlayers[seqIndex], (s16)((f64)((((f32)sSeqBaseVolume[gSeqCurrentId[seqIndex]]) * gSeqVolume[seqIndex]) * sSeqVolumeScale[seqIndex]) * ((f64)volume / 40.0) * 25000.0 / 32767.0));
++    // PORT: audio pack: a replaced song's sequence keeps playing silently; the page streams the replacement at level
++    alSeqpSetVol((ALSeqPlayer *)gSeqPlayers[seqIndex], portPackSeqVolume(seqIndex, gSeqCurrentId[seqIndex], gSeqVolume[seqIndex] * sSeqVolumeScale[seqIndex] * (volume / 40.0f), (s16)((f64)((((f32)sSeqBaseVolume[gSeqCurrentId[seqIndex]]) * gSeqVolume[seqIndex]) * sSeqVolumeScale[seqIndex]) * ((f64)volume / 40.0) * 25000.0 / 32767.0)));
+ }
+ 
+ void seqSetChannelVolumeScale(s32 seqIndex, f32 scale) {
+@@ -2446,6 +2448,9 @@ void seqUpdateVolumeFades(void) {
+             seqUpdateVolume(i);
+         }
+     }
++    for (i = 0; i < 4; i++) { // PORT: audio pack: the page's song mixer follows each player's state
++        portPackSeqState(i, gSeqCurrentId[i], alCSPGetState(&gSeqPlayers[i]->al));
++    }
+ }
+ 
+ 

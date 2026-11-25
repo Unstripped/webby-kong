@@ -27,8 +27,8 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 # stay gated
 PUBLIC_PREFIXES = ("/auth/", "/invite/", "/assets/")
 PUBLIC_PATHS = {"/favicon.ico"}
-OWN_API_PATHS = {"/api/rom", "/api/saves"}
-OWN_API_PREFIXES = ("/api/saves/",)
+OWN_API_PATHS = {"/api/rom", "/api/saves", "/api/packs"}
+OWN_API_PREFIXES = ("/api/saves/", "/api/packs/")
 
 
 class HttpError(Exception):

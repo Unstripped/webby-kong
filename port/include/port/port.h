@@ -168,4 +168,20 @@ s32 portSpatialPan(void *voice, s32 pan);   /* 0x40 for a voice rendered binaura
 void portSpatialVoiceStart(void *pvoice);   /* a physical voice starts a new sound: its filter history resets */
 u32 portSpatialEnvmix(void *pvoice, void *voice, s32 *retarget); /* END command word, 0: plain envmixer */
 
+/* ---- audio packs (port/src/audio/pack.c, web/src/game/audiopack/, patches/0027-port-audio-pack.patch) ---- */
+#define PORT_PACK_PCM_BASE 0x08000000u /* ROM-space offsets at or above this read the pack's PCM pool */
+#define PORT_PACK_SFX_SLOT 64           /* bytes per replaced-sound slot (ALSound + ALWaveTable + ALRawLoop) */
+/* src/global/5A50.c audioInit: replaced sounds, baked to RAW16 at the rate the synthesizer will play them */
+s32 portPackSfxCount(void);
+s32 portPackSfxId(s32 i); /* sound id (< 0x800: gSfxBank, else gSfxBankHigh id - 0x7FF), ascending */
+/* out5 = {pool offset, byte length, loop start, loop end, loop count} (loop all 0: none); 0 when it cannot be baked */
+s32 portPackSfxBake(s32 i, f32 rate, u32 origLoopCount, u32 *out5);
+void *portPackSfxSlot(void); /* zeroed, 8-aligned PORT_PACK_SFX_SLOT bytes that live forever; NULL when exhausted */
+void portPackRegisterBank(void *bank, s32 idBase); /* for the F2 panel's sound ids (n_alSndpPlay) */
+void portPackNoteSfx(void *bank, s32 sndId);
+/* src/global/7130.c: sequence player state the page's song mixer follows */
+void portPackSeqStart(s32 player, s32 seqId);
+s16 portPackSeqVolume(s32 player, s32 seqId, f32 level, s16 vol); /* 0 while a pack replaces seqId, else vol */
+void portPackSeqState(s32 player, s32 seqId, s32 state);
+
 #endif

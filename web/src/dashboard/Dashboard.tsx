@@ -6,6 +6,7 @@ import { DialogHost } from './dialogs';
 import { fail } from './fail';
 import { AccountPanel } from './panels/AccountPanel';
 import { InvitesPanel } from './panels/InvitesPanel';
+import { PacksPanel } from './panels/PacksPanel';
 import { PlayersPanel } from './panels/PlayersPanel';
 import { SavesPanel } from './panels/SavesPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
@@ -16,6 +17,7 @@ import type { Me, PanelProps } from './types';
 // A registry of panels rendered into the grid. Add a mode/panel by adding an entry.
 const PANELS: { id: string; title: string; cls?: string; owner?: boolean; Body: ComponentType<PanelProps> }[] = [
   { id: 'saves', title: 'Your saves', cls: 'wide', Body: SavesPanel },
+  { id: 'packs', title: 'Audio packs', cls: 'span2', Body: PacksPanel },
   { id: 'players', title: 'Players', cls: 'span2', Body: PlayersPanel },
   { id: 'account', title: 'Account', Body: AccountPanel },
   { id: 'invites', title: 'Invites', cls: 'span2', Body: InvitesPanel },

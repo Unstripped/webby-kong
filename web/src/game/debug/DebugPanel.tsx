@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import * as qs from '../quicksave';
 import { GameButton } from '../ui/GameButton';
 import {
+  audio,
   clearMarks,
   exportMarks,
   loadReport,
@@ -39,6 +40,7 @@ interface View {
   qsText: string;
   qsAuto: boolean;
   mapText: string;
+  audioText: string;
   stats: DebugStats | null;
   mask: number;
   events: TraceEvent[];
@@ -50,6 +52,7 @@ const INITIAL: View = {
   qsText: '—',
   qsAuto: false,
   mapText: '-',
+  audioText: '-',
   stats: null,
   mask: 0,
   events: [],
@@ -69,6 +72,13 @@ function qsText(): { text: string; auto: boolean } {
   return { text: parts.length ? parts.join(' · ') : '—', auto: st.auto };
 }
 
+// sequence per player (– stopped) and the sound ids played last, newest first: the ids audio packs replace
+function audioText(a: { seq: number[]; sfx: number[] }): string {
+  const seq = a.seq.map((id) => (id < 0 ? '–' : `0x${hex(id, 2)}`)).join(' ');
+  const sfx = a.sfx.length ? a.sfx.map((id) => `0x${hex(id, 3)}`).join(' ') : '–';
+  return `seq ${seq} · sfx ${sfx}`;
+}
+
 export function DebugPanel() {
   const visible = overlayVisible.value;
   const nonce = refreshNonce.value;
@@ -81,11 +91,12 @@ export function DebugPanel() {
       const q = qsText();
       next.qsText = q.text;
       next.qsAuto = q.auto;
-      let s: DebugStats, events: TraceEvent[], mask: number;
+      let s: DebugStats, events: TraceEvent[], mask: number, au: { seq: number[]; sfx: number[] };
       try {
         s = state();
         events = trace(0).events;
         mask = traceMask();
+        au = audio();
       } catch (e) {
         next.mapText = (e as Error).message;
         return next;
@@ -100,6 +111,7 @@ export function DebugPanel() {
         last.current = { frames: s.frames, t: now };
       }
       next.mapText = `0x${hex(s.map, 2)} (${s.map})`;
+      next.audioText = audioText(au);
       next.stats = s;
       next.mask = mask;
       next.events = events;
@@ -147,6 +159,8 @@ export function DebugPanel() {
         <div class="v">{s ? (p ? `yaw ${p.yaw} · chunk ${p.chunk}` : '—') : '-'}</div>
         <div class="k">actors</div>
         <div class="v">{s ? String(s.actors) : '-'}</div>
+        <div class="k">audio</div>
+        <div class="v">{s ? view.audioText : '-'}</div>
         <div class="k" style={{ display: s?.lastError ? '' : 'none' }}>error</div>
         <div class="v err" style={{ display: s?.lastError ? '' : 'none' }}>{s?.lastError ?? ''}</div>
       </div>

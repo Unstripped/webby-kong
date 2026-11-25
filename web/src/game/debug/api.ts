@@ -55,6 +55,11 @@ export function state(): DebugStats {
   return JSON.parse(requireModule().ccall('port_debug_stats', 'string') as string);
 }
 
+// sequence id per sequence player (-1: stopped) and the last sound ids played, newest first (port/src/audio/pack.c)
+export function audio(): { seq: number[]; sfx: number[] } {
+  return JSON.parse(requireModule().ccall('port_debug_audio', 'string') as string);
+}
+
 export function trace(since = 0): Trace {
   return JSON.parse(requireModule().ccall('port_debug_trace', 'string', ['number'], [since >>> 0]) as string);
 }

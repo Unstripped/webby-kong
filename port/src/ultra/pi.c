@@ -26,6 +26,10 @@ void portRomCopy(void *dst, u32 romOff, u32 len) {
     if ((u32)dst + len > PORT_GAME_LIMIT || (u32)dst < 0x400) {
         portAbort("PORT: ROM DMA to bad address %p len 0x%x", dst, len);
     }
+    if (romOff >= PORT_PACK_PCM_BASE) { /* an audio pack's replaced sound (port/src/audio/pack.c) */
+        portPackRead(dst, romOff - PORT_PACK_PCM_BASE, len);
+        return;
+    }
     if (!port_rom_copy(dst, romOff, len)) {
         portAbort("PORT: ROM DMA out of range off 0x%x len 0x%x", romOff, len);
     }

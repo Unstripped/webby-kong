@@ -40,6 +40,7 @@ describe('Dashboard', () => {
     stubApi({
       '/api/me': () => json(OWNER),
       '/api/saves': () => json({ saves: [], dashboard: true }),
+      '/api/packs': () => json({ packs: [] }),
       '/api/players': () => json({ players: [] }),
       '/api/invites': () => json({ invites: [] }),
       '/api/users': () => json({ users: [OWNER.user] }),
@@ -50,6 +51,7 @@ describe('Dashboard', () => {
 
     expect(await screen.findByRole('button', { name: 'Start a new game' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Users' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Audio packs' })).toBeTruthy();
     expect(document.getElementById('panel-users')).toBeTruthy();
     expect(document.getElementById('who')!.textContent).toBe('signed in as kong');
   });

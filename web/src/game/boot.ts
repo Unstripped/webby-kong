@@ -1,5 +1,9 @@
 // Loads the user's ROM (drop zone, ?rom= or /api/rom), verifies it, and starts the wasm port. The ROM stays in a JS
 // Uint8Array.
+import { sha1Hex } from '../shared/sha1';
+import { loadAudioPacks } from './audiopack/load';
+import type { AudioPackRuntime } from './audiopack/runtime';
+import { enabled as packsEnabled } from './audiopack/store';
 import * as dbg from './debug/api';
 import { loadDk64 } from './emscripten';
 import * as menu from './menu/control';
@@ -43,11 +47,6 @@ export function normalizeRom(bytes: ArrayBuffer | Uint8Array): Uint8Array<ArrayB
   return null;
 }
 
-export async function sha1Hex(bytes: BufferSource): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-1', bytes);
-  return Array.from(new Uint8Array(digest), (x) => x.toString(16).padStart(2, '0')).join('');
-}
-
 export async function start(romBytes: ArrayBuffer): Promise<void> {
   if (started) return;
   setDrop('loading', 'CHECKING ROM…', '');
@@ -64,6 +63,16 @@ export async function start(romBytes: ArrayBuffer): Promise<void> {
   } catch (err) {
     setDrop('failed', 'START FAILED', errorMessage(err));
     return;
+  }
+  // audiopack/: the enabled audio packs, merged; a snapshot taken with another pack set counts as another build
+  let pack: AudioPackRuntime | null = null;
+  if (packsEnabled().length) {
+    setDrop('loading', 'LOADING AUDIO PACKS…', '');
+    try {
+      pack = await loadAudioPacks();
+    } catch (err) {
+      console.warn('audio packs failed to load', err);
+    }
   }
   let module: Dk64Module;
   try {
@@ -109,12 +118,13 @@ export async function start(romBytes: ArrayBuffer): Promise<void> {
         report.crashed('Aborted(' + String(what) + ')', new Error().stack);
       },
     });
-    module.portBuildId = buildId;
+    module.portBuildId = pack ? buildId + '+ap' + pack.fingerprint : buildId;
   } catch (err) {
     setDrop('failed', 'START FAILED', errorMessage(err));
     return;
   }
   module.portRom = rom;
+  module.portAudioPack = pack ?? undefined;
   setModule(module);
   window.Module = module;
   dbg.moduleReady(); // before callMain: applies the saved trace mask from boot

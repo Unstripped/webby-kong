@@ -98,6 +98,10 @@ void portAudioPeakFeed(const s16 *samples, u32 count);
 void portAudioPeakTick(void);
 extern int gPortTracePrint; /* headless --trace: echo trace events to stdout */
 
+/* audio/pack.c */
+void portPackRead(void *dst, u32 off, u32 len);         /* PCM pool bytes for ROM offsets >= PORT_PACK_PCM_BASE */
+const s16 *portPackMix(const s16 *in, u32 frames);      /* the AI buffer with pack songs mixed in (never writes in) */
+
 /* main.c */
 void portInit(void);
 void port_frame_step(double elapsedMs);

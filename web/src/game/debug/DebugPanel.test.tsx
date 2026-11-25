@@ -11,6 +11,7 @@ function fakeModule() {
   const ccall = vi.fn((name: string, _ret: unknown, _types?: unknown, args?: number[]) => {
     if (name === 'port_debug_stats') return STATS;
     if (name === 'port_debug_trace') return '{"next":0,"events":[]}';
+    if (name === 'port_debug_audio') return '{"seq":[42,-1,-1,-1],"sfx":[291]}';
     if (name === 'port_debug_trace_mask') {
       const v = args?.[0] ?? -1;
       if (v !== -1) mask = v;
@@ -37,6 +38,7 @@ it('renders state and toggles a trace chip', () => {
     overlay(true);
   });
   expect(container.textContent).toContain('0x07 (7)');
+  expect(container.textContent).toContain('seq 0x2a – – – · sfx 0x123');
   fireEvent.click(getByText('Camera'));
   expect(ccall).toHaveBeenCalledWith('port_debug_trace_mask', 'number', ['number'], [1]);
   for (const b of container.querySelectorAll('button')) expect(b.getAttribute('tabindex')).toBe('-1');

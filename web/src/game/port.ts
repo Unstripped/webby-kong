@@ -1,8 +1,11 @@
+import type { AudioPackRuntime } from './audiopack/runtime';
+
 // The Emscripten module (dk64.js, MODULARIZE createDk64) and typed ccall wrappers for the C exports the page calls.
 
 // -sEXPORTED_FUNCTIONS (CMakeLists.txt) without the leading _, plus the EMSCRIPTEN_KEEPALIVE-only exports
 export type PortExport =
   | 'port_debug_stats'
+  | 'port_debug_audio'
   | 'port_save_flush_now'
   | 'port_debug_trace'
   | 'port_debug_trace_mask'
@@ -75,6 +78,7 @@ export interface Dk64Module {
   SDL2?: { audioContext?: AudioContext };
   portBuildId: string;
   portRom: Uint8Array;
+  portAudioPack?: AudioPackRuntime; // audiopack/runtime.ts, read by port/src/audio/pack.c
   // texpacks/packs.ts: gfx_texpack.c asks for a pack texture, and reads the bitmap port_texpack_upload_bitmap uploads
   portTexpackRequest?: (entry: number) => void;
   portTexpackBitmap?: ImageBitmap | null;

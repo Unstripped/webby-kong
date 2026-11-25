@@ -36,6 +36,7 @@ ARG REVISION=unknown
 RUN printf '{"version":"%s","revision":"%s"}\n' "$VERSION" "$REVISION" > /srv/web/version.json
 COPY tools/serve.py /app/serve.py
 COPY tools/saves.py /app/saves.py
+COPY tools/packs.py /app/packs.py
 COPY tools/auth /app/auth
 # The server reads everything from WEBBY_KONG_* environment variables (the table is in README "Configuration"), so
 # `docker run --env-file .env` takes the same file a local `mise run serve` does, and a value there overrides the
@@ -44,7 +45,8 @@ ENV WEBBY_KONG_DIR=/srv/web \
     WEBBY_KONG_BIND=0.0.0.0 \
     WEBBY_KONG_DB=/data/saves.sqlite3 \
     WEBBY_KONG_ROM=/rom
-# users, passkeys, sessions and invites live in the same /data volume as the saves.
+# users, passkeys, sessions and invites live in the same /data volume as the saves; uploaded audio packs in
+# /data/packs.
 USER kong
 VOLUME /data
 EXPOSE 8080

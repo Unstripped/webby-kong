@@ -3,8 +3,9 @@
 
 Checks every regular file staged in the index of the repository in the current directory (after a CI checkout the
 index equals HEAD; in the pre-commit hook it is the snapshot about to be committed). A file is rejected when it has
-a ROM extension (.z64 .n64 .v64 .u64 .rom .ndd), is build output (.wasm, which embeds ROM-derived data), starts with
-an N64 ROM header in any byte order (z64, v64, n64), or is larger than 2 MiB. Exits 1 if anything is rejected.
+a ROM extension (.z64 .n64 .v64 .u64 .rom .ndd), is build output (.wasm, which embeds ROM-derived data), is an audio
+or archive file (audio packs are uploaded to a server, never committed), starts with an N64 ROM header in any byte
+order (z64, v64, n64), or is larger than 2 MiB. Exits 1 if anything is rejected.
 
 Use as a hook in a clone: git config core.hooksPath .githooks
 """
@@ -13,6 +14,8 @@ import sys
 from pathlib import PurePosixPath
 
 ROM_SUFFIXES = {".z64", ".n64", ".v64", ".u64", ".rom", ".ndd"}
+ARCHIVE_SUFFIXES = {".wav", ".ogg", ".oga", ".opus", ".mp3", ".flac", ".aif", ".aiff", ".m4a", ".aac", ".mid", ".midi",
+                    ".zip"}
 ROM_MAGICS = {bytes.fromhex("80371240"), bytes.fromhex("37804012"), bytes.fromhex("40123780")}
 MAX_SIZE = 2 * 1024 * 1024
 
@@ -56,6 +59,8 @@ def reason(path, data):
         return "ROM file extension"
     if suffix == ".wasm":
         return "build output (contains ROM-derived data)"
+    if suffix in ARCHIVE_SUFFIXES:
+        return "audio or archive file (audio packs are uploaded to a server, never committed)"
     if data[:4] in ROM_MAGICS:
         return "N64 ROM header"
     if len(data) > MAX_SIZE:

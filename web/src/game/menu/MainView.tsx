@@ -1,6 +1,7 @@
 // The PAUSED view: the level's progress cards, the settings and the action buttons.
 import { useRef } from 'preact/hooks';
 import { GameButton } from '../ui/GameButton';
+import { AudioPacksSection } from './AudioPacks';
 import {
   actionsDisabled,
   close,
@@ -92,6 +93,8 @@ export function MainView({ shown, showReport }: { shown: boolean; showReport: (k
       <div class="lbl sec">Settings</div>
       <SettingsGrid />
       <div class="foot">Changes apply immediately and are remembered on this device</div>
+      <div class="lbl sec">Audio packs</div>
+      <AudioPacksSection />
       <div class="actions main">
         <span class="hint">Esc · Back to resume</span>
         <div class="btns">
