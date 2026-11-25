@@ -13,6 +13,7 @@
 // its quicksave snapshot (which would bring the old progress back), clears the server's resume point and reloads;
 // saves.ts boot() then uploads the import as the newest version, so with the save server the old progress stays in
 // its history.
+// Texture packs… switches the panel to PacksView.tsx (packsShown): RT64 texture packs and the texture dump.
 // This file is the menu's state machine; Menu.tsx renders it.
 import { batch, effect, signal } from '@preact/signals';
 import { callNumber, callString, callVoid, requireModule } from '../port';
@@ -28,6 +29,8 @@ export const isStarted = signal(false);
 export const isOpen = signal(false);
 export const crashMode = signal(false);
 export const crashMsg = signal<string | null>(null);
+// the Texture packs view (PacksView.tsx) replaces the PAUSED view
+export const packsShown = signal(false);
 
 // port_level_progress at the last open(), and the reason the progress cards are replaced by a message (null: cards)
 export const lastProgress = signal<Progress | null>(null);
@@ -129,6 +132,7 @@ export function openCrash(msg: string): void {
   lastProgress.value = null;
   pad.releaseAll();
   isOpen.value = true;
+  packsShown.value = false;
   view?.showReport('crash');
 }
 
@@ -158,6 +162,7 @@ export function open(): void {
 
 export function close(): void {
   if (!isOpen.value || crashMode.value || exiting) return;
+  packsShown.value = false;
   view?.showMain();
   callVoid('port_set_paused', 0);
   isOpen.value = false;

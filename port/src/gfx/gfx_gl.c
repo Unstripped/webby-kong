@@ -1,5 +1,6 @@
 /* WebGL2 backend: SDL window + GLES 3.0 context, texture cache, RDP state -> GL state, draws. */
 #include "gfx/gfx_gl.h"
+#include "gfx/gfx_texpack.h"
 #include <SDL2/SDL.h>
 #include <emscripten.h>
 #include <math.h>
@@ -15,6 +16,7 @@ typedef struct {
     GLuint tex;
     u32 w, h;
     u32 sampling; /* setSampling's packed parameters last set on tex, 0 unknown */
+    s32 pack;     /* gfxTexpackLookup's pack entry replacing this texture, -1 none */
 } TexEntry;
 
 static SDL_Window *sWindow;
@@ -180,6 +182,7 @@ int gfxBackendQsRanges(QsRange *out) {
     out[n++] = QS_RANGE(sInterpGl);
     out[n++] = QS_RANGE(sInterpLevel);
     n += gfxInterpQsRanges(out + n);
+    n += gfxTexpackQsRanges(out + n);
     n += gfxFbQsRanges(out + n);
     n += gfxCombinerQsRanges(out + n);
     return n;
@@ -193,6 +196,14 @@ static void texCacheFlush(void) {
     sTexCount = 0;
     memset(sTexIndex, 0, sizeof sTexIndex);
     sGls.tex[0] = sGls.tex[1] = ~0u; /* deleted textures unbind */
+}
+
+void gfxGlTexCacheFlush(void) {
+    texCacheFlush();
+}
+
+void gfxGlStateReset(void) {
+    glsReset();
 }
 
 /* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
@@ -368,47 +379,92 @@ static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
     e->w = w;
     e->h = h;
     e->sampling = 0;
+    e->pack = -1;
     for (s = texCacheSlot(key, w, h); sTexIndex[s] != 0; s = (s + 1) & (TEX_INDEX_SIZE - 1)) {
     }
     sTexIndex[s] = (u16)sTexCount;
     return e;
 }
 
-/* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown) */
+/* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown). mipmapped: 0 none,
+ * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips */
 static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipmapped, u32 *cache) {
     int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
     u32 packed = 1u | (u32)(t->cms & 3) << 1 | (u32)(t->cmt & 3) << 3 | (u32)linear << 5 | (u32)mipmapped << 6;
+    GLint minFilter = linear ? GL_LINEAR : GL_NEAREST;
     if (*cache == packed) {
         return;
     }
     *cache = packed;
+    if (mipmapped == 1) {
+        minFilter = linear ? GL_LINEAR_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_NEAREST;
+    } else if (mipmapped == 2) {
+        minFilter = linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+    }
     glsUnit(unit);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode(t->cms));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode(t->cmt));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                    mipmapped ? (linear ? GL_LINEAR_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_NEAREST)
-                              : (linear ? GL_LINEAR : GL_NEAREST));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+}
+
+/* tile's cached texture, decoded and uploaded (bound to `unit`) on a miss, which is also when packs are looked up
+ * and the dump sees it; NULL when the tile is empty. img gets the size and key. */
+static TexEntry *tileEntry(const GfxState *st, int tile, int unit, GfxTexImage *img) {
+    TexEntry *e;
+    if (!gfxTmemKey(st, tile & 7, img)) {
+        return NULL;
+    }
+    e = texCacheFind(img->key, img->width, img->height);
+    if (e == NULL && gfxTmemDecode(st, tile & 7, img)) {
+        e = texCacheAdd(img->key, img->width, img->height, unit);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img->width, img->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img->rgba);
+        e->pack = gfxTexpackLookup(st, tile & 7, img);
+    }
+    return e;
+}
+
+/* a loaded pack texture replaces tile (texture LOD then draws it alone, with its own GL mips) */
+static int tileReplaced(const GfxState *st, int tile) {
+    GfxTexImage img;
+    TexEntry *e;
+    if (!gfxTexpackActive()) {
+        return 0;
+    }
+    e = tileEntry(st, tile, 0, &img);
+    return e != NULL && gfxTexpackTexture(e->pack) != NULL;
 }
 
 static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, float *size) {
     const GfxTile *t = &st->tiles[tile & 7];
     GfxTexImage img;
-    TexEntry *e = NULL;
+    TexEntry *e;
+    GfxPackTex *r;
     tileParamsFor(t, tileParams);
     size[0] = 1.0f;
     size[1] = 1.0f;
-    if (gfxTmemKey(st, tile & 7, &img)) {
-        size[0] = (float)img.width;
-        size[1] = (float)img.height;
-        e = texCacheFind(img.key, img.width, img.height);
-        if (e == NULL && gfxTmemDecode(st, tile & 7, &img)) {
-            e = texCacheAdd(img.key, img.width, img.height, unit);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba);
-        }
+    e = tileEntry(st, tile, unit, &img);
+    if (e == NULL) {
+        glsBindTex(unit, sWhiteTex);
+        setSampling(st, t, unit, 0, &sWhiteSampling);
+        return;
     }
-    glsBindTex(unit, e != NULL ? e->tex : sWhiteTex);
-    setSampling(st, t, unit, 0, e != NULL ? &e->sampling : &sWhiteSampling);
+    /* the N64 size, whatever a replacement's: the shader's normalised UVs map an image of any size */
+    size[0] = (float)img.width;
+    size[1] = (float)img.height;
+    r = gfxTexpackTexture(e->pack);
+    if (r == NULL) {
+        glsBindTex(unit, e->tex);
+        setSampling(st, t, unit, 0, &e->sampling);
+        return;
+    }
+    glsBindTex(unit, r->tex);
+    if (r->shiftHalf) {
+        /* RT64's shift: half an original texel */
+        tileParams[2] -= 0.5f;
+        tileParams[3] -= 0.5f;
+    }
+    setSampling(st, t, unit, r->mipmapped ? 2 : 0, &r->sampling);
 }
 
 /* texture LOD: tiles tile..tile + maxLevel as the GL mips of one texture on unit 0. Each level must be half the
@@ -532,7 +588,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD
      * left set by an earlier draw. Triangles only: rects have no per-pixel LOD. */
     maxLevel = 0;
-    if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc == 1) {
+    if (!forRect && st->texOn && st->texLevels > 0 && (st->otherH & G_TL_LOD) && cyc == 1 && !tileReplaced(st, t0)) {
         maxLevel = bindMipTiles(st, t0, st->texLevels, tile0, size0, mipTile, mipSize);
     }
     key.lod = maxLevel > 0;

@@ -1,9 +1,11 @@
-// The Esc menu (#dk64menu): a wood panel with the PAUSED view or the report view. State lives in control.ts.
+// The Esc menu (#dk64menu): a wood panel with the PAUSED view, the Texture packs view or the report view. State lives
+// in control.ts.
 import { useLayoutEffect, useRef } from 'preact/hooks';
-import { bindView, close, isOpen } from './control';
+import { bindView, close, isOpen, packsShown } from './control';
 import { iconSrc, KIND_TEXT, KONGS } from './data';
 import { MainView } from './MainView';
 import './menu.css';
+import { PacksView } from './PacksView';
 import { ReportView, useReportFlow } from './ReportView';
 
 // preload so the first open doesn't pop in
@@ -35,8 +37,11 @@ export function Menu() {
         {['tl', 'tr', 'bl', 'br'].map((c) => (
           <span key={c} class={'bolt ' + c} />
         ))}
-        <div class="title">{flow.ui.shown ? KIND_TEXT[flow.ui.kind].title : 'PAUSED'}</div>
-        <MainView shown={!flow.ui.shown} showReport={flow.showReport} />
+        <div class="title">
+          {flow.ui.shown ? KIND_TEXT[flow.ui.kind].title : packsShown.value ? 'TEXTURE PACKS' : 'PAUSED'}
+        </div>
+        <MainView shown={!flow.ui.shown && !packsShown.value} showReport={flow.showReport} />
+        <PacksView shown={!flow.ui.shown && packsShown.value} />
         <ReportView flow={flow} />
       </div>
     </div>

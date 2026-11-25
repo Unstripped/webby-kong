@@ -58,6 +58,16 @@ export function AudioPacksSection() {
     await refresh();
   }
 
+  function toggle(key: string, value: boolean): void {
+    setEnabled(key, value);
+    void refresh();
+  }
+
+  function reorder(key: string, delta: -1 | 1): void {
+    move(key, delta);
+    void refresh();
+  }
+
   const enabledKeys = on.filter((k) => rows.some((r) => r.key === k));
   return (
     <div class="packs">
@@ -67,60 +77,51 @@ export function AudioPacksSection() {
         const active = pos >= 0;
         return (
           <div class="pack" key={r.key}>
-            <GameButton
-              class={active ? 'alt on' : 'alt'}
-              onClick={() => {
-                setEnabled(r.key, !active);
-                void refresh();
-              }}
-            >
-              {active ? 'On' : 'Off'}
-            </GameButton>
-            <div class="info">
-              <div class="pname">{r.name}</div>
-              <div class="meta">
+            <div class="pbody">
+              <span class="pname">{r.name}</span>
+              <span class="pinfo">
                 {[r.author, `${r.songs} songs`, `${r.sfx} sounds`, r.local ? 'this device' : 'server']
                   .filter(Boolean)
                   .join(' · ')}
-              </div>
+              </span>
             </div>
-            {active && (
-              <>
+            <div class="pctl">
+              <div class="seg">
+                <GameButton class={active ? 'sel' : undefined} onClick={() => toggle(r.key, true)}>
+                  On
+                </GameButton>
+                <GameButton class={active ? undefined : 'sel'} onClick={() => toggle(r.key, false)}>
+                  Off
+                </GameButton>
+              </div>
+              {active && (
+                <>
+                  <GameButton disabled={pos === 0} title="Higher priority" onClick={() => reorder(r.key, -1)}>
+                    {'\u25B2'}
+                  </GameButton>
+                  <GameButton
+                    disabled={pos === enabledKeys.length - 1}
+                    title="Lower priority"
+                    onClick={() => reorder(r.key, 1)}
+                  >
+                    {'\u25BC'}
+                  </GameButton>
+                </>
+              )}
+              {r.local && (
                 <GameButton
-                  class="alt"
-                  disabled={pos === 0}
+                  title="Remove"
                   onClick={() => {
-                    move(r.key, -1);
-                    void refresh();
+                    void removeLocal(r.key.slice(2)).then(() => {
+                      toast(`Removed "${r.name}"`);
+                      return refresh();
+                    });
                   }}
                 >
-                  ▲
+                  {'\u2715'}
                 </GameButton>
-                <GameButton
-                  class="alt"
-                  disabled={pos === enabledKeys.length - 1}
-                  onClick={() => {
-                    move(r.key, 1);
-                    void refresh();
-                  }}
-                >
-                  ▼
-                </GameButton>
-              </>
-            )}
-            {r.local && (
-              <GameButton
-                class="alt"
-                onClick={() => {
-                  void removeLocal(r.key.slice(2)).then(() => {
-                    toast(`Removed "${r.name}"`);
-                    return refresh();
-                  });
-                }}
-              >
-                Remove
-              </GameButton>
-            )}
+              )}
+            </div>
           </div>
         );
       })}
