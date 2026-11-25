@@ -50,6 +50,14 @@ class CheckNoRomsTest(unittest.TestCase):
         self.stage("dk64.wasm", b"\0asm")
         self.assert_rejected("dk64.wasm", "build output")
 
+    def test_audio_rejected(self):
+        self.stage("song.ogg", b"OggS")
+        self.assert_rejected("song.ogg", "audio or archive file")
+
+    def test_zip_rejected(self):
+        self.stage("pack.zip", b"PK\x03\x04")
+        self.assert_rejected("pack.zip", "audio or archive file")
+
     def test_large_file_rejected(self):
         self.stage("big.dat", bytes(3 * 1024 * 1024))
         self.assert_rejected("big.dat", "larger than 2 MiB")

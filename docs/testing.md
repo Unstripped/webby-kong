@@ -8,7 +8,7 @@ locally from the repository root:
 
 | Job | Proves | Local command |
 | --- | --- | --- |
-| `rom-guard` | No committed file is a ROM, build output (`.wasm`), starts with an N64 ROM header, or is larger than 2 MiB | `python3 tools/check_no_roms.py` |
+| `rom-guard` | No committed file is a ROM, build output (`.wasm`), an audio or archive file (`.ogg`, `.wav`, `.zip`, …), starts with an N64 ROM header, or is larger than 2 MiB | `python3 tools/check_no_roms.py` |
 | `patches` | `patches/*.patch` apply to the pinned `decomp/` source | `python3 tools/prepare.py check` |
 | `checks` | Python parses, the page typechecks (`tsc`) and its unit/component tests pass (Vitest), shell scripts parse, tooling unit tests pass | see below |
 | `e2e` | ROM-free Playwright runs against `tools/serve.py`: the game page's ROM drop zone, F2 panel and window globals, and passkey sign-up, dashboard saves and sign-in with a virtual authenticator | see below |
