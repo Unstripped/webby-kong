@@ -32,6 +32,8 @@ beforeEach(() => {
     return 0;
   });
   setModule({ ccall } as unknown as Dk64Module);
+  // the Audio packs section lists the server's packs (none here)
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{"packs":[]}')));
   localStorage.clear();
   settings.loadSettings();
   settings.started();
@@ -42,6 +44,7 @@ afterEach(() => {
   act(() => close());
   cleanup();
   setModule(null);
+  vi.unstubAllGlobals();
 });
 
 function pausedCalls(v: number) {
