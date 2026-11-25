@@ -35,6 +35,9 @@ start. Releases are source plus a Docker image (`ghcr.io/unstripped/webby-kong`)
 - Bug reports and ideas from the Esc menu: a prefilled GitHub issue with a screenshot (click the broken spot to
   attach the renderer's view of it), your save and exact location. Crashes open the same report.
 - F5 / F9 quicksave and quickload.
+- Community audio packs: replacement songs and sound effects in a `.zip`, uploaded in the dashboard or imported in
+  the Esc menu, turned on per player in priority order ([docs/audio-packs.md](docs/audio-packs.md)). Audio is never
+  committed here.
 - A headless node build with scripted input for regression runs.
 
 ## Quick start
@@ -197,6 +200,7 @@ stored setting for that page load):
 - [docs/testing.md](docs/testing.md) — CI checks and headless regression scenarios.
 - [docs/debugging.md](docs/debugging.md) — runtime counters, debug panel, quicksave, logpoints.
 - [docs/architecture.md](docs/architecture.md) — build pipeline, port runtime and notes on the port.
+- [docs/audio-packs.md](docs/audio-packs.md) — making and sharing audio packs (replacement songs and sounds).
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit messages, patches, releasing.
 
 ## Releases
