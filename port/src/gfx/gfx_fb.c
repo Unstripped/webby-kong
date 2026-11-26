@@ -232,7 +232,8 @@ static void updateAlphaCoverage(void) {
     int on = sA2cRequest && sSamples != 0;
     if (on != gGfxAlphaCoverage) {
         gGfxAlphaCoverage = on;
-        if (sScratch != NULL) { /* after gfxFbInit: a GL context exists and programs may be cached */
+        /* sScratch is gfxFbInit's allocation and this file's "GL is up" test, as in portGfxMaxSamples */
+        if (sScratch != NULL) {
             gfxCombinerDropA2c();
             gfxGlStateReset(); /* the deleted program may have been current */
         }

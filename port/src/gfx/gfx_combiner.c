@@ -172,7 +172,7 @@ static GfxProgram build(const GfxProgramKey *k) {
     static char fs[8192];
     GfxProgram p;
     u8 tex[2] = { 0, 0 };
-    char line[128];
+    char line[192];
     memset(&p, 0, sizeof p);
     fs[0] = 0;
     strcat(fs,
