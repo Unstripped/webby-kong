@@ -50,6 +50,24 @@ Outside `Debug`, the browser build links with `-g2`: the name section stays, DWA
 fully and inlines small functions (about half of them disappear from `dk64.wasm`). To set a logpoint in one that was
 inlined, use a `-DCMAKE_BUILD_TYPE=Debug` build directory (DWARF, no post-link optimisation).
 
+## Framebuffer RDRAM hashes
+
+The effects that build their image from a framebuffer read (screen transition, screen wipe, camera photo) draw
+from a GPU copy at render scale, while the game's own CPU path still fills RDRAM. `--fb-hash` (headless) or
+`--fb-hash 1` in the browser's `callMain` arguments, or `port_debug_fb_hash(1)` at any time, logs for every
+framebuffer-coherence call the game makes a hash of the RDRAM range it touched:
+
+```
+PORT: fbhash <site> <addr> <len> <hash>   # site: sync, cpuwrote, copy, sepia, fade
+```
+
+Ranges under 256 bytes (the single depth pixels `zbufferReadDepth` reads) are left out. `--fb-gpu 0` (browser
+`callMain`) or `port_debug_fb_gpu(0)` turns the GPU copies off: every effect then draws the RDRAM texels the CPU
+path wrote, as the port did before. Comparing a run with them on against one with them off shows what the game
+sees in RDRAM change or not; today the only difference is a freeze frame the game reads back after the port drew
+it at render scale (`architecture.md`).
+
+
 ## Memory errors
 
 Configure a separate build directory with `-DPORT_SAFE_HEAP=ON` to make the headless build trap wild accesses:

@@ -1,5 +1,5 @@
-// Player settings (draw distance, render scale, MSAA, cutout anti-aliasing, texture mips and anisotropy, 60 fps,
-// touch controller, 3D sound, audio rate, kong swap, Disco Chunky, right-stick camera):
+// Player settings (draw distance, render scale, MSAA, cutout anti-aliasing, texture mips and anisotropy,
+// present pass, 60 fps, touch controller, 3D sound, audio rate, kong swap, Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
 import { signal } from '@preact/signals';
@@ -25,6 +25,10 @@ export interface SettingsValues {
   caminvert: number;
   perpixel: number;
   kongsmooth: number;
+  downsample: number;
+  sharpen: number;
+  fxaa: number;
+  dither: number;
 }
 
 export type SettingKey = keyof SettingsValues;
@@ -63,6 +67,10 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   caminvert: { def: 0, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_camera_invert' },
   perpixel: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_per_pixel' },
   kongsmooth: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_kong_smooth' },
+  downsample: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_downsample' },
+  sharpen: { def: 0, valid: isNum((v) => Number.isInteger(v) && v >= 0 && v <= 10), parse: num, fn: 'port_set_sharpen' },
+  fxaa: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_fxaa' },
+  dither: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_dither' },
 };
 
 const KEYS = Object.keys(DEFS) as SettingKey[];
@@ -141,6 +149,8 @@ export function args(): string[] {
     '--stick-camera', String(v.stickcam),
     '--camera-speed', String(v.camspeed), '--camera-invert', String(v.caminvert),
     '--per-pixel', String(v.perpixel), '--kong-smooth', String(v.kongsmooth),
+    '--downsample', String(v.downsample), '--sharpen', String(v.sharpen),
+    '--fxaa', String(v.fxaa), '--dither', String(v.dither),
   ];
 }
 

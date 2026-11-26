@@ -35,6 +35,25 @@ GLuint gfxCompileProgram(const char *vs, const char *fs);
 /* drop the cached programs built with alpha-to-coverage: the setting (or MSAA) turned it off or on */
 void gfxCombinerDropA2c(void);
 
+/* full-screen quad without a VBO (gfx_fb.c): gl_VertexID positions, vUv 0..1 */
+extern const char *gGfxQuadVs;
+extern GLuint gGfxQuadVao;
+
+/* GPU-side framebuffer effects (gfx_fbsnap.c): an RDRAM copy of a colour image that the game draws back as
+ * texture tiles is drawn from a GPU copy of that image at render scale instead of from its 320x240 texels. The
+ * RDRAM copy is left exactly as the game wrote it. */
+void gfxFbSnapOfImage(u32 dst, u32 src, u32 len); /* dst holds a copy of colour image src */
+/* dst holds `cols` x `rows` tiles of `tileW` x `tileH` sepia texels from (x, y) of colour image src */
+void gfxFbSnapSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH);
+void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t); /* dst holds src faded towards white by t */
+int gfxFbSnapCpuWrote(u32 addr, u32 len); /* the game wrote the range; 1 when the copy's alpha was redrawn */
+void gfxFbSnapBeginTask(void);                      /* each copy is re-checked against RDRAM once per task */
+/* the copy a tile's texels come from: its texture, the tile's origin and the copy's size in N64 pixels; 0 when
+ * the tile does not come from one (the caller decodes the texels as usual) */
+GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size);
+void gfxFbSnapReset(void); /* RDRAM was replaced (quickload): no copy stands for it any more */
+void gfxFbSnapQsRanges(QsSink *out);
+
 /* framebuffers (gfx_fb.c) */
 typedef struct {
     u32 addr;
@@ -92,4 +111,5 @@ void gfxFbQsRestored(void);
  * after GL calls made outside a frame */
 void gfxGlTexCacheFlush(void);
 void gfxGlStateReset(void);
+void gfxGlForgetTexture(GLuint tex); /* the name is about to go: the shadow must rebind whatever takes its place */
 #endif

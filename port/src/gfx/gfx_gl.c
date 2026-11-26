@@ -232,6 +232,7 @@ void gfxBackendQsRanges(QsSink *out) {
     gfxInterpQsRanges(out);
     gfxTexpackQsRanges(out);
     gfxFbQsRanges(out);
+    gfxFbSnapQsRanges(out);
     gfxCombinerQsRanges(out);
     gfxBatchQsRanges(out);
 }
@@ -277,6 +278,16 @@ void gfxGlStateReset(void) {
     glsReset();
 }
 
+/* a texture name is about to be deleted: the shadow must not skip rebinding whatever reuses the name */
+void gfxGlForgetTexture(GLuint tex) {
+    size_t i;
+    for (i = 0; i < sizeof sGls.tex / sizeof sGls.tex[0]; i++) {
+        if (sGls.tex[i] == tex) {
+            sGls.tex[i] = ~0u;
+        }
+    }
+}
+
 /* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
 void gfxBackendQsRestored(void) {
     texCacheFlush();
@@ -286,6 +297,7 @@ void gfxBackendQsRestored(void) {
     gfxInterpReset();
     gfxFbQsRestored();
     gfxCombinerQsRestored();
+    gfxFbSnapReset(); /* the RDRAM the GPU copies stood for is gone; the effects fall back to its texels */
 }
 
 void gfxBackendInit(void) {
@@ -336,6 +348,7 @@ void gfxBackendBeginTask(void) {
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
     gfxFbSetWindowSize(w, h);
     sTaskSerial++;
+    gfxFbSnapBeginTask();
     sTarget = NULL;
     gGfxTargetWide = 1.0f;
     sTargetIsDepth = 0;
@@ -694,6 +707,20 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
     tileParamsFor(t, tileParams);
     size[0] = 1.0f;
     size[1] = 1.0f;
+    {
+        /* a tile of an RDRAM copy of a colour image: draw it from the GPU copy of that image (issue #35), with
+         * the tile's texture coordinates moved to its place in the copy. The copy is sampled bilinearly at render
+         * scale; the tile's own wrap and filter would only describe its 320x240 texels. */
+        GfxTileSource ts;
+        float origin[2];
+        GLuint snap;
+        if (gfxTmemTileSource(st, tile, &ts) && (snap = gfxFbSnapTile(&ts, origin, size)) != 0) {
+            glsBindTex(unit, snap);
+            tileParams[2] -= origin[0];
+            tileParams[3] -= origin[1];
+            return;
+        }
+    }
     e = tileEntry(st, tile, unit, &img);
     if (e == NULL) {
         glsBindTex(unit, sWhiteTex);
@@ -1190,6 +1217,26 @@ EMSCRIPTEN_KEEPALIVE int port_debug_capture_height(void) {
 
 void gfxBackendCpuWrote(u32 addr, u32 len) {
     gfxFbCpuWrote(addr, len);
+    if (gfxFbSnapCpuWrote(addr, len)) {
+        glsReset(); /* an alpha refresh of a GPU copy drew with its own state */
+    }
+}
+
+/* the GPU-side framebuffer effects (issue #35): the game told the port what an RDRAM buffer it just filled is a
+ * copy of, so the port can keep the same pixels at render scale beside it */
+void gfxBackendFbSnapshot(u32 dst, u32 src, u32 len) {
+    gfxFbSnapOfImage(dst, src, len);
+    glsReset();
+}
+
+void gfxBackendFbSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH) {
+    gfxFbSnapSepia(dst, src, x, y, cols, rows, tileW, tileH);
+    glsReset();
+}
+
+void gfxBackendFbLerpWhite(u32 dst, u32 src, u32 len, float t) {
+    gfxFbSnapLerpWhite(dst, src, len, t);
+    glsReset();
 }
 
 void gfxBackendSyncRdram(u32 addr, u32 len) {

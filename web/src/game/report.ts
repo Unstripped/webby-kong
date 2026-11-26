@@ -19,7 +19,8 @@ import { toast } from './ui/toast';
 const REPO = 'https://github.com/Unstripped/webby-kong';
 const MAX_URL = 7500;
 const PREFIX = 'DK64R1.';
-const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'a2c', 'mips', 'aniso', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert', 'perpixel', 'kongsmooth'] as const;
+const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'a2c', 'mips', 'aniso', 'downsample', 'fxaa', 'sharpen',
+  'dither', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert', 'perpixel', 'kongsmooth'] as const;
 const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
 const LOG_MAX = 60;
 const HIT_RE = /^#\d+ dl=/m;
@@ -36,6 +37,10 @@ export interface ReportSettings {
   a2c?: number;
   mips?: number;
   aniso?: number;
+  downsample?: number;
+  fxaa?: number;
+  sharpen?: number;
+  dither?: number;
   interp?: number;
   audio3d?: number;
   audiorate?: number;
@@ -217,6 +222,10 @@ export function settingsText(s: ReportSettings): string {
   if (s.a2c != null) parts.push(`cutout edges ${s.a2c ? 'smooth' : 'hard'}`);
   if (s.mips != null) parts.push(`texture mips ${s.mips ? 'on' : 'off'}`);
   if (s.aniso != null) parts.push(`anisotropy ${s.aniso > 1 ? s.aniso + '×' : 'off'}`);
+  if (s.downsample != null) parts.push(`downsample ${s.downsample ? 'area' : 'bilinear'}`);
+  if (s.fxaa) parts.push('FXAA');
+  if (s.sharpen) parts.push(`sharpening ${s.sharpen}`);
+  if (s.dither) parts.push('dither');
   if (s.interp != null) parts.push(`${30 << s.interp} fps`);
   if (s.perpixel) parts.push('per-pixel lighting');
   if (s.kongsmooth) parts.push('kong smoothing');

@@ -161,7 +161,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `mips`, `aniso`, `interp`, `perpixel`, `kongsmooth`, `touch`,
+URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `mips`, `aniso`, `downsample`, `fxaa`, `sharpen`, `dither`,
+`interp`, `perpixel`, `kongsmooth`, `touch`,
 `audio3d` and `audiorate` override the Esc menu's stored setting for that page load):
 
 | Parameter | Effect |
@@ -173,6 +174,10 @@ URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `mips`, `aniso`, `interp`, `
 | `a2c=1\|0` | Cutout edges (foliage, fences) anti-aliased from the MSAA samples, default on; no effect with `msaa=0` |
 | `mips=1\|0` | Mip levels for 3D textures (trilinear), default on |
 | `aniso=0\|2\|4\|8\|16` | Anisotropic filtering, default 4, clamped to the GPU's maximum; 0 = off |
+| `downsample=0\|1` | How the rendered image is fitted to the window: 0 = bilinear, 1 (default) = area filter, which averages every rendered pixel a screen pixel covers |
+| `fxaa=0\|1` | FXAA on the presented image, for the edges MSAA leaves (cut-out textures, shader aliasing); default off |
+| `sharpen=0..10` | Contrast-adaptive sharpening of the presented image; 0 (default) = off |
+| `dither=0\|1` | Ordered dither against banding where the filtered image meets the canvas' 8 bits; default off |
 | `interp=0..3` | Frame rate: 0 = the game's own 30 fps; 1, 2, 3 = up to 60, 120, 240 fps by interpolated in-between frames (limited by the display's refresh rate); default 1 |
 | `perpixel=1` / `perpixel=0` | Per-pixel lighting and fog instead of the N64's per-vertex shading; default off |
 | `kongsmooth=1` / `kongsmooth=0` | PN-triangle smoothing of the Kong models; default off |

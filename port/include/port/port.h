@@ -56,6 +56,13 @@ void portSwapSeqHeader(void *hdr);
 /* ---- framebuffer coherence ---- */
 void portGfxCpuWrote(const void *p, u32 len);
 void portGfxSyncRdram(const void *p, u32 len);
+/* GPU-side versions of the effects that build their image from a framebuffer read (issue #35): what the buffer
+ * the game just filled is a copy of. The port keeps the same pixels at render scale beside it and draws them
+ * instead of the buffer's 320x240 texels; the buffer itself is only read. */
+void portGfxFbSnapshot(const void *dst, const void *src, u32 len);
+/* dst is `cols` x `rows` tiles of `tileW` x `tileH` sepia texels from (x, y) of framebuffer src */
+void portGfxFbSepia(const void *dst, const void *src, s32 x, s32 y, s32 cols, s32 rows, s32 tileW, s32 tileH);
+void portGfxFbLerpWhite(const void *dst, const void *src, u32 len, f32 t); /* dst is src faded towards white by t */
 
 /* ---- io registers ---- */
 u32 portIoRead(u32 reg);

@@ -28,6 +28,7 @@ describe('settings', () => {
       '--interp', '1', '--hrtf', '1', '--audio-rate', '44100',
       '--kong-swap', '1', '--disco-chunky', '0', '--stick-camera', '1', '--camera-speed', '5', '--camera-invert', '0',
       '--per-pixel', '0', '--kong-smooth', '0',
+      '--downsample', '1', '--sharpen', '0', '--fxaa', '0', '--dither', '0',
     ]);
   });
 
@@ -54,5 +55,18 @@ describe('settings', () => {
     settings.started();
     settings.set('msaa', 8);
     expect(ccall).toHaveBeenCalledWith('port_set_msaa', 'number', ['number'], [8]);
+  });
+
+  it('parses the present pass options and applies them live', () => {
+    history.replaceState(null, '', '/?downsample=0&sharpen=4&fxaa=1&dither=1');
+    settings.loadSettings();
+    expect(settings.get('downsample')).toBe(0);
+    expect(settings.get('sharpen')).toBe(4);
+    expect(settings.get('fxaa')).toBe(1);
+    expect(settings.get('dither')).toBe(1);
+    settings.started();
+    expect(settings.set('sharpen', 11)).toBe(4); // out of range: unchanged
+    settings.set('sharpen', 7);
+    expect(ccall).toHaveBeenCalledWith('port_set_sharpen', 'number', ['number'], [7]);
   });
 });

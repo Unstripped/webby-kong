@@ -114,6 +114,53 @@ flowchart LR
   leave RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build. Player
   setting (`--interp`, `?interp=`, Esc menu "Frame rate", `port_set_interp`: 0 = 30, 1/2/3 = up to 60/120/240):
   changing it drops the pending images; the next ones pair matrices from the next two game frames, never a stale one.
+- Present pass (`gfx_fb.c`, `presentImage`): the finished image reaches the canvas through full-screen shader
+  passes instead of one `glBlitFramebuffer`. The first pass resamples the image into the letterboxed canvas
+  rectangle: every destination pixel sums the source texels it covers, weighted by the area each covers of its
+  footprint (`downsample=1`, the default), which is the area filter a plain bilinear downsample of a larger image
+  is not; the footprint never falls below one texel, so an image smaller than its rectangle is resampled exactly
+  bilinearly. FXAA 3.11's console edge blend (`fxaa=1`) and AMD's CAS sharpening (`sharpen=1..10`) each add a pass
+  over what the pass before wrote into a canvas-sized ping-pong target, and the pass that writes the canvas adds
+  ordered 8×8 Bayer dither of half a least significant bit (`dither=1`) against banding from quantising the
+  filtered values — which hold more precision than the 8-bit image they came from — back to 8 bits. With every
+  option off the `GL_LINEAR` blit runs instead, so that output is the one from before the pass. The default is
+  identical to that blit wherever the image is exactly its rectangle's size (the usual case: the scale rounds the
+  canvas height up to a multiple of 240) and better where it is larger, which is the only case an area filter and
+  a bilinear one differ in; an image smaller than its rectangle is bilinear either way. The VI image and
+  the interpolated in-between images present through the same path, the programs compile when an option is set
+  (`postPrepare`), and the mapping the debug pixel probe reads (`sPresented`) is written as before; a canvas of no
+  size (minimised window) presents nothing.
+- GPU-side framebuffer effects (`gfx_fbsnap.c`, issue #35): the screen transition's and the screen wipe's freeze
+  frame (`fbCopySetAlpha`) and the camera's sepia photo (`playerViewCaptureSepiaPhoto`) are built by the CPU out
+  of a colour image the port had to sync back to RDRAM at the N64 size, and drawn back as 16-bit texture tiles, so
+  they used to show a 320x240 image at any render scale. The port now keeps a GPU copy of the same pixels at
+  render scale beside the RDRAM copy (hooks in patch 0027: `portGfxFbSnapshot`, `portGfxFbSepia`,
+  `portGfxFbLerpWhite`), and a tile whose texels came from one load out of such a range
+  (`gfxTmemTileSource`) is drawn from that copy, with the tile's texture coordinates remapped into it
+  (`gfxFbSnapTile`), sampled bilinearly. The sepia and fade-to-white copies are GPU passes of the game's own
+  5-bit arithmetic. The game's CPU path still runs and still fills its RDRAM buffer; the port only reads it.
+  - A copy is used only while the RDRAM bytes it stands for are still there: the port rehashes the range once per
+    gfx task and on every write the game reports. A write that changes colours (the pause menu's blur builds its
+    image that way) drops the copy, so that effect draws its own texels again, as before. A write that only
+    changes coverage bits — the transition's six-pixel mask strip — keeps the copy and refreshes its alpha from
+    RDRAM, so the tear line looks as it did.
+  - The 4:3 image alone is copied; the side areas of a widened image are blanked per task as they were, so
+    widescreen looks exactly as before (black beside the effect).
+  - A quickload drops every copy (`gfxFbSnapReset`): the restored RDRAM is the only thing that stands for those
+    buffers, so the effect falls back to its texels until the game makes a new copy.
+  - Each effect falls back the same way when there is nothing to copy: no colour image at that address, one never
+    drawn by the GPU, or RDRAM newer than it.
+  - The invariant: game state is untouched. The CPU path still computes every byte it did, and patch 0008 has
+    exactly four `portGfxSyncRdram` sites — `fbCopySetAlpha`, `transitionMaskFramebuffer`,
+    `playerViewCaptureSepiaPhoto` and `zbufferReadDepth` — of which only the last feeds game logic, and it reads
+    depth, which this does not touch. No game logic reads colour pixels, and the headless build (which has no
+    GPU copies at all) is bit-identical. What does change is the colour bytes a read of a colour image returns
+    once the port has drawn an improved image into it — as they already change with the render scale, MSAA,
+    alpha-to-coverage or mips. The case that exists today: the barrel's screen wipe copies the framebuffer twice,
+    at VI 347 and 353 of the kong swap barrel scenario, and the second copy reads back the freeze frame the first
+    one drew at render scale, so from VI 353 on its bytes differ from the nearest-upscaled 320x240 image's.
+    `port_debug_fb_gpu(0)` turns the GPU copies off for a run that is byte-identical again
+    ([debugging.md](debugging.md)).
 - Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
   one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
   z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied

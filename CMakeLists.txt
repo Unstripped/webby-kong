@@ -111,6 +111,7 @@ target_compile_options(dk64_rsp PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_rsp PRIVATE ${PORT_INCLUDES})
 add_library(dk64_gl OBJECT ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_gl.c
   ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fbsnap.c
   ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_texpack.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_rt64hash.c)
 target_compile_options(dk64_gl PRIVATE ${PORT_C_FLAGS} -sUSE_SDL=2)
 target_include_directories(dk64_gl PRIVATE ${PORT_INCLUDES})
@@ -183,7 +184,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 target_link_options(dk64 PRIVATE ${LINK_COMMON}
   -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFORCE_FILESYSTEM=1 -lidbfs.js
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture,_port_touch_pad,_port_level_progress,_port_set_paused,_port_set_drawdist,_port_set_scale,_port_set_msaa,_port_set_a2c,_port_set_mips,_port_set_aniso,_port_gfx_max_aniso,_port_gfx_max_samples,_port_set_audio_hrtf,_port_audio_rate,_port_set_interp,_port_frame_step,_port_save_request,_port_save_busy,_port_set_stick_camera,_port_set_camera_speed,_port_set_camera_invert,_port_set_per_pixel,_port_set_kong_smooth
+  -sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,HEAPU8,HEAPU32,ccall -sEXPORTED_FUNCTIONS=_main,_port_debug_stats,_port_save_flush_now,_port_debug_trace,_port_debug_trace_mask,_port_debug_capture_request,_port_debug_capture_seq,_port_debug_capture_pixels,_port_debug_capture_width,_port_debug_capture_height,_port_qs_table,_port_qs_size,_port_qs_save_begin,_port_qs_save_end,_port_qs_load_begin,_port_qs_load_end,_port_resume_request,_port_resume_capture,_port_touch_pad,_port_level_progress,_port_set_paused,_port_set_drawdist,_port_set_scale,_port_set_msaa,_port_set_a2c,_port_set_mips,_port_set_aniso,_port_gfx_max_aniso,_port_gfx_max_samples,_port_set_audio_hrtf,_port_audio_rate,_port_set_interp,_port_frame_step,_port_save_request,_port_save_busy,_port_set_stick_camera,_port_set_camera_speed,_port_set_camera_invert,_port_set_downsample,_port_set_sharpen,_port_set_fxaa,_port_set_dither,_port_set_per_pixel,_port_set_kong_smooth
   -sENVIRONMENT=web -sASSERTIONS=1 -sMODULARIZE=1 -sEXPORT_NAME=createDk64 -sINVOKE_RUN=0 ${WEB_DEBUG_FLAGS})
 set_target_properties(dk64 PROPERTIES SUFFIX ".js" RULE_LAUNCH_LINK ${LINK_CHECK})
 asyncify_remove_list(dk64 dk64_rsp dk64_gl)

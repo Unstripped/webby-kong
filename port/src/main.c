@@ -319,6 +319,8 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--disco-chunky") == 0 && a + 1 < argc) {
             gPortDiscoChunky = atoi(argv[++a]) != 0;
+        } else if (strcmp(argv[a], "--fb-hash") == 0) {
+            portGfxFbHashLog(1);
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
         }
@@ -326,7 +328,7 @@ int main(int argc, char **argv) {
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
                "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
-               "[--audio-rate 22050|44100] [--hrtf 0|1] [--disco-chunky 0|1] [--progress]\n");
+               "[--audio-rate 22050|44100] [--hrtf 0|1] [--disco-chunky 0|1] [--fb-hash] [--progress]\n");
         return 2;
     }
     if (input != NULL) {
@@ -446,6 +448,13 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_stick_camera(s32 on) {
 }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_speed(s32 v) { return setCameraSpeed(v); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_invert(s32 v) { return setCameraInvert(v); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_downsample(s32 mode) { return portGfxSetDownsample(mode); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_sharpen(s32 amount) { return portGfxSetSharpen(amount); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_fxaa(s32 on) { return portGfxSetFxaa(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_dither(s32 on) { return portGfxSetDither(on); }
+/* RDRAM verification of the GPU-side framebuffer effects (issue #35, docs/debugging.md) */
+EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_hash(s32 on) { return portGfxFbHashLog(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_gpu(s32 on) { return portGfxFbGpu(on); }
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -502,6 +511,18 @@ int main(int argc, char **argv) {
             setCameraSpeed(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--camera-invert") == 0) {
             setCameraInvert(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--downsample") == 0) {
+            portGfxSetDownsample(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--sharpen") == 0) {
+            portGfxSetSharpen(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--fxaa") == 0) {
+            portGfxSetFxaa(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--dither") == 0) {
+            portGfxSetDither(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--fb-hash") == 0) {
+            portGfxFbHashLog(atoi(argv[++a])); /* the browser main's flags all take a value */
+        } else if (strcmp(argv[a], "--fb-gpu") == 0) {
+            portGfxFbGpu(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--save-file") == 0) {
             portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }

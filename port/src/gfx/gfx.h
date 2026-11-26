@@ -79,6 +79,14 @@ int gfxTmemDecode(const GfxState *st, int t, GfxTexImage *out);
 int gfxTmemKey(const GfxState *st, int t, GfxTexImage *out);
 u32 gfxTileWidth(const GfxTile *t);
 u32 gfxTileHeight(const GfxTile *t);
+/* where a tile's texels came from, when one load filled it from a 16-bit RDRAM image: the GPU-side framebuffer
+ * effects (gfx_fbsnap.c) draw such a tile from the image's GPU copy instead of the decoded texels */
+typedef struct {
+    u32 addr;          /* RDRAM address of the tile's first texel */
+    u32 width, height; /* texels loaded */
+    u32 stride;        /* source texels per row */
+} GfxTileSource;
+int gfxTmemTileSource(const GfxState *st, int t, GfxTileSource *out); /* 0 when the tile has no such load */
 
 /* backend (gfx_gl.c or gfx_null.c) */
 void gfxBackendInit(void);
@@ -95,6 +103,12 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
 void gfxBackendBlankSides(const GfxState *st);
 void gfxBackendPresent(u32 fb, int black);
 void gfxBackendCpuWrote(u32 addr, u32 len);
+/* GPU-side framebuffer effects (issue #35): what an RDRAM buffer the game just filled is a copy of. The GL
+ * backend keeps the same pixels at render scale beside it and draws tiles of it from there; the null backend has
+ * nothing to keep. RDRAM is only read. */
+void gfxBackendFbSnapshot(u32 dst, u32 src, u32 len);
+void gfxBackendFbSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH);
+void gfxBackendFbLerpWhite(u32 dst, u32 src, u32 len, float t);
 void gfxBackendSyncRdram(u32 addr, u32 len);
 /* frame interpolation (gfx.c): the backend draws a VI-image task's matrix-blended replays into the in-between image
  * (offscreen images and RDRAM are left alone), keeps each in a slot and presents a slot on request. The null

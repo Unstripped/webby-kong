@@ -52,6 +52,15 @@ int portGfxSetAlphaToCoverage(int on); /* alpha-tested cutouts as sample coverag
 int portGfxSetMips(int on);     /* generated texture mips (trilinear) for 3D tiles; returns it in effect */
 int portGfxSetAniso(int level); /* anisotropic filtering 0..16 (0/1 = off), clamped to the GPU's maximum */
 int portGfxMaxAniso(void);      /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 1 without the extension */
+/* present pass options (gfx_fb.c), each returning the value in effect */
+int portGfxSetDownsample(int mode); /* 0 = bilinear, 1 = area filter */
+int portGfxSetSharpen(int amount);  /* CAS strength 0 (off) .. 10 */
+int portGfxSetFxaa(int on);
+int portGfxSetDither(int on); /* ordered dither in the pass that writes the canvas */
+/* RDRAM verification of the GPU-side framebuffer effects (gfx.c): log a hash of every framebuffer-coherence
+ * range the game touches; returns the state in effect */
+int portGfxFbHashLog(int on);
+int portGfxFbGpu(int on); /* 0: the effects use the RDRAM texels the CPU path wrote, as before issue #35 */
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */
