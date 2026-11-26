@@ -30,6 +30,16 @@ describe('settings', () => {
     ]);
   });
 
+  it('parses and validates a2c like the other toggles', () => {
+    history.replaceState(null, '', '/?a2c=0');
+    settings.loadSettings();
+    expect(settings.get('a2c')).toBe(0);
+    history.replaceState(null, '', '/?a2c=2');
+    settings.loadSettings();
+    expect(settings.get('a2c')).toBe(1); // out of range: the default
+    expect(settings.set('a2c', 7)).toBe(1);
+  });
+
   it('rejects invalid values and persists only the changed key', () => {
     expect(settings.set('drawdist', 99)).toBe(2);
     expect(JSON.parse(localStorage.getItem('dk64.settings')!)).toEqual({ drawdist: 8, msaa: 3 });

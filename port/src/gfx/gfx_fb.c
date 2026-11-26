@@ -229,7 +229,14 @@ static int samplesFor(int request) {
 
 /* alpha-to-coverage needs sample coverage to mean anything: only with MSAA, and only while --a2c is on */
 static void updateAlphaCoverage(void) {
-    gGfxAlphaCoverage = sA2cRequest && sSamples != 0;
+    int on = sA2cRequest && sSamples != 0;
+    if (on != gGfxAlphaCoverage) {
+        gGfxAlphaCoverage = on;
+        if (sScratch != NULL) { /* after gfxFbInit: a GL context exists and programs may be cached */
+            gfxCombinerDropA2c();
+            gfxGlStateReset(); /* the deleted program may have been current */
+        }
+    }
 }
 
 int portGfxSetAlphaToCoverage(int on) {
@@ -368,6 +375,7 @@ static void copyTexInto(GfxFb *fb, GLuint tex, float sx, float sy, float sw, flo
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
+    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE); /* a draw may have left it on (gfx_gl.c); this quad writes every sample */
     glDepthMask(GL_FALSE);
     glUseProgram(sCopyProg);
     glActiveTexture(GL_TEXTURE0);
@@ -751,6 +759,7 @@ static void depthToReadTarget(void) {
     glViewport(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
+    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     glDisable(GL_SCISSOR_TEST);
     glUseProgram(sDepthReadProg);
     glActiveTexture(GL_TEXTURE0);

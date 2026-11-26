@@ -233,12 +233,19 @@ static GfxProgram build(const GfxProgramKey *k) {
     }
     if (k->alphaMode != 0) {
         const char *ref = k->alphaMode == 1 ? "uAlphaRef" : "0.5";
-        if (k->a2c) {
-            /* GL_SAMPLE_ALPHA_TO_COVERAGE turns this alpha into a sample mask: a cutout edge crossing the pixel
-             * covers the fraction of it the texture's alpha ramp covers (the ramp is one screen pixel wide, so a
-             * flat alpha still gives the hard cutout the discard gave). Coverage 0 writes no sample: no discard. */
+        if (k->a2c && k->alphaMode == 2) {
+            /* coverage mode (G_AC_DITHER, CVG_X_ALPHA): the RDP scales coverage by alpha, which is what
+             * GL_SAMPLE_ALPHA_TO_COVERAGE does with the combined alpha, so it passes through untouched */
+        } else if (k->a2c) {
+            /* GL_SAMPLE_ALPHA_TO_COVERAGE turns this alpha into a sample mask. Every pixel the discard kept
+             * (alpha at or above the reference) keeps full coverage; only the pixels it killed can gain samples,
+             * across the one screen pixel the alpha ramp needs to reach the reference. A flat alpha then still
+             * gives the hard cutout, and a reference of 0 or 1 cannot halve a surface. Coverage 0 writes no
+             * sample, so no discard is needed. */
             snprintf(line, sizeof line,
-                     "    comb.a = clamp((comb.a - %s) / max(fwidth(comb.a), 1e-4) + 0.5, 0.0, 1.0);\n", ref);
+                     "    comb.a = comb.a >= %s ? 1.0 :"
+                     " clamp((comb.a - %s) / max(fwidth(comb.a), 1e-4) + 1.0, 0.0, 1.0);\n",
+                     ref, ref);
             strcat(fs, line);
         } else {
             snprintf(line, sizeof line, "    if (comb.a < %s) discard;\n", ref);
@@ -293,15 +300,32 @@ static GfxProgram build(const GfxProgramKey *k) {
 
 int gGfxProgramBuilt;
 
+static int sLastProgram = -1; /* gfxProgramGet's one-entry hint; every hit still compares the whole key */
+
+/* the alpha-to-coverage setting (and MSAA, which gates it) changed: drop the programs built for the old one, so a
+ * session that toggles it does not keep both variants of every alpha-tested combiner against MAX_PROGRAMS */
+void gfxCombinerDropA2c(void) {
+    int i = 0;
+    while (i < sProgramCount) {
+        if (sPrograms[i].key.a2c) {
+            glDeleteProgram(sPrograms[i].prog.prog);
+            sPrograms[i] = sPrograms[--sProgramCount];
+        } else {
+            i++;
+        }
+    }
+    sLastProgram = -1;
+}
+
 GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
-    static int last = -1;
     int i;
-    if (last >= 0 && last < sProgramCount && memcmp(&sPrograms[last].key, key, sizeof *key) == 0) {
-        return &sPrograms[last].prog;
+    if (sLastProgram >= 0 && sLastProgram < sProgramCount &&
+        memcmp(&sPrograms[sLastProgram].key, key, sizeof *key) == 0) {
+        return &sPrograms[sLastProgram].prog;
     }
     for (i = 0; i < sProgramCount; i++) {
         if (memcmp(&sPrograms[i].key, key, sizeof *key) == 0) {
-            last = i;
+            sLastProgram = i;
             return &sPrograms[i].prog;
         }
     }
@@ -310,6 +334,6 @@ GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
     }
     sPrograms[sProgramCount].key = *key;
     sPrograms[sProgramCount].prog = build(key);
-    last = sProgramCount;
+    sLastProgram = sProgramCount;
     return &sPrograms[sProgramCount++].prog;
 }

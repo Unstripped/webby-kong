@@ -587,7 +587,8 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     /* with MSAA, an alpha-tested triangle turns its alpha into sample coverage instead of discarding whole pixels,
      * so cutout edges (foliage, fences) are smoothed like geometry edges. Not on a blended draw, whose colour the
      * sharpened alpha would then weight, and not on rects: the HUD keeps the exact cutout the game asked for. */
-    key.a2c = (u8)(key.alphaMode != 0 && gGfxAlphaCoverage && !blendOn && !forRect);
+    key.a2c = (u8)(key.alphaMode != 0 && gGfxAlphaCoverage && !blendOn && !forRect &&
+                   !(key.alphaMode == 1 && st->blend[3] == 0)); /* a reference of 0 is a test nothing fails */
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
     /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD

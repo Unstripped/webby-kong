@@ -27,6 +27,8 @@ typedef struct {
 GfxProgram *gfxProgramGet(const GfxProgramKey *key);
 extern int gGfxProgramBuilt; /* gfxProgramGet compiled a program (left it current): set, cleared by gfx_gl.c */
 GLuint gfxCompileProgram(const char *vs, const char *fs);
+/* drop the cached programs built with alpha-to-coverage: the setting (or MSAA) turned it off or on */
+void gfxCombinerDropA2c(void);
 
 /* framebuffers (gfx_fb.c) */
 typedef struct {
