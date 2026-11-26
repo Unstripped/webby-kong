@@ -141,7 +141,10 @@ flowchart LR
   `setSampling` minifies those tiles with `GL_LINEAR_MIPMAP_LINEAR` plus `EXT_texture_filter_anisotropic`,
   instead of aliasing level 0 at render scales up to 6. Building them lazily keeps a texture that is only ever a
   rect, point-filtered, oddly addressed or replaced by a pack from paying for a chain nobody samples, and makes
-  the decision a property of the tile while the chain stays a property of the texture. A tile uses levels only
+  the decision a property of the tile while the chain stays a property of the texture: the bench's Aztec scene
+  builds 143 chains with `glGenerateMipmap` and 245 cutout levels on the CPU, against 279 and 597 when every
+  upload generated them, and its first 600 VIs (the map load plus each texture's first draw) take about 2.13 s
+  with mips against 1.75 s without, with the steady frame unchanged at ~5 ms. A tile uses levels only
   when it filters linearly (`G_TF_POINT` stays bit-exact), when it is a triangle (screen rects draw the HUD at a
   fixed size) and when GL's wrap modes reproduce the RDP's addressing on both axes (`tileMipsOk`: each axis
   masked, so one decoded image is exactly the repeat/mirror period, or clamped, so it ends at its edge; an

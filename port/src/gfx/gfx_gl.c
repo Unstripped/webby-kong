@@ -448,7 +448,9 @@ static int texFilterLinear(const GfxState *st) {
 
 /* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown). mipmapped: 0 none,
  * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips, 3 levels generated for this texture. Anisotropy
- * only means anything with mips, so a level-0 draw of the same texture resets it. */
+ * only means anything with mips, so a level-0 draw of the same texture resets it. Sampler state lives on the
+ * texture object, so a texture two tiles bind with different wrap, filter or mip eligibility re-issues its
+ * parameters on every draw that changes them; that was already so for wrap and filter. */
 static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipmapped, u32 *cache) {
     int linear = texFilterLinear(st);
     float aniso = mipmapped != 0 ? sAniso : 1.0f;
@@ -544,7 +546,7 @@ static void halveImage(const u8 *src, u32 w, u32 h, u8 *dst, u32 dw, u32 dh) {
  * One pass: a 256-bin alpha histogram answers "how many texels pass at this scale" in constant time, since
  * scaling by s passes exactly the texels with alpha >= 128 / s. */
 static void fixCoverage(u8 *px, u32 n, float want) {
-    u32 hist[257], i, target = (u32)(want * (float)n + 0.5f);
+    u32 hist[256], i, target = (u32)(want * (float)n + 0.5f);
     float lo = 0.0f, hi = 16.0f, scale;
     if (target == 0 || target >= n) {
         return;
