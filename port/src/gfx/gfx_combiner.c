@@ -233,15 +233,17 @@ static GfxProgram build(const GfxProgramKey *k) {
     }
     if (k->alphaMode != 0) {
         const char *ref = k->alphaMode == 1 ? "uAlphaRef" : "0.5";
-        if (k->a2c && k->alphaMode == 2) {
-            /* coverage mode (G_AC_DITHER, CVG_X_ALPHA): the RDP scales coverage by alpha, which is what
-             * GL_SAMPLE_ALPHA_TO_COVERAGE does with the combined alpha, so it passes through untouched */
-        } else if (k->a2c) {
+        if (k->a2c) {
             /* GL_SAMPLE_ALPHA_TO_COVERAGE turns this alpha into a sample mask. Every pixel the discard kept
              * (alpha at or above the reference) keeps full coverage; only the pixels it killed can gain samples,
              * across the one screen pixel the alpha ramp needs to reach the reference. A flat alpha then still
              * gives the hard cutout, and a reference of 0 or 1 cannot halve a surface. Coverage 0 writes no
-             * sample, so no discard is needed. */
+             * sample, so no discard is needed.
+             * The coverage modes (alphaMode 2: G_AC_DITHER, CVG_X_ALPHA) are sharpened the same way instead of
+             * feeding alpha to coverage directly. The RDP does scale coverage by alpha, but its band of partly
+             * covered texels is one TMEM texel of bilinear ramp wide; here a texel covers up to six screen pixels,
+             * so passing alpha through makes most of a magnified cutout translucent (measured: Isles palm fronds
+             * lose half their body). The sharpened ramp keeps that band one pixel wide, as it is on hardware. */
             snprintf(line, sizeof line,
                      "    comb.a = comb.a >= %s ? 1.0 :"
                      " clamp((comb.a - %s) / max(fwidth(comb.a), 1e-4) + 1.0, 0.0, 1.0);\n",

@@ -123,8 +123,11 @@ flowchart LR
   coverage instead of discarding the fragment (`gfx_combiner.c` `build`, `gfx_gl.c` `applyState`). The threshold
   test (`alphaMode` 1) keeps full coverage wherever the old test passed and ramps only below the reference, over
   the one screen pixel its own derivative needs, so a cutout edge is smoothed without any pixel losing coverage it
-  had; the coverage modes (`alphaMode` 2, `G_AC_DITHER`/`CVG_X_ALPHA`) pass the alpha straight through, which is
-  what the RDP does with coverage. Only triangles whose blender is off, and only when the test can fail (a
+  had; the coverage modes (`alphaMode` 2, `G_AC_DITHER`/`CVG_X_ALPHA`) are sharpened the same way at a reference
+  of 0.5. Feeding their alpha to coverage directly is what the RDP does, but its partly covered band is one TMEM
+  texel of bilinear ramp wide, and here a texel covers up to six screen pixels, so it makes a magnified cutout
+  translucent (Isles palm fronds lose half their body); the sharpened ramp keeps that band one pixel wide.
+  Only triangles whose blender is off, and only when the test can fail (a
   reference of 0 keeps the discard path): a blended draw would weight its colour by that alpha, and rects keep the
   HUD's exact cutout. The alpha itself never leaves the GPU — RDRAM readbacks pack the colour image with the
   coverage bit set and the blender never reads destination alpha — but depth does change: samples the old test
