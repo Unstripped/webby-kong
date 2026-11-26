@@ -636,30 +636,34 @@ static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) 
 
 #undef PP
 
-static void emitTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+/* the triangle faces away from the viewer under the geometry mode's culling */
+static int culled(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+    /* winding in clip space projected (w-signs handled by the cross product of x/w, y/w) */
+    float dx1, dy1, dx2, dy2, cross;
+    if (!(gGfx.geometry & G_CULL_BOTH)) {
+        return 0;
+    }
+    if ((gGfx.geometry & G_CULL_BOTH) == G_CULL_BOTH) {
+        return 1;
+    }
+    dx1 = v1->x / v1->w - v0->x / v0->w;
+    dy1 = v1->y / v1->w - v0->y / v0->w;
+    dx2 = v2->x / v2->w - v0->x / v0->w;
+    dy2 = v2->y / v2->w - v0->y / v0->w;
+    cross = dx1 * dy2 - dy1 * dx2;
+    if ((v0->w < 0) ^ (v1->w < 0) ^ (v2->w < 0)) {
+        cross = -cross;
+    }
+    return (gGfx.geometry & G_CULL_FRONT) ? cross >= 0 : cross <= 0;
+}
+
+/* one triangle into the pending batch; culling and the debug probe are the caller's, so a smoothed patch is
+ * kept or dropped as a whole (a per-sample cull notches the silhouette it was meant to round) */
+static void batchTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
     int lit;
     if (v0->clip & v1->clip & v2->clip) {
         return;
     }
-    if (gGfx.geometry & G_CULL_BOTH) {
-        /* winding in clip space projected (w-signs handled by the cross product of x/w, y/w) */
-        float dx1 = v1->x / v1->w - v0->x / v0->w, dy1 = v1->y / v1->w - v0->y / v0->w;
-        float dx2 = v2->x / v2->w - v0->x / v0->w, dy2 = v2->y / v2->w - v0->y / v0->w;
-        float cross = dx1 * dy2 - dy1 * dx2;
-        if ((v0->w < 0) ^ (v1->w < 0) ^ (v2->w < 0)) {
-            cross = -cross;
-        }
-        if ((gGfx.geometry & G_CULL_BOTH) == G_CULL_BOTH) {
-            return;
-        }
-        if ((gGfx.geometry & G_CULL_FRONT) && cross >= 0) {
-            return;
-        }
-        if ((gGfx.geometry & G_CULL_BACK) && cross <= 0) {
-            return;
-        }
-    }
-    probeTriangle(v0, v1, v2);
     /* shade was worked out when the vertices were loaded, so whether the batch is lit follows them, not the
      * geometry mode this draw happens to run under */
     lit = gGfxPerPixel && v0->lit && v1->lit && v2->lit;
@@ -699,6 +703,8 @@ static void emitTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
  * normal of per-pixel lighting quadratically. */
 
 #define PN_LEVEL 3 /* samples per edge: PN_LEVEL * PN_LEVEL triangles out of each Kong triangle */
+#define PN_GRID ((PN_LEVEL + 1) * (PN_LEVEL + 2) / 2) /* samples of the triangular barycentric grid */
+#define PN_AT(r, k) ((r) * ((r) + 1) / 2 + (k))
 
 typedef struct {
     float p[10][3]; /* b300 b030 b003 b210 b120 b021 b012 b102 b201 b111 */
@@ -789,7 +795,7 @@ static void pnSample(const PnPatch *q, float u, float v, float w, float pos[3], 
 static void smoothTriangle(const RspVtx *a, const RspVtx *b, const RspVtx *c) {
     PnPatch q;
     Viewport vp;
-    RspVtx grid[PN_LEVEL + 1][PN_LEVEL + 1];
+    RspVtx grid[PN_GRID]; /* row r holds r + 1 samples, from the corner a down to the edge b-c */
     int r, k;
     pnBuild(&q, a, b, c);
     viewportOf(&vp);
@@ -797,7 +803,7 @@ static void smoothTriangle(const RspVtx *a, const RspVtx *b, const RspVtx *c) {
         for (k = 0; k <= r; k++) {
             float u = (float)(PN_LEVEL - r) / PN_LEVEL, v = (float)(r - k) / PN_LEVEL, w = (float)k / PN_LEVEL;
             const RspVtx *corner = u >= v && u >= w ? a : v >= w ? b : c;
-            RspVtx *d = &grid[r][k];
+            RspVtx *d = &grid[PN_AT(r, k)];
             float (*m)[4] = R.proj;
             float pos[3];
             pnSample(&q, u, v, w, pos, gGfxPerPixel ? d->nrm : NULL);
@@ -819,9 +825,9 @@ static void smoothTriangle(const RspVtx *a, const RspVtx *b, const RspVtx *c) {
     }
     for (r = 1; r <= PN_LEVEL; r++) {
         for (k = 0; k < r; k++) {
-            emitTriangle(&grid[r - 1][k], &grid[r][k], &grid[r][k + 1]);
+            batchTriangle(&grid[PN_AT(r - 1, k)], &grid[PN_AT(r, k)], &grid[PN_AT(r, k + 1)]);
             if (k + 1 < r) {
-                emitTriangle(&grid[r - 1][k], &grid[r][k + 1], &grid[r - 1][k + 1]);
+                batchTriangle(&grid[PN_AT(r - 1, k)], &grid[PN_AT(r, k + 1)], &grid[PN_AT(r - 1, k + 1)]);
             }
         }
     }
@@ -844,14 +850,15 @@ static void triangle(int a, int b, int c) {
     v0 = &R.vtx[a];
     v1 = &R.vtx[b];
     v2 = &R.vtx[c];
-    if (v0->clip & v1->clip & v2->clip) {
+    if ((v0->clip & v1->clip & v2->clip) || culled(v0, v1, v2)) {
         return;
     }
+    probeTriangle(v0, v1, v2);
     if (smoothable(v0, v1, v2)) {
         smoothTriangle(v0, v1, v2);
         return;
     }
-    emitTriangle(v0, v1, v2);
+    batchTriangle(v0, v1, v2);
 }
 
 /* ---------------------------------------------------------------- state changes */

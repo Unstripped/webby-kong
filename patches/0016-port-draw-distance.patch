@@ -34,10 +34,9 @@ index a76ed54..08c9d24 100644
          if (active) {
              gBehaviourWorkState = node->actor->customState;
          }
--        rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
 +        // PORT: enemies spawn as far out as they are drawn. Banana fairies (0xF8) keep the N64 range: spawning one
 +        // starts the non-positional "fairy nearby" song 0x42, heard at full volume however far away the fairy is.
-+        rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
+         rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
 +        if (gSpawnEntryTable[node->entryIndex].actorType != 0xF8) {
 +            rangeSq = renderExtendDistance(rangeSq);
 +        }

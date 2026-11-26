@@ -177,11 +177,18 @@ flowchart LR
   block under the same bone matrix, so they get the surface's own patch; left flat they sink into it (Lanky's
   overall buttons disappear).
   The N64 duplicates a vertex wherever texture coordinates or colours break; the duplicates' normals differ, so
-  the patches would crack along those seams. Each `G_VTX` load (one bone matrix) averages the normals of equal
-  object-space positions and displaces with that, while shading keeps the originals.
+  the patches would crack along those seams. Within one `G_VTX` load — one bone matrix — the normals of equal
+  object-space positions are averaged and displace together, while shading keeps the originals. That is the
+  whole guarantee: duplicates split across two loads, as a bone seam or a decal in its own load can be, get a
+  weld each and may still part. Attributes are interpolated over displaced positions, so a texture swims
+  slightly against the original as the patch bends. The mode looks best with per-pixel lighting on, which rounds
+  the shading the same way the patch rounds the silhouette. Culling is decided once from the flat triangle and
+  the whole patch follows it, so a sample that curves past the silhouette is drawn rather than notching it.
   Which models are Kongs comes from game code: `controllerAnimStateLoadAsset` names a model's vertex block —
-  what `renderActorDisplayList` binds to segment 3 — as it enters and leaves the model cache (patch 0027,
-  `portGfxKongModelLoaded`/`Freed`), and the renderer smooths the `G_VTX` loads whose segment base matches. The
+  what `renderActorDisplayList` binds to segment 3 — as it enters the model cache and `controllerAnimFreeModel`
+  unnames it as it leaves (patch 0028, `portGfxKongModelLoaded`/`Freed`); a load of any other model clears the
+  address it lands on, so a free the patch never sees (a heap reset on a map change) cannot leave a stale entry
+  for a later model to inherit. The renderer smooths the `G_VTX` loads whose segment base matches. The
   table is port state: no RDRAM changes, so game logic and quicksave determinism do not, and a kong swap, a
   Disco Chunky change or a quickload reach it through the same cache calls. The interpolation replays smooth
   with the same tessellation, so in-between images line up with their game frames.

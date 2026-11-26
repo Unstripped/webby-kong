@@ -92,7 +92,7 @@ const SETTINGS: Array<RangeDef | SegDef> = [
   seg('perpixel', 'Per-pixel lighting', [[0, 'Off (N64)'], [1, 'On']],
     () => 'Lights and fog are worked out for every pixel instead of every vertex: smoother shading on large surfaces, no fog steps across big triangles'),
   seg('kongsmooth', 'Kong smoothing', [[0, 'Off (N64)'], [1, 'On']],
-    () => 'Curved-surface (PN triangle) subdivision of the Kong models, for rounder silhouettes and shading; other models are untouched'),
+    () => 'Curved-surface (PN triangle) subdivision of the Kong models, for rounder silhouettes; best with per-pixel lighting on, which rounds their shading too'),
 ];
 
 function SettingBox(props: { name: string; now: string; note: string; children: ComponentChildren }) {
