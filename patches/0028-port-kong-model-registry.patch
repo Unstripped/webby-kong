@@ -36,3 +36,15 @@ index e66e0bd..a46a160 100644
              assetFreeBuffer(model, 0x281, 0x15);
          }
      }
+diff --git a/src/global/7CA80_actor_manager.c b/src/global/7CA80_actor_manager.c
+index 0becb02..1f795f4 100644
+--- a/src/global/7CA80_actor_manager.c
++++ b/src/global/7CA80_actor_manager.c
+@@ -544,6 +544,7 @@ void actorInit(void) {
+         gModelCache[i].asset = NULL;
+     }
+     gModelCacheCount = 0;
++    portGfxKongRegistryClear(); /* port: those models go with the heap, so their registrations go too */
+ 
+     for (i = 0; i < 32; i++) {
+         gAnimClipCache[i].id = 0xFFFF;

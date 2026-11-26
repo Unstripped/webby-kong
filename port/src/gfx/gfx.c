@@ -141,6 +141,7 @@ static void flush(void) {
  * and fog loads put it back. */
 void gfxQsRanges(QsSink *out) {
     QS_KEEP(out, gGfxPerPixel);
+    QS_KEEP(out, gGfxKongSmooth);
     QS_KEEP(out, sBatchNrm);
 }
 
@@ -169,10 +170,11 @@ int portGfxSetPerPixel(int on) {
  * with the rest of the port's statics, next to the RDRAM the addresses point into). */
 #define KONG_MODELS 16
 static u32 sKongVtx[KONG_MODELS]; /* segment bases as R.seg holds them; 0 is free */
+static int sKongNext;             /* round-robin slot: the oldest registration goes first when all 16 are taken */
 
 void portGfxKongModelLoaded(const void *vertices) {
     u32 base = portHostAddr((u32)vertices) & 0x00FFFFFFu;
-    int i, free = -1;
+    int i, slot = -1;
     if (base == 0) {
         return;
     }
@@ -180,15 +182,17 @@ void portGfxKongModelLoaded(const void *vertices) {
         if (sKongVtx[i] == base) {
             return;
         }
-        if (sKongVtx[i] == 0 && free < 0) {
-            free = i;
+        if (sKongVtx[i] == 0 && slot < 0) {
+            slot = i;
         }
     }
-    if (free < 0) {
-        gfxWarnOnce("kongfull", "PORT: gfx Kong model registry full");
-        return;
+    if (slot < 0) {
+        /* all sixteen Kong models can be cached at once; past that the oldest registration is the one least
+         * likely to still be drawn, and losing one only costs its smoothing */
+        slot = sKongNext;
+        sKongNext = (sKongNext + 1) % KONG_MODELS;
     }
-    sKongVtx[free] = base;
+    sKongVtx[slot] = base;
 }
 
 void portGfxKongModelFreed(const void *vertices) {
@@ -199,6 +203,13 @@ void portGfxKongModelFreed(const void *vertices) {
             sKongVtx[i] = 0;
         }
     }
+}
+
+/* actorInit: the model cache is emptied without freeing its entries one at a time, because a map change resets
+ * the heap under them, so every address the table holds is stale from here on */
+void portGfxKongRegistryClear(void) {
+    memset(sKongVtx, 0, sizeof sKongVtx);
+    sKongNext = 0;
 }
 
 static int kongModelVertices(u32 base) {

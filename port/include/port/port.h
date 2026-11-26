@@ -145,6 +145,7 @@ extern s32 gPortDiscoChunky; /* 1: Chunky uses model 0xE (afro, disco suit) inst
  * list binds to segment 3, as it enters and leaves the model cache. Port state only; no RDRAM is touched. */
 void portGfxKongModelLoaded(const void *vertices); /* src/global/17B90_anim_controller.c */
 void portGfxKongModelFreed(const void *vertices);
+void portGfxKongRegistryClear(void); /* actorInit (src/global/7CA80_actor_manager.c): the cache is emptied */
 
 /* ---- right-stick camera (web settings; port/src/input.c, the right-stick-camera patch) ---- */
 extern s32 gPortStickCamera;  /* 1: gamepad right stick turns/tilts the camera, D-pad = C buttons, LB/RB add D-pad Left/Right */
