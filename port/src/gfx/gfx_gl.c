@@ -19,6 +19,7 @@ typedef struct {
     u32 sampling; /* setSampling's packed parameters last set on tex, 0 unknown */
     s32 pack;     /* gfxTexpackLookup's pack entry replacing this texture, -1 none */
     u8 mips;      /* generated mip levels above level 0 (texMipsGenerate) */
+    u8 mipsTried; /* generation was attempted: do not pay for it again on every draw */
 } TexEntry;
 
 static SDL_Window *sWindow;
@@ -226,12 +227,10 @@ void gfxGlTexCacheFlush(void) {
     texCacheFlush();
 }
 
-/* --mips: the levels live in the cached textures, so a change re-uploads them */
+/* --mips: no cache flush, because the levels are built lazily (bindTile) and a texture that has them is still
+ * sampled at level 0 once the setting is off; turning it back on finds the chain already there */
 int portGfxSetMips(int on) {
-    if ((on != 0) != sMipsOn) {
-        sMipsOn = on != 0;
-        texCacheFlush();
-    }
+    sMipsOn = on != 0;
     return sMipsOn;
 }
 
@@ -430,11 +429,11 @@ static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
     glGenTextures(1, &tex);
     glsBindTex(unit, tex);
     e = &sTexCache[sTexCount++];
+    memset(e, 0, sizeof *e); /* rows are recycled by a flush: nothing from the old texture may survive */
     e->key = key;
     e->tex = tex;
     e->w = w;
     e->h = h;
-    e->sampling = 0;
     e->pack = -1;
     for (s = texCacheSlot(key, w, h); sTexIndex[s] != 0; s = (s + 1) & (TEX_INDEX_SIZE - 1)) {
     }
@@ -442,14 +441,21 @@ static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
     return e;
 }
 
+/* G_TF_BILERP / G_TF_AVERAGE sample linearly; G_TF_POINT is the RDP's nearest filter */
+static int texFilterLinear(const GfxState *st) {
+    return (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+}
+
 /* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown). mipmapped: 0 none,
- * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips, 3 levels generated on a cache miss. Anisotropy
+ * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips, 3 levels generated for this texture. Anisotropy
  * only means anything with mips, so a level-0 draw of the same texture resets it. */
 static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipmapped, u32 *cache) {
-    int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+    int linear = texFilterLinear(st);
     float aniso = mipmapped != 0 ? sAniso : 1.0f;
+    /* aniso can be a half step on some GPUs (GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT is a float), so the key carries
+     * twice its value instead of truncating it */
     u32 packed = 1u | (u32)(t->cms & 3) << 1 | (u32)(t->cmt & 3) << 3 | (u32)linear << 5 | (u32)mipmapped << 6 |
-                 (u32)aniso << 8;
+                 (u32)(aniso * 2.0f) << 8;
     GLint minFilter = linear ? GL_LINEAR : GL_NEAREST;
     if (*cache == packed) {
         return;
@@ -470,12 +476,19 @@ static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipm
     }
 }
 
-/* A cutout texture: every texel is fully transparent or fully opaque (1-bit alpha formats decode that way, and
- * artists' RGBA16/32 cutouts do too), with both kinds present. Those are the textures an alpha test turns into a
- * shape, so their levels need the coverage fix below; everything else keeps a plain box-filtered chain. The alpha
- * test's reference is a draw parameter, not a texture one, so this is the only signal a cache miss has. */
-static int cutoutTexture(const u8 *px, u32 n) {
+/* A cutout texture: the tile's source format carries one bit of alpha, and the decoded texels are all either
+ * fully transparent or fully opaque, with both kinds present. Those are the textures an alpha test turns into a
+ * shape, so their levels need the coverage fix below; everything else keeps a plain box-filtered chain. The
+ * format test matters because I and IA decode alpha from intensity, where "all 0 or 255" is a two-tone picture,
+ * not a cutout, and rescaling its alpha would change what the combiner reads. The alpha test's reference is a
+ * draw parameter, not a texture one, so the texels are the only other signal there is. */
+static int cutoutTexture(const GfxState *st, const GfxTile *t, const u8 *px, u32 n) {
+    u32 tt = st->otherH & (3u << G_MDSFT_TEXTLUT);
     u32 i, clear = 0, solid = 0;
+    int oneBitAlpha = (t->fmt == G_IM_FMT_RGBA && t->siz == G_IM_SIZ_16b) || (t->fmt == G_IM_FMT_CI && tt == G_TT_RGBA16);
+    if (!oneBitAlpha) {
+        return 0;
+    }
     for (i = 0; i < n; i++) {
         u32 a = px[i * 4 + 3];
         if (a <= 8) {
@@ -489,8 +502,10 @@ static int cutoutTexture(const u8 *px, u32 n) {
     return clear != 0 && solid != 0;
 }
 
-/* box filter to half size (odd sizes keep the last row/column alone). RGB is weighted by alpha: a cutout's
- * transparent texels are usually black, and an unweighted average would darken every edge. */
+/* Box filter to half size. An odd axis leaves its last row or column out of the pairs, which is the right edge
+ * behaviour for a clamped axis; a repeating one is always a power of two here (tileMipsOk only allows a masked
+ * axis to repeat, and a mask gives 2^mask texels), so no pair ever needs to wrap. RGB is weighted by alpha: a
+ * cutout's transparent texels are usually black, and an unweighted average would darken every edge. */
 static void halveImage(const u8 *src, u32 w, u32 h, u8 *dst, u32 dw, u32 dh) {
     u32 x, y, i;
     for (y = 0; y < dh; y++) {
@@ -519,33 +534,36 @@ static void halveImage(const u8 *src, u32 w, u32 h, u8 *dst, u32 dw, u32 dh) {
     }
 }
 
-/* texels an alpha test at the usual half-way reference keeps, after scaling alpha by `scale` */
-static u32 alphaCoverage(const u8 *px, u32 n, float scale) {
-    u32 i, pass = 0;
-    for (i = 0; i < n; i++) {
-        if ((float)px[i * 4 + 3] * scale >= 128.0f) {
-            pass++;
-        }
-    }
-    return pass;
-}
-
 /* Scale a level's alpha so an alpha test keeps the same share of texels as level 0 (Castano's coverage-preserving
  * mips): a box-filtered cutout otherwise loses alpha with every level, and foliage thins out and vanishes with
  * distance. With alpha-to-coverage on (issue #31) the scaled alpha is what the fwidth sharpening sees, so the
- * density holds there too. */
+ * density holds there too.
+ * The coverage is preserved for a test at the half-way reference. `alphaMode` 1 tests against the blend colour's
+ * alpha, which is a draw parameter the cache miss cannot know and which the same texture may be drawn with more
+ * than once, so a reference far from 0.5 keeps less of its density than this restores.
+ * One pass: a 256-bin alpha histogram answers "how many texels pass at this scale" in constant time, since
+ * scaling by s passes exactly the texels with alpha >= 128 / s. */
 static void fixCoverage(u8 *px, u32 n, float want) {
-    float lo = 0.0f, hi = 16.0f, scale = 1.0f;
-    u32 i, target = (u32)(want * (float)n + 0.5f);
-    if (target == 0 || target == n) {
+    u32 hist[257], i, target = (u32)(want * (float)n + 0.5f);
+    float lo = 0.0f, hi = 16.0f, scale;
+    if (target == 0 || target >= n) {
         return;
     }
+    memset(hist, 0, sizeof hist);
+    for (i = 0; i < n; i++) {
+        hist[px[i * 4 + 3]]++;
+    }
+    for (i = 255; i > 0; i--) { /* hist[v] becomes the texels with alpha >= v */
+        hist[i - 1] += hist[i];
+    }
     for (i = 0; i < 12; i++) {
-        scale = (lo + hi) * 0.5f;
-        if (alphaCoverage(px, n, scale) < target) {
-            lo = scale;
+        float s = (lo + hi) * 0.5f;
+        float need = s > 0.0f ? 128.0f / s : 1e9f; /* alpha this scale needs to reach the reference */
+        u32 pass = need > 255.0f ? 0 : hist[(u32)ceilf(need)];
+        if (pass < target) {
+            lo = s;
         } else {
-            hi = scale;
+            hi = s;
         }
     }
     scale = (lo + hi) * 0.5f;
@@ -555,16 +573,19 @@ static void fixCoverage(u8 *px, u32 n, float want) {
     }
 }
 
-/* mip levels for the texture just uploaded as level 0 and bound to the active unit; returns 1 when it has any.
- * A cutout's chain is built here instead of by glGenerateMipmap: the GPU cannot restore its coverage. */
-static int texMipsGenerate(const GfxTexImage *img) {
+/* Mip levels for the texture bound to the active unit, whose level 0 is `img`; returns 1 when it has any. A
+ * cutout's chain is built here instead of by glGenerateMipmap: the GPU cannot restore its coverage. The chain
+ * runs to 1x1 and costs the usual third of the texture on top of it, which is 1 KB on DK64's typical 32x32
+ * RGBA8 decode; capping it would save a quarter of that and give up the levels the distant band samples. */
+static int texMipsGenerate(const GfxState *st, const GfxTile *t, const GfxTexImage *img) {
     u32 w = img->width, h = img->height, n = w * h, level;
-    float want;
+    u32 i, solid = 0;
     u8 *cur, *next;
+    float want;
     if (w < 2 && h < 2) {
         return 0;
     }
-    if (!cutoutTexture(img->rgba, n)) {
+    if (!cutoutTexture(st, t, img->rgba, n)) {
         glGenerateMipmap(GL_TEXTURE_2D);
         return 1;
     }
@@ -576,7 +597,12 @@ static int texMipsGenerate(const GfxTexImage *img) {
         sMipGen = p;
         sMipGenCap = (size_t)n * 8;
     }
-    want = (float)alphaCoverage(img->rgba, n, 1.0f) / (float)n;
+    for (i = 0; i < n; i++) {
+        if (img->rgba[i * 4 + 3] >= 128) {
+            solid++;
+        }
+    }
+    want = (float)solid / (float)n;
     cur = sMipGen;
     next = sMipGen + (size_t)n * 4;
     memcpy(cur, img->rgba, (size_t)n * 4);
@@ -596,9 +622,10 @@ static int texMipsGenerate(const GfxTexImage *img) {
 }
 
 /* A tile may use generated mips only where GL's wrap modes reproduce the RDP's addressing on both axes: a masked
- * axis repeats (or mirrors) exactly one decoded image, and a clamped axis ends at its edge. An unmasked, unclamped
- * axis has no period -- GL_REPEAT then tiles an image that does not tile, and a mip chain would smear the opposite
- * edge across every minified texel -- so those tiles keep level 0, as they do today. */
+ * axis repeats (or mirrors) exactly one decoded image (gfxTileWidth/Height return 2^mask, with the mask capped at
+ * 10 like the RDP's wrap counter, so the image is the period either way), and a clamped axis ends at its edge. An
+ * unmasked, unclamped axis has no period -- GL_REPEAT then tiles an image that does not tile, and a mip chain
+ * would smear the opposite edge across every minified texel -- so those tiles keep level 0, as they do today. */
 static int tileMipsOk(const GfxTile *t) {
     return (t->masks != 0 || (t->cms & G_TX_CLAMP)) && (t->maskt != 0 || (t->cmt & G_TX_CLAMP));
 }
@@ -614,11 +641,6 @@ static TexEntry *tileEntry(const GfxState *st, int tile, int unit, GfxTexImage *
     if (e == NULL && gfxTmemDecode(st, tile & 7, img)) {
         e = texCacheAdd(img->key, img->width, img->height, unit);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img->width, img->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img->rgba);
-        /* levels are made for every texture the setting is on for, not only the tile that missed: the same texels
-         * are bound by other tiles whose addressing differs, and which of them misses first must not decide */
-        if (sMipsOn) {
-            e->mips = (u8)texMipsGenerate(img);
-        }
         e->pack = gfxTexpackLookup(st, tile & 7, img);
     }
     return e;
@@ -656,8 +678,20 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
     size[1] = (float)img.height;
     r = gfxTexpackTexture(e->pack);
     if (r == NULL) {
+        /* levels are built the first time a draw that would sample them asks: a texture only ever bound by rects,
+         * by a point-filtered tile, by addressing GL cannot reproduce or replaced by a pack never pays for them.
+         * The chain is a property of the texture, the decision a property of the tile, so whichever tile missed
+         * first does not decide; `mipsTried` keeps a texture that cannot have them (too small, out of memory)
+         * from being decoded again on every draw. */
+        int mips = sMipsOn && allowMips && texFilterLinear(st) && tileMipsOk(t);
         glsBindTex(unit, e->tex);
-        setSampling(st, t, unit, allowMips && e->mips && tileMipsOk(t) ? 3 : 0, &e->sampling);
+        if (mips && !e->mips && !e->mipsTried) {
+            e->mipsTried = 1;
+            if (gfxTmemDecode(st, tile & 7, &img)) { /* the key matched, so TMEM still holds these texels */
+                e->mips = (u8)texMipsGenerate(st, t, &img);
+            }
+        }
+        setSampling(st, t, unit, mips && e->mips ? 3 : 0, &e->sampling);
         return;
     }
     glsBindTex(unit, r->tex);

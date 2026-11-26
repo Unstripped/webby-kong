@@ -44,7 +44,7 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   msaa: { def: 4, valid: isNum((v) => [0, 1, 2, 4, 8].includes(v)), parse: num, fn: 'port_set_msaa' },
   a2c: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_a2c' },
   mips: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_mips' },
-  aniso: { def: 4, valid: isNum((v) => [0, 1, 2, 4, 8, 16].includes(v)), parse: num, fn: 'port_set_aniso' },
+  aniso: { def: 4, valid: isNum((v) => [0, 2, 4, 8, 16].includes(v)), parse: num, fn: 'port_set_aniso' },
   interp: { def: 1, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_interp' },
   touch: {
     def: 'auto',
