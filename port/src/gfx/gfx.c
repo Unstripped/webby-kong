@@ -157,7 +157,7 @@ int portGfxSetPerPixel(int on) {
     return gGfxPerPixel;
 }
 
-/* ---- Kong model registry (port/include/port/port.h, patches/0027-port-kong-model-registry.patch)
+/* ---- Kong model registry (port/include/port/port.h, the kong-model-registry patch)
  * The renderer only sees display lists, so game code names the Kong models (actor table 5 entries 0-15) as they
  * are cached: their vertex block is what renderActorDisplayList binds to segment 3. This table is port state
  * only - no RDRAM is touched, so game logic and quicksave determinism are unchanged (a quicksave snapshots it
