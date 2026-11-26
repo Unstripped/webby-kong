@@ -34,7 +34,8 @@ static struct {
     int sharpen;    /* CAS strength, 0 (off) to 10 */
     int fxaa;
     int dither;
-} sPost = { 1, 0, 0, 0 };
+    int ready; /* gfxFbInit ran: a setter can compile its program instead of the present that needs it */
+} sPost = { 1, 0, 0, 0, 0 };
 typedef struct {
     GLuint prog;
     GLint uTex, uDither, uSize, uWidth, uTaps, uTexel, uAmount;
@@ -231,6 +232,7 @@ static const char *kFxaaFs = POST_HEAD
     "    float lSE = dot(texture(uTex, vUv + vec2( 1.0,  1.0) * uTexel).rgb, kLuma);\n"
     "    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));\n"
     "    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));\n"
+    /* FXAA's edge test: FXAA_EDGE_THRESHOLD_MIN 1/16 absolute, FXAA_EDGE_THRESHOLD 1/8 of the local maximum */
     "    if (lMax - lMin < max(0.0625, lMax * 0.125)) {\n"
     "        fragColor = vec4(dither(m.rgb), m.a);\n"
     "        return;\n"
@@ -383,24 +385,44 @@ int portGfxSetMsaa(int msaa) {
     return sSamples;
 }
 
-/* present pass options (issue #33), each in effect from the next present on */
+/* present pass options (issue #33): player settings, kept by a quickload like sMsaaRequest, each in effect from
+ * the next present on. Enabling one compiles its program here, not in the present that first needs it. */
+static const PostProg *postProgram(int kind);
+
+static void postPrepare(void) {
+    if (!sPost.ready) {
+        return; /* before gfxFbInit: the settings are stored, gfxFbInit compiles what they need */
+    }
+    postProgram(kPostResample); /* every pass starts with the resample */
+    if (sPost.fxaa) {
+        postProgram(kPostFxaa);
+    }
+    if (sPost.sharpen > 0) {
+        postProgram(kPostSharpen);
+    }
+}
+
 int portGfxSetDownsample(int mode) {
     sPost.downsample = mode != 0;
+    postPrepare();
     return sPost.downsample;
 }
 
 int portGfxSetSharpen(int amount) {
     sPost.sharpen = amount < 0 ? 0 : amount > 10 ? 10 : amount;
+    postPrepare();
     return sPost.sharpen;
 }
 
 int portGfxSetFxaa(int on) {
     sPost.fxaa = on != 0;
+    postPrepare();
     return sPost.fxaa;
 }
 
 int portGfxSetDither(int on) {
     sPost.dither = on != 0;
+    postPrepare();
     return sPost.dither;
 }
 
@@ -419,6 +441,8 @@ void gfxFbInit(void) {
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRb);
     sMaxDim = maxTex < maxRb ? maxTex : maxRb;
     sSamples = samplesFor(sMsaaRequest);
+    sPost.ready = 1;
+    postPrepare(); /* the options the player (or --downsample / --fxaa / --sharpen) set before this */
     portLog("PORT: msaa %d", sSamples);
 }
 
@@ -841,6 +865,9 @@ static void presentImage(const GfxFb *fb, GLuint readFbo, GLuint tex, int winW, 
     sPresented.physH = fb->physH;
     sPresented.ox = fb->ox;
     sPresented.scale = fb->scale;
+    if (vw <= 0 || vh <= 0) {
+        return; /* a canvas of no size (minimised, display: none): nothing to present into */
+    }
     if (!sPost.downsample && !sPost.fxaa && !sPost.sharpen && !sPost.dither) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
         glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);

@@ -123,9 +123,13 @@ flowchart LR
   over what the pass before wrote into a canvas-sized ping-pong target, and the pass that writes the canvas adds
   ordered 8×8 Bayer dither of half a least significant bit (`dither=1`) against banding from quantising the
   filtered values — which hold more precision than the 8-bit image they came from — back to 8 bits. With every
-  option off the `GL_LINEAR` blit runs instead, so that output is the one from before the pass. The VI image and
-  the interpolated in-between images present through the same path, the programs compile on first use, and the
-  mapping the debug pixel probe reads (`sPresented`) is written as before.
+  option off the `GL_LINEAR` blit runs instead, so that output is the one from before the pass. The default is
+  identical to that blit wherever the image is exactly its rectangle's size (the usual case: the scale rounds the
+  canvas height up to a multiple of 240) and better where it is larger, which is the only case an area filter and
+  a bilinear one differ in; an image smaller than its rectangle is bilinear either way. The VI image and
+  the interpolated in-between images present through the same path, the programs compile when an option is set
+  (`postPrepare`), and the mapping the debug pixel probe reads (`sPresented`) is written as before; a canvas of no
+  size (minimised window) presents nothing.
 - Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
   one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
   z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied
