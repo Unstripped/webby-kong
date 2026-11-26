@@ -101,4 +101,5 @@ void gfxFbQsRestored(void);
  * after GL calls made outside a frame */
 void gfxGlTexCacheFlush(void);
 void gfxGlStateReset(void);
+void gfxGlForgetTexture(GLuint tex); /* the name is about to go: the shadow must rebind whatever takes its place */
 #endif

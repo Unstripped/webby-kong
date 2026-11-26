@@ -28,10 +28,11 @@ typedef struct {
     u32 tileW, tileH, cols; /* SNAP_TILES: the tile grid inside the range */
     GLuint tex, fbo;
     u32 texW, texH;
-    u64 hash;      /* the RDRAM bytes this copy stands for */
-    u64 colorHash; /* the same without the coverage bits */
+    u64 hash;        /* the RDRAM bytes this copy stands for */
+    u64 colorHash;   /* the same without the coverage bits */
     u32 checkedTask; /* task the hash was last checked in */
     u32 used;        /* last task a tile came from it: the oldest slot is reused */
+    int alphaDirty;  /* RDRAM coverage bits moved while no GL pass could run; not usable until refreshed */
 } FbSnap;
 
 static FbSnap sSnaps[SNAP_SLOTS];
@@ -205,22 +206,34 @@ static void snapRefreshAlpha(FbSnap *s) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
-/* the slot keeps no image any more; its texture is the largest thing the port holds (11 MB at scale 6) */
+/* The slot keeps no image any more. Its texture (11 MB at scale 6) is deleted at the next task start, not here:
+ * this can run from the middle of a batch, where a GL call of this module would land in someone else's state.
+ * Deleting a texture the renderer's shadow still believes is bound would make that unit sample black. */
 static void snapRelease(FbSnap *s) {
     s->kind = SNAP_FREE;
     s->addr = 0;
     s->len = 0;
-    if (s->tex != 0) {
-        glDeleteTextures(1, &s->tex);
-        glDeleteFramebuffers(1, &s->fbo);
-        s->tex = 0;
-        s->fbo = 0;
-        s->texW = 0;
-        s->texH = 0;
+    s->alphaDirty = 0;
+}
+
+/* task start, outside display-list execution: give back what released slots held */
+static void snapSweep(void) {
+    int i;
+    for (i = 0; i < SNAP_SLOTS; i++) {
+        FbSnap *s = &sSnaps[i];
+        if (s->kind == SNAP_FREE && s->tex != 0) {
+            gfxGlForgetTexture(s->tex); /* the shadow must not skip a rebind of a recycled name */
+            glDeleteTextures(1, &s->tex);
+            glDeleteFramebuffers(1, &s->fbo);
+            s->tex = 0;
+            s->fbo = 0;
+            s->texW = 0;
+            s->texH = 0;
+        }
     }
 }
 
-static int snapValidate(FbSnap *s); /* defined with the other RDRAM checks below */
+static int snapValidate(FbSnap *s, int mayDraw); /* defined with the other RDRAM checks below */
 
 /* the colour image whose GPU pixels a copy of `src` stands for, or NULL when there is none to copy (never drawn,
  * or RDRAM is newer than it: the caller then leaves the effect on its RDRAM texels) */
@@ -260,6 +273,7 @@ void gfxFbSnapOfImage(u32 dst, u32 src, u32 len) {
     glBlitFramebuffer(fb->ox, 0, fb->ox + w * fb->scale, h * fb->scale, 0, (GLint)s->texH, (GLint)s->texW, 0,
                       GL_COLOR_BUFFER_BIT, GL_NEAREST);
     snapRefreshAlpha(s);
+    s->alphaDirty = 0;
     hashRange(dst, len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
@@ -297,6 +311,7 @@ void gfxFbSnapSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tile
                 w * fb->scale / (float)fb->physW, -(float)(h * fb->scale) / (float)fb->physH);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     snapRefreshAlpha(s);
+    s->alphaDirty = 0;
     hashRange(dst, len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
@@ -305,7 +320,7 @@ void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t) {
     FbSnap *from = snapFind(src, 2), *s;
     FbSnap copy;
     if (from != NULL && from->addr == src && from->len == len && from->checkedTask != sSnapTask) {
-        snapValidate(from);
+        snapValidate(from, 1);
     }
     if (from == NULL || from->kind == SNAP_FREE || from->addr != src || from->len != len) {
         s = snapFind(dst, 2);
@@ -338,15 +353,20 @@ void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t) {
     glUniform1f(glGetUniformLocation(sSnapLerpProg, "uT"), t);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     snapRefreshAlpha(s);
+    s->alphaDirty = 0;
     hashRange(dst, s->len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
 
-/* the copy still stands for what RDRAM holds? Nothing but the coverage bits may differ - that is the
+/* Does the copy still stand for what RDRAM holds? Nothing but the coverage bits may differ - that is the
  * transition's mask strip, which the copy's alpha then follows. A write that changes colours (the screen wipe's
  * blur builds its image that way) or anything else that took the buffer over leaves the copy behind, and the
- * effect draws its own RDRAM texels again. Returns 1 when a GL pass ran. */
-static int snapValidate(FbSnap *s) {
+ * effect draws its own RDRAM texels again.
+ *
+ * mayDraw says whether this runs where this module may use GL at all: the game-code hooks and gfxBackendCpuWrote
+ * run between batches, the tile lookup runs in the middle of one (bindTile, after the program is current), so it
+ * passes 0 and leaves the refresh to the next hook. Returns 1 when a GL pass ran. */
+static int snapValidate(FbSnap *s, int mayDraw) {
     u64 full, colors;
     hashRange(s->addr, s->len, &full, &colors);
     s->checkedTask = sSnapTask;
@@ -354,21 +374,27 @@ static int snapValidate(FbSnap *s) {
         snapRelease(s);
         return 0;
     }
-    if (full == s->hash) {
+    if (full == s->hash && !s->alphaDirty) {
+        return 0;
+    }
+    s->hash = full;
+    if (!mayDraw) {
+        s->alphaDirty = 1; /* the copy's alpha is behind RDRAM; no tile comes from it until that is fixed */
         return 0;
     }
     snapRefreshAlpha(s);
-    s->hash = full;
+    s->alphaDirty = 0;
     return 1;
 }
 
 int gfxFbSnapCpuWrote(u32 addr, u32 len) {
     FbSnap *s = snapFind(addr, len);
-    return s != NULL && snapValidate(s);
+    return s != NULL && snapValidate(s, 1);
 }
 
 void gfxFbSnapBeginTask(void) {
     sSnapTask++;
+    snapSweep();
 }
 
 GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size) {
@@ -399,11 +425,12 @@ GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size) {
     /* a tile load's lr is inclusive, so the last column's rect reaches one texel past the image; the copy clamps
      * there, and the mesh's texture coordinates stay inside it */
     if (s->checkedTask != sSnapTask) {
-        /* the bytes the copy stands for must still be in RDRAM: anything else wrote over them */
-        snapValidate(s);
-        if (s->kind == SNAP_FREE) {
-            return 0;
-        }
+        /* the bytes the copy stands for must still be in RDRAM: anything else wrote over them. No GL from here:
+         * a batch is half set up (see snapValidate). */
+        snapValidate(s, 0);
+    }
+    if (s->kind == SNAP_FREE || s->alphaDirty) {
+        return 0;
     }
     s->used = sSnapTask;
     origin[0] = (float)x0;
@@ -413,11 +440,14 @@ GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size) {
     return s->tex;
 }
 
+/* RDRAM was replaced: nothing stands for the buffers any more. Called from gfxBackendQsRestored, outside
+ * display-list execution, so the textures go back now. */
 void gfxFbSnapReset(void) {
     int i;
     for (i = 0; i < SNAP_SLOTS; i++) {
         snapRelease(&sSnaps[i]);
     }
+    snapSweep();
 }
 
 void gfxFbSnapQsRanges(QsSink *out) {

@@ -205,6 +205,16 @@ void gfxGlStateReset(void) {
     glsReset();
 }
 
+/* a texture name is about to be deleted: the shadow must not skip rebinding whatever reuses the name */
+void gfxGlForgetTexture(GLuint tex) {
+    int i;
+    for (i = 0; i < 2; i++) {
+        if (sGls.tex[i] == tex) {
+            sGls.tex[i] = ~0u;
+        }
+    }
+}
+
 /* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
 void gfxBackendQsRestored(void) {
     texCacheFlush();

@@ -1216,12 +1216,13 @@ static void runDl(u32 addr, int depth) {
     }
 }
 
-static int fbGpuState(void); /* below, with the framebuffer-coherence hooks */
+/* the GPU copies of the framebuffer-read effects (issue #35) can be turned off (debug): without a source image
+ * every hook drops the copy it had, so every effect falls back to the RDRAM texels the CPU path wrote */
+static int sFbGpu = 1;
 
 void portGfxInit(void) {
     gfxBackendInit();
-    /* which path the copy effects' image comes from, so a bug report says so */
-    portLog("PORT: fb gpu %d", fbGpuState());
+    portLog("PORT: fb gpu %d", sFbGpu); /* which path the copy effects' image comes from, for bug reports */
 }
 
 static void resetRsp(void) {
@@ -1376,9 +1377,6 @@ int portGfxSetInterp(int level) {
  * the RDRAM range it touched, so a run with the GPU-side effects can be compared with one without. Ranges below
  * 256 bytes (the single depth pixels the game reads every frame) are left out. */
 static int sFbHashLog;
-/* the GPU copies can be turned off (debug): without a source image every hook drops the copy it had, so every
- * effect falls back to the RDRAM texels the CPU path wrote - what the port did before issue #35 */
-static int sFbGpu = 1;
 
 int portGfxFbHashLog(int on) {
     sFbHashLog = on != 0;
@@ -1387,10 +1385,6 @@ int portGfxFbHashLog(int on) {
 
 int portGfxFbGpu(int on) {
     sFbGpu = on != 0;
-    return sFbGpu;
-}
-
-static int fbGpuState(void) {
     return sFbGpu;
 }
 
