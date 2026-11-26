@@ -53,6 +53,9 @@ int portGfxSetDownsample(int mode); /* 0 = bilinear, 1 = area filter */
 int portGfxSetSharpen(int amount);  /* CAS strength 0 (off) .. 10 */
 int portGfxSetFxaa(int on);
 int portGfxSetDither(int on); /* ordered dither in the pass that writes the canvas */
+/* RDRAM verification of the GPU-side framebuffer effects (gfx.c): log a hash of every framebuffer-coherence
+ * range the game touches; returns the state in effect */
+int portGfxFbHashLog(int on);
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */

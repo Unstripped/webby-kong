@@ -1368,10 +1368,35 @@ int portGfxSetInterp(int level) {
     return gfxBackendSetInterp(level);
 }
 
+/* RDRAM verification (docs/debugging.md): with it on, every framebuffer-coherence call logs a hash of the RDRAM
+ * range it touched, so runs of two builds can be compared byte for byte. Ranges below 256 bytes (the single
+ * depth pixels the game reads every frame) are left out. */
+static int sFbHashLog;
+
+int portGfxFbHashLog(int on) {
+    sFbHashLog = on != 0;
+    return sFbHashLog;
+}
+
+static void fbHash(const char *site, u32 addr, u32 len) {
+    const u8 *p = (const u8 *)addr;
+    u64 h = 1469598103934665603ull;
+    u32 i;
+    if (!sFbHashLog || len < 256) {
+        return;
+    }
+    for (i = 0; i < len; i++) {
+        h = (h ^ p[i]) * 1099511628211ull;
+    }
+    portLog("PORT: fbhash %s 0x%08x %u %08x%08x", site, addr, len, (u32)(h >> 32), (u32)h);
+}
+
 void portGfxCpuWrote(const void *p, u32 len) {
     gfxBackendCpuWrote(portHostAddr((u32)p), len);
+    fbHash("cpuwrote", portHostAddr((u32)p), len);
 }
 
 void portGfxSyncRdram(const void *p, u32 len) {
     gfxBackendSyncRdram(portHostAddr((u32)p), len);
+    fbHash("sync", portHostAddr((u32)p), len);
 }
