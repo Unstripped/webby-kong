@@ -242,10 +242,8 @@ static void updateLights(void) {
     if (!R.lightsDirty) {
         return;
     }
-    if (!gGfxPerPixel) { /* per pixel the lights are dotted in eye space, so no object-space copy is needed */
-        for (i = 0; i < R.numLights; i++) {
-            toObject(R.lights[i].dir, R.lights[i].dirObj);
-        }
+    for (i = 0; i < R.numLights; i++) {
+        toObject(R.lights[i].dir, R.lights[i].dirObj);
     }
     toObject(R.lookat[0], R.lookatObj[0]);
     toObject(R.lookat[1], R.lookatObj[1]);
@@ -298,16 +296,16 @@ static void loadVertices(u32 addr, int n, int dst) {
             float nrm[3] = { vn->n[0], vn->n[1], vn->n[2] };
             normalize3(nrm);
             if (gGfxPerPixel) {
-                /* the fragment shader sums the lights: carry the normal into eye space, transformed like the
-                 * position by the modelview, and leave the vertex the colour an unlit fragment gets */
+                /* the fragment shader of a lit batch sums the lights itself: carry the normal into eye space,
+                 * transformed like the position by the modelview */
                 float (*mv)[4] = R.mv[R.mvDepth];
                 d->nrm[0] = nrm[0] * mv[0][0] + nrm[1] * mv[1][0] + nrm[2] * mv[2][0];
                 d->nrm[1] = nrm[0] * mv[0][1] + nrm[1] * mv[1][1] + nrm[2] * mv[2][1];
                 d->nrm[2] = nrm[0] * mv[0][2] + nrm[1] * mv[1][2] + nrm[2] * mv[2][2];
-                d->r = R.lightsEye.ambient[0];
-                d->g = R.lightsEye.ambient[1];
-                d->b = R.lightsEye.ambient[2];
-            } else {
+            }
+            {
+                /* the RSP's own sum stays the vertex colour whatever the mode: a triangle whose vertices were
+                 * not all loaded under G_LIGHTING draws from interpolated shade, and this is its diffuse term */
                 float r = R.lights[R.numLights].col[0];
                 float g = R.lights[R.numLights].col[1];
                 float b = R.lights[R.numLights].col[2];
