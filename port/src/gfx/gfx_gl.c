@@ -207,8 +207,8 @@ void gfxGlStateReset(void) {
 
 /* a texture name is about to be deleted: the shadow must not skip rebinding whatever reuses the name */
 void gfxGlForgetTexture(GLuint tex) {
-    int i;
-    for (i = 0; i < 2; i++) {
+    size_t i;
+    for (i = 0; i < sizeof sGls.tex / sizeof sGls.tex[0]; i++) {
         if (sGls.tex[i] == tex) {
             sGls.tex[i] = ~0u;
         }

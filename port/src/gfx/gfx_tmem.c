@@ -14,7 +14,10 @@ u8 gGfxTmem[4096];
  * its texels. Every load is recorded, whatever its format, so the search stops at the newest one that wrote the
  * TMEM the tile reads - an older record of the same shape describes texels that are no longer there. An RGBA32
  * load fills the same offset in both halves of TMEM, so it has two extents; a TLUT load fills the upper half and
- * can never match. */
+ * can never match. The extents are linear byte ranges: they ignore the wraparound at the end of TMEM that
+ * sampling does (tmemMask) and the stride a multi-row TLUT load writes with, so such a load can cover less than
+ * it really wrote. For that to matter the tile would have to share its TMEM base, width and height with an older
+ * 16-bit load of a copy, which also still has to stand for unchanged RDRAM bytes (gfx_fbsnap.c). */
 #define TMEM_LOADS 8
 static struct {
     u32 tmem, tmemEnd;   /* TMEM bytes the load filled */

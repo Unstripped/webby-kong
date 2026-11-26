@@ -392,9 +392,19 @@ int gfxFbSnapCpuWrote(u32 addr, u32 len) {
     return s != NULL && snapValidate(s, 1);
 }
 
+/* task start, where GL is safe again: hand back what released slots held, and redraw the alpha of a copy whose
+ * coverage bits moved where the tile path could not draw, so it serves the rest of the effect */
 void gfxFbSnapBeginTask(void) {
+    int i;
     sSnapTask++;
     snapSweep();
+    for (i = 0; i < SNAP_SLOTS; i++) {
+        FbSnap *s = &sSnaps[i];
+        if (s->kind != SNAP_FREE && s->alphaDirty) {
+            snapRefreshAlpha(s);
+            s->alphaDirty = 0;
+        }
+    }
 }
 
 GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size) {
