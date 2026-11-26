@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <port@local>
+Date: Thu, 26 Nov 2026 13:32:03 -0700
+Subject: [PATCH] port: kong model registry
+
+
+diff --git a/src/global/17B90_anim_controller.c b/src/global/17B90_anim_controller.c
+index e66e0bd..f403eab 100644
+--- a/src/global/17B90_anim_controller.c
++++ b/src/global/17B90_anim_controller.c
+@@ -68,6 +68,13 @@ unsigned char cullSwap;
+     controllerCommandRelocateAssets(*asset->displayLists, asset->displayLists);
+     animListInit(actor, asset);
+ 
++    /* port: name the Kong models (actor table 5 entries 0-15, Disco Chunky included) for the renderer's
++     * optional smoothing; it recognises their draws by the vertex block renderActorDisplayList binds to
++     * segment 3. Port-side only: nothing here reads or writes game state. */
++    if ((u32)(assetId - 1) <= 0xF) {
++        portGfxKongModelLoaded(asset->vertices);
++    }
++
+     if (cullSwap & 1) {
+         gfxSwapGeometryModeCullBits(*asset->displayLists, asset->displayLists);
+     }
+@@ -369,6 +376,7 @@ void controllerAnimFreeModel(Actor *actor, u8 modelIndex) {
+             gModelCache[gModelCacheCount].cullSwap = 0;
+             gModelCache[gModelCacheCount].refCount = 0;
+ 
++            portGfxKongModelFreed(model->vertices); /* port: this vertex block is no longer a Kong model */
+             assetFreeBuffer(model, 0x281, 0x15);
+         }
+     }

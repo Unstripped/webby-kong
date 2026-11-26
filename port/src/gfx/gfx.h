@@ -67,6 +67,7 @@ extern GfxState gGfx;
 extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * GfxFb.scale), >= 1 */
 extern u8 gGfxTmem[4096];
 extern int gGfxPerPixel; /* player setting: light and fog per fragment instead of per vertex */
+extern int gGfxKongSmooth; /* player setting: PN-triangle smoothing of registered Kong models */
 
 /* gfx_tmem.c */
 void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 dxt);

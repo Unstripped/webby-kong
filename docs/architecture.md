@@ -162,6 +162,33 @@ flowchart LR
   program key gains one bit per mode, so with the mode off exactly the same shaders are built and used as
   before; the normals ride in their own vertex buffer (attribute 3, bound by name), enabled only for lit
   batches. The headless backend ignores both.
+- Kong smoothing (`--kong-smooth`, `?kongsmooth=`, Esc menu "Kong smoothing", `port_set_kong_smooth`; off by
+  default, a prototype): the Kong models are 770–900 triangles each and every one of them is lit, so they carry
+  normals and suit automatic curved-surface subdivision. With the mode on, each lit triangle of a registered Kong
+  model becomes a PN triangle (Vlachos et al. 2001) — a cubic patch through its corners whose tangents follow
+  their normals — sampled on a 3×3 grid and emitted as 9 triangles through the usual batching path, so a Kong
+  costs about nine times its triangles (the batch flushes at its usual size, nothing grows). Positions and
+  normals are in eye space, because about a third of the Kong triangles mix vertices loaded under different bone
+  matrices (one `G_MTX` load per bone); the samples project with `R.proj`. Shade, texture coordinates and the fog
+  alpha are barycentric; with per-pixel lighting on the shading normal is the patch's own quadratic normal, which
+  is what makes the shading as round as the silhouette. `G_TEXTURE_GEN` draws keep their vertices (their texture
+  coordinates come from the normal, so moving them would slide the environment map), as does every unlit or
+  non-Kong draw and every rectangle. Decal draws are smoothed with the rest: their vertices come from the same
+  block under the same bone matrix, so they get the surface's own patch; left flat they sink into it (Lanky's
+  overall buttons disappear).
+  The N64 duplicates a vertex wherever texture coordinates or colours break; the duplicates' normals differ, so
+  the patches would crack along those seams. Each `G_VTX` load (one bone matrix) averages the normals of equal
+  object-space positions and displaces with that, while shading keeps the originals.
+  Which models are Kongs comes from game code: `controllerAnimStateLoadAsset` names a model's vertex block —
+  what `renderActorDisplayList` binds to segment 3 — as it enters and leaves the model cache (patch 0027,
+  `portGfxKongModelLoaded`/`Freed`), and the renderer smooths the `G_VTX` loads whose segment base matches. The
+  table is port state: no RDRAM changes, so game logic and quicksave determinism do not, and a kong swap, a
+  Disco Chunky change or a quickload reach it through the same cache calls. The interpolation replays smooth
+  with the same tessellation, so in-between images line up with their game frames.
+  Known coupling: the game reads the depth buffer every frame (`zbufferReadDepth`: camera probes around the
+  player, the sun, Banana Fairy photos), and smoothing moves Kong surfaces by small amounts, so those reads can
+  differ while the mode is on. Making it safe by default needs the game-visible depth to come from the original
+  geometry.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and

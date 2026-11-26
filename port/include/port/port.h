@@ -132,6 +132,13 @@ extern s32 gPortKongSwap; /* 1: D-pad Left/Right swaps to an unlocked kong (src/
 /* ---- Disco Chunky (web settings; patches/0029-port-disco-chunky.patch) ---- */
 extern s32 gPortDiscoChunky; /* 1: Chunky uses model 0xE (afro, disco suit) instead of 0xC (src/global/CC800.c); switchable live */
 
+/* ---- Kong model registry (web setting "Kong smoothing"; patches/0030-port-kong-model-registry.patch) ----
+ * The renderer smooths the Kong models' lit triangles (actor table 5 entries 0-15, Disco Chunky included) when
+ * the setting is on, and it only sees display lists: these name a model's vertex block, the one an actor display
+ * list binds to segment 3, as it enters and leaves the model cache. Port state only; no RDRAM is touched. */
+void portGfxKongModelLoaded(const void *vertices); /* src/global/17B90_anim_controller.c */
+void portGfxKongModelFreed(const void *vertices);
+
 /* ---- right-stick camera (web settings; port/src/input.c, patches/0028-port-right-stick-camera.patch) ---- */
 extern s32 gPortStickCamera;  /* 1: gamepad right stick turns/tilts the camera, D-pad = C buttons, LB/RB add D-pad Left/Right */
 extern s32 gPortCameraSpeed;  /* 1..10; 5 = the C-button turn rate at full tilt */

@@ -427,6 +427,7 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); 
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_per_pixel(s32 on) { return portGfxSetPerPixel(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_kong_smooth(s32 on) { return portGfxSetKongSmooth(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_kong_swap(s32 on) {
     gPortKongSwap = on != 0;
     return gPortKongSwap;
@@ -471,6 +472,8 @@ int main(int argc, char **argv) {
             msaa = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--per-pixel") == 0) {
             portGfxSetPerPixel(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--kong-smooth") == 0) {
+            portGfxSetKongSmooth(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--drawdist") == 0) {
             setDrawDistance(atof(argv[++a]));
         } else if (strcmp(argv[a], "--audio-rate") == 0) {
