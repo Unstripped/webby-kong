@@ -136,6 +136,23 @@ flowchart LR
   uncertainty MSAA already puts on every geometry edge, and it is bounded by the one-sided ramp: coverage is only
   ever added where the test failed. With MSAA off (`?msaa=0`) or `--a2c 0` the shader keeps the exact `discard`
   and the output is unchanged.
+- Texture mips and anisotropy (`?mips=`, `?aniso=`, Esc menu, `--mips`/`--aniso`; default on and 4x): a texture-cache
+  miss in `tileEntry` builds a full mip chain, and `setSampling` minifies 3D tiles with `GL_LINEAR_MIPMAP_LINEAR`
+  plus `EXT_texture_filter_anisotropic`, instead of aliasing level 0 at render scales up to 6. Three limits keep the
+  original image where mips would be wrong: a tile only uses them when GL's wrap modes reproduce the RDP's
+  addressing on both axes (`tileMipsOk`: each axis masked, so one decoded image is exactly the repeat/mirror period,
+  or clamped, so it ends at its edge; an unmasked unclamped axis has no period and `GL_REPEAT` would smear the
+  opposite edge into every minified texel), screen rects keep level 0 (the HUD is drawn at a fixed size), and
+  `G_TF_POINT` tiles and the N64's own `G_TL_LOD` chains are untouched. A texture whose every texel is fully
+  transparent or fully opaque is a cutout: its levels are box-filtered on the CPU with alpha-weighted colour and
+  each level's alpha rescaled so an alpha test keeps the same share of texels as level 0, otherwise foliage thins
+  out and disappears with distance (and with alpha-to-coverage on, that rescaled alpha is what the sharpening
+  sees). Everything else uses `glGenerateMipmap`. Anisotropy also applies to texture-pack images, which carry
+  their own mips. How much this changes depends on the render scale, because a mip level is only reached where a
+  surface is minified: at the default scale (6 at 1440p) that is the distant band alone (0.03% of the bench
+  scenes' pixels, 1.2% at `?scale=1`), and the cost is a slower cache refill — the frame that re-uploads every
+  visible texture after a map load takes about 15 ms instead of 9 in the bench's Aztec scene, against a 5 ms
+  steady frame.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the

@@ -24,8 +24,8 @@ describe('settings', () => {
     expect(settings.get('msaa')).toBe(4); // stored 3 is invalid: the default
     expect(settings.get('touch')).toBe('on');
     expect(settings.args()).toEqual([
-      '--drawdist', '2', '--scale', '0', '--msaa', '4', '--a2c', '1', '--interp', '1', '--hrtf', '1',
-      '--audio-rate', '44100',
+      '--drawdist', '2', '--scale', '0', '--msaa', '4', '--a2c', '1', '--mips', '1', '--aniso', '4',
+      '--interp', '1', '--hrtf', '1', '--audio-rate', '44100',
       '--kong-swap', '1', '--disco-chunky', '0', '--stick-camera', '1', '--camera-speed', '5', '--camera-invert', '0',
     ]);
   });

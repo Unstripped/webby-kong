@@ -49,6 +49,9 @@ int portGfxSetScale(int scale); /* 0 (auto) / 1..8; 0 on rejection; the next RSP
 int portGfxSetMsaa(int msaa);   /* 0/1/2/4/8 (1 = off); before gfxFbInit stores, after rebuilds; returns samples */
 int portGfxMaxSamples(void);    /* GL_MAX_SAMPLES, 0 before gfxFbInit */
 int portGfxSetAlphaToCoverage(int on); /* alpha-tested cutouts as sample coverage under MSAA; returns it in effect */
+int portGfxSetMips(int on);     /* generated texture mips (trilinear) for 3D tiles; returns it in effect */
+int portGfxSetAniso(int level); /* anisotropic filtering 0..16 (0/1 = off), clamped to the GPU's maximum */
+int portGfxMaxAniso(void);      /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 1 without the extension */
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */

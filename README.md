@@ -155,8 +155,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `interp`, `touch`, `audio3d` and `audiorate` override the Esc
-menu's stored setting for that page load):
+URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `mips`, `aniso`, `interp`, `touch`, `audio3d` and `audiorate`
+override the Esc menu's stored setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |
@@ -165,6 +165,8 @@ menu's stored setting for that page load):
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
 | `a2c=1\|0` | Cutout edges (foliage, fences) anti-aliased from the MSAA samples, default on; no effect with `msaa=0` |
+| `mips=1\|0` | Mip levels for 3D textures (trilinear), default on |
+| `aniso=0\|2\|4\|8\|16` | Anisotropic filtering, default 4, clamped to the GPU's maximum; 0 = off |
 | `interp=0..3` | Frame rate: 0 = the game's own 30 fps; 1, 2, 3 = up to 60, 120, 240 fps by interpolated in-between frames (limited by the display's refresh rate); default 1 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
 | `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |

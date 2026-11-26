@@ -71,6 +71,12 @@ const SETTINGS: Array<RangeDef | SegDef> = [
     () => (settings.get('msaa') > 1
       ? 'Smooth: foliage, fences and grates use the anti-aliasing samples along their cutout edges'
       : 'Needs anti-aliasing: with MSAA off the edges are always hard')),
+  seg('mips', 'Texture mips', [[0, 'Off'], [1, 'On']],
+    () => 'Trilinear mip levels for 3D textures: distant floors and walls stop shimmering as the camera moves'),
+  seg('aniso', 'Anisotropic filtering', [[0, 'Off'], [2, '2×'], [4, '4×'], [8, '8×'], [16, '16×']], () => {
+    const m = settings.maxAniso();
+    return m >= 2 ? `Sharpens textures at grazing angles; your GPU supports up to ${m}×` : 'Not supported by this GPU';
+  }),
   seg('interp', 'Frame rate', [[0, '30 (N64)'], [1, '60'], [2, '120'], [3, '240']],
     () => 'Game logic stays at 30; higher rates add interpolated frames, up to the display\'s refresh rate'),
   seg('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
