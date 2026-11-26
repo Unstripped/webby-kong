@@ -157,44 +157,42 @@ static const char *kCopyFs =
     "out vec4 fragColor;\n"
     "void main() { fragColor = texture(uTex, uSrc.xy + vUv * uSrc.zw); }\n";
 
-int gfxFbQsRanges(QsRange *out) {
-    int n = 0;
-    out[n++] = QS_RANGE(sFbs);
-    out[n++] = QS_RANGE(sFbCount);
-    out[n++] = QS_RANGE(gGfxDepthTex);
-    out[n++] = QS_RANGE(gGfxDepthDirty);
-    out[n++] = QS_RANGE(gGfxDepthW);
-    out[n++] = QS_RANGE(gGfxDepthH);
-    out[n++] = QS_RANGE(gGfxScale);
-    out[n++] = QS_RANGE(sDepthFbo);
-    out[n++] = QS_RANGE(sDepthMsRb);
-    out[n++] = QS_RANGE(sDepthResolveFbo);
-    out[n++] = QS_RANGE(sStageTex);
-    out[n++] = QS_RANGE(sDepthReadProg);
-    out[n++] = QS_RANGE(sDepthReadVao);
-    out[n++] = QS_RANGE(sDepthReadTarget);
-    out[n++] = QS_RANGE(sDepthReadFbo);
-    out[n++] = QS_RANGE(sCopyProg);
-    out[n++] = QS_RANGE(sDownTex);
-    out[n++] = QS_RANGE(sDownFbo);
-    out[n++] = QS_RANGE(sDownW);
-    out[n++] = QS_RANGE(sDownH);
-    out[n++] = QS_RANGE(sScratch);
-    out[n++] = QS_RANGE(sDepthPhysW);
-    out[n++] = QS_RANGE(sDepthPhysH);
-    out[n++] = QS_RANGE(sDepthOx);
-    out[n++] = QS_RANGE(sDepthScale);
-    out[n++] = QS_RANGE(sWinAspect);
-    out[n++] = QS_RANGE(sMaxDim);
-    out[n++] = QS_RANGE(sScaleOverride);
-    out[n++] = QS_RANGE(sLoggedScale);
-    out[n++] = QS_RANGE(sLoggedViW);
-    out[n++] = QS_RANGE(sMsaaRequest);
-    out[n++] = QS_RANGE(sSamples);
-    out[n++] = QS_RANGE(sPresented);
-    out[n++] = QS_RANGE(sInterpImg);
-    out[n++] = QS_RANGE(sDepthPrefetch);
-    return n;
+void gfxFbQsRanges(QsSink *out) {
+    QS_KEEP(out, sFbs);
+    QS_KEEP(out, sFbCount);
+    QS_KEEP(out, gGfxDepthTex);
+    QS_KEEP(out, gGfxDepthDirty);
+    QS_KEEP(out, gGfxDepthW);
+    QS_KEEP(out, gGfxDepthH);
+    QS_KEEP(out, gGfxScale);
+    QS_KEEP(out, sDepthFbo);
+    QS_KEEP(out, sDepthMsRb);
+    QS_KEEP(out, sDepthResolveFbo);
+    QS_KEEP(out, sStageTex);
+    QS_KEEP(out, sDepthReadProg);
+    QS_KEEP(out, sDepthReadVao);
+    QS_KEEP(out, sDepthReadTarget);
+    QS_KEEP(out, sDepthReadFbo);
+    QS_KEEP(out, sCopyProg);
+    QS_KEEP(out, sDownTex);
+    QS_KEEP(out, sDownFbo);
+    QS_KEEP(out, sDownW);
+    QS_KEEP(out, sDownH);
+    QS_KEEP(out, sScratch);
+    QS_KEEP(out, sDepthPhysW);
+    QS_KEEP(out, sDepthPhysH);
+    QS_KEEP(out, sDepthOx);
+    QS_KEEP(out, sDepthScale);
+    QS_KEEP(out, sWinAspect);
+    QS_KEEP(out, sMaxDim);
+    QS_KEEP(out, sScaleOverride);
+    QS_KEEP(out, sLoggedScale);
+    QS_KEEP(out, sLoggedViW);
+    QS_KEEP(out, sMsaaRequest);
+    QS_KEEP(out, sSamples);
+    QS_KEEP(out, sPresented);
+    QS_KEEP(out, sInterpImg);
+    QS_KEEP(out, sDepthPrefetch);
 }
 
 /* RDRAM was replaced: every colour image re-uploads from it, nothing on the GPU is newer */

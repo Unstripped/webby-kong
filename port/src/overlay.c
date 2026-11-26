@@ -21,9 +21,8 @@ typedef struct {
 static OverlayRange sOverlays[] = { OVL_LIST(ENTRY) };
 #define NUM_OVERLAYS ((int)(sizeof sOverlays / sizeof sOverlays[0]))
 
-int portOverlayQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sOverlays);
-    return 1;
+void portOverlayQsRanges(QsSink *out) {
+    QS_KEEP(out, sOverlays);
 }
 
 void portOverlayInit(void) {

@@ -15,9 +15,8 @@ u16 portInputTakeTaps(void) {
     return 0;
 }
 
-int portInputQsRanges(QsRange *out) {
+void portInputQsRanges(QsSink *out) {
     (void)out;
-    return 0;
 }
 #else
 #include <SDL2/SDL.h>
@@ -41,12 +40,11 @@ static u8 sTapReads[NUM_KEYS];
 /* on-screen controller (web/src/game/touch/ via port_touch_pad): held buttons, stick, per-bit tap latches */
 static struct { u16 held; s8 x, y; u8 tapReads[16]; } sTouch;
 
-int portInputQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sPad);
-    out[1] = QS_RANGE(sInit);
-    out[2] = QS_RANGE(sTapReads);
-    out[3] = QS_RANGE(sTouch);
-    return 4;
+void portInputQsRanges(QsSink *out) {
+    QS_KEEP(out, sPad);
+    QS_KEEP(out, sInit);
+    QS_KEEP(out, sTapReads);
+    QS_KEEP(out, sTouch);
 }
 
 u16 portInputTakeTaps(void) {

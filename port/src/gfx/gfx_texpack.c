@@ -56,10 +56,9 @@ static struct {
     u32 dropped;
 } sDump;
 
-int gfxTexpackQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sPack);
-    out[1] = QS_RANGE(sDump);
-    return 2;
+void gfxTexpackQsRanges(QsSink *out) {
+    QS_KEEP(out, sPack);
+    QS_KEEP(out, sDump);
 }
 
 int gfxTexpackActive(void) {

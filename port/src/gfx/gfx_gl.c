@@ -159,33 +159,31 @@ static struct {
     int drawn; /* it drew a VI image */
 } sInterpGl;
 
-int gfxBackendQsRanges(QsRange *out) {
-    int n = 0;
-    out[n++] = QS_RANGE(sWindow);
-    out[n++] = QS_RANGE(sContext);
-    out[n++] = QS_RANGE(sVao);
-    out[n++] = QS_RANGE(sVbo);
-    out[n++] = QS_RANGE(sTexCache);
-    out[n++] = QS_RANGE(sTexCount);
-    out[n++] = QS_RANGE(sWhiteTex);
-    out[n++] = QS_RANGE(sTarget);
-    out[n++] = QS_RANGE(sTargetIsDepth);
-    out[n++] = QS_RANGE(sTaskSerial);
-    out[n++] = QS_RANGE(sCaptureReq);
-    out[n++] = QS_RANGE(sCaptureW);
-    out[n++] = QS_RANGE(sCaptureH);
-    out[n++] = QS_RANGE(sCaptureSeq);
-    out[n++] = QS_RANGE(sCapturePx);
-    out[n++] = QS_RANGE(sCaptureCap);
-    out[n++] = QS_RANGE(sMipChain);
-    out[n++] = QS_RANGE(sMipChainCap);
-    out[n++] = QS_RANGE(sInterpGl);
-    out[n++] = QS_RANGE(sInterpLevel);
-    n += gfxInterpQsRanges(out + n);
-    n += gfxTexpackQsRanges(out + n);
-    n += gfxFbQsRanges(out + n);
-    n += gfxCombinerQsRanges(out + n);
-    return n;
+void gfxBackendQsRanges(QsSink *out) {
+    QS_KEEP(out, sWindow);
+    QS_KEEP(out, sContext);
+    QS_KEEP(out, sVao);
+    QS_KEEP(out, sVbo);
+    QS_KEEP(out, sTexCache);
+    QS_KEEP(out, sTexCount);
+    QS_KEEP(out, sWhiteTex);
+    QS_KEEP(out, sTarget);
+    QS_KEEP(out, sTargetIsDepth);
+    QS_KEEP(out, sTaskSerial);
+    QS_KEEP(out, sCaptureReq);
+    QS_KEEP(out, sCaptureW);
+    QS_KEEP(out, sCaptureH);
+    QS_KEEP(out, sCaptureSeq);
+    QS_KEEP(out, sCapturePx);
+    QS_KEEP(out, sCaptureCap);
+    QS_KEEP(out, sMipChain);
+    QS_KEEP(out, sMipChainCap);
+    QS_KEEP(out, sInterpGl);
+    QS_KEEP(out, sInterpLevel);
+    gfxInterpQsRanges(out);
+    gfxTexpackQsRanges(out);
+    gfxFbQsRanges(out);
+    gfxCombinerQsRanges(out);
 }
 
 static void texCacheFlush(void) {

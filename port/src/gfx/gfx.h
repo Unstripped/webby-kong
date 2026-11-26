@@ -79,7 +79,7 @@ void gfxBackendInterpBegin(void);
 int gfxBackendInterpEnd(int slot); /* 1 when the replay drew the VI image, now kept in `slot` */
 int gfxBackendPresentInterp(int slot);
 void gfxInterpReset(void);
-int gfxInterpQsRanges(QsRange *out);
+void gfxInterpQsRanges(QsSink *out);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);

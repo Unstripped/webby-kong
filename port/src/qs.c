@@ -12,7 +12,7 @@ extern char __qs_data_begin[], __qs_data_end[], __qs_bss_begin[], __qs_bss_end[]
 
 PortResumePoint gPortResume;
 
-#define MAX_KEEP 96
+#define MAX_KEEP 128
 
 static void qsTable(u32 t[6]) {
     if (__qs_data_end < __qs_data_begin || __qs_bss_end < __qs_bss_begin || (u32)__qs_data_begin < 0x800000u) {
@@ -26,20 +26,24 @@ static void qsTable(u32 t[6]) {
     t[5] = (u32)(__qs_bss_end - __qs_bss_begin);
 }
 
-static int collect(QsRange *r) {
-    int n = 0;
-    n += portMainQsRanges(r + n);
-    n += portSaveQsRanges(r + n);
-    n += portInputQsRanges(r + n);
-    n += portAiQsRanges(r + n);
-    n += portDebugQsRanges(r + n);
-    n += portOverlayQsRanges(r + n);
-    n += gfxTmemQsRanges(r + n);
-    n += gfxBackendQsRanges(r + n);
-    if (n > MAX_KEEP) {
-        portAbort("PORT: too many qs keep ranges (%d)", n);
+void portQsAdd(QsSink *s, QsRange r) {
+    if (s->n >= s->cap) {
+        portAbort("PORT: too many qs keep ranges (max %d)", s->cap);
     }
-    return n;
+    s->r[s->n++] = r;
+}
+
+static int collect(QsRange *r) {
+    QsSink s = { r, 0, MAX_KEEP };
+    portMainQsRanges(&s);
+    portSaveQsRanges(&s);
+    portInputQsRanges(&s);
+    portAiQsRanges(&s);
+    portDebugQsRanges(&s);
+    portOverlayQsRanges(&s);
+    gfxTmemQsRanges(&s);
+    gfxBackendQsRanges(&s);
+    return s.n;
 }
 
 /* {start, length} x3: RDRAM, .data, .bss */

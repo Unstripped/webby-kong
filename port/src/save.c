@@ -20,11 +20,10 @@ void portSaveSetPath(const char *path) {
     snprintf(sSavePath, sizeof sSavePath, "%s", path);
 }
 
-int portSaveQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sDirty);
-    out[1] = QS_RANGE(sDirtySince);
-    out[2] = QS_RANGE(sSavePath); /* launch config: a quickload keeps this page's save file */
-    return 3;
+void portSaveQsRanges(QsSink *out) {
+    QS_KEEP(out, sDirty);
+    QS_KEEP(out, sDirtySince);
+    QS_KEEP(out, sSavePath); /* launch config: a quickload keeps this page's save file */
 }
 
 #ifndef PORT_HEADLESS

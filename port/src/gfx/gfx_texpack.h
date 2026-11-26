@@ -18,5 +18,5 @@ s32 gfxTexpackLookup(const GfxState *st, int tile, const GfxTexImage *img);
 GfxPackTex *gfxTexpackTexture(s32 entry);
 /* any pack entries installed */
 int gfxTexpackActive(void);
-int gfxTexpackQsRanges(QsRange *out);
+void gfxTexpackQsRanges(QsSink *out);
 #endif

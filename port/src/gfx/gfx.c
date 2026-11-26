@@ -639,9 +639,8 @@ static struct {
     u8 tmemStart[sizeof gGfxTmem];
 } sInterp;
 
-int gfxInterpQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sInterp);
-    return 1;
+void gfxInterpQsRanges(QsSink *out) {
+    QS_KEEP(out, sInterp);
 }
 
 /* quickload: the previous frame's matrices belong to another timeline */

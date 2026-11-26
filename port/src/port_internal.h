@@ -106,14 +106,18 @@ void portGenLayoutCheck(void);
 /* quicksave (port/src/qs.c): host-only statics kept from the live session across a restore */
 typedef struct { void *p; u32 n; } QsRange;
 #define QS_RANGE(v) ((QsRange){ (void *)&(v), (u32)sizeof(v) })
-int portMainQsRanges(QsRange *out);
-int portSaveQsRanges(QsRange *out);
-int portInputQsRanges(QsRange *out);
-int portAiQsRanges(QsRange *out);
-int portDebugQsRanges(QsRange *out);
-int portOverlayQsRanges(QsRange *out);
-int gfxTmemQsRanges(QsRange *out);
-int gfxBackendQsRanges(QsRange *out);
+/* keep-range collector output: portQsAdd aborts before writing past cap */
+typedef struct { QsRange *r; int n, cap; } QsSink;
+void portQsAdd(QsSink *s, QsRange r);
+#define QS_KEEP(s, v) portQsAdd((s), QS_RANGE(v))
+void portMainQsRanges(QsSink *out);
+void portSaveQsRanges(QsSink *out);
+void portInputQsRanges(QsSink *out);
+void portAiQsRanges(QsSink *out);
+void portDebugQsRanges(QsSink *out);
+void portOverlayQsRanges(QsSink *out);
+void gfxTmemQsRanges(QsSink *out);
+void gfxBackendQsRanges(QsSink *out);
 void gfxBackendQsRestored(void);
 int portThreadsQsEncode(void);
 void portThreadsQsRestoreLive(void);

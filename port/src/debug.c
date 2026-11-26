@@ -35,21 +35,19 @@ int gPortTracePrint;
 static TraceEvent sTrace[TRACE_RING];
 static u32 sTraceNext; /* seq the next event gets */
 
-int portDebugQsRanges(QsRange *out) {
-    int n = 0;
-    out[n++] = QS_RANGE(sTrace);
-    out[n++] = QS_RANGE(sTraceNext);
-    out[n++] = QS_RANGE(gPortTraceMask);
-    out[n++] = QS_RANGE(gPortTracePrint);
-    out[n++] = QS_RANGE(gPortStatVi);
-    out[n++] = QS_RANGE(gPortStatFrames);
-    out[n++] = QS_RANGE(gPortStatGfxTasks);
-    out[n++] = QS_RANGE(gPortStatAudTasks);
-    out[n++] = QS_RANGE(sLastError);
-    out[n++] = QS_RANGE(sPeakCur);
-    out[n++] = QS_RANGE(sPeakLast);
-    out[n++] = QS_RANGE(sPeakTicks);
-    return n;
+void portDebugQsRanges(QsSink *out) {
+    QS_KEEP(out, sTrace);
+    QS_KEEP(out, sTraceNext);
+    QS_KEEP(out, gPortTraceMask);
+    QS_KEEP(out, gPortTracePrint);
+    QS_KEEP(out, gPortStatVi);
+    QS_KEEP(out, gPortStatFrames);
+    QS_KEEP(out, gPortStatGfxTasks);
+    QS_KEEP(out, gPortStatAudTasks);
+    QS_KEEP(out, sLastError);
+    QS_KEEP(out, sPeakCur);
+    QS_KEEP(out, sPeakLast);
+    QS_KEEP(out, sPeakTicks);
 }
 
 void portTrace(u32 cat, const char *fmt, ...) {

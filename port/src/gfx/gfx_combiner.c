@@ -19,12 +19,11 @@ static struct {
 } sVertexShaders[4];
 static int sVertexShaderCount;
 
-int gfxCombinerQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sPrograms);
-    out[1] = QS_RANGE(sProgramCount);
-    out[2] = QS_RANGE(sVertexShaders);
-    out[3] = QS_RANGE(sVertexShaderCount);
-    return 4;
+void gfxCombinerQsRanges(QsSink *out) {
+    QS_KEEP(out, sPrograms);
+    QS_KEEP(out, sProgramCount);
+    QS_KEEP(out, sVertexShaders);
+    QS_KEEP(out, sVertexShaderCount);
 }
 
 static const char *kVertex =

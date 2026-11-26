@@ -213,9 +213,8 @@ static int sEventCount;
 static u16 sHeldButtons;
 /* gPortHeadlessButtons lives in input.c */
 
-int portMainQsRanges(QsRange *out) {
+void portMainQsRanges(QsSink *out) {
     (void)out;
-    return 0;
 }
 
 /* snapshot bytes <-> wasm memory, in port_qs_table order (JS: the RDRAM range starts at address 0) */
@@ -398,18 +397,17 @@ int main(int argc, char **argv) {
 static double sLastMs;
 static int sMenuPaused; /* Esc menu (web/src/game/menu/) open: the game is frozen */
 
-int portMainQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sAccumMs);
-    out[1] = QS_RANGE(sLastMs);
-    out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
-    out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
-    out[4] = QS_RANGE(gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
-    out[5] = QS_RANGE(gPortKongSwap);     /* setting: a quickload keeps it */
-    out[6] = QS_RANGE(gPortStickCamera);  /* settings: a quickload keeps them */
-    out[7] = QS_RANGE(gPortCameraSpeed);
-    out[8] = QS_RANGE(gPortCameraInvert);
-    out[9] = QS_RANGE(gPortDiscoChunky);  /* setting: a quickload keeps it */
-    return 10;
+void portMainQsRanges(QsSink *out) {
+    QS_KEEP(out, sAccumMs);
+    QS_KEEP(out, sLastMs);
+    QS_KEEP(out, gPortDrawDistance); /* launch config: a quickload keeps this run's value */
+    QS_KEEP(out, sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
+    QS_KEEP(out, gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
+    QS_KEEP(out, gPortKongSwap);     /* setting: a quickload keeps it */
+    QS_KEEP(out, gPortStickCamera);  /* settings: a quickload keeps them */
+    QS_KEEP(out, gPortCameraSpeed);
+    QS_KEEP(out, gPortCameraInvert);
+    QS_KEEP(out, gPortDiscoChunky);  /* setting: a quickload keeps it */
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
