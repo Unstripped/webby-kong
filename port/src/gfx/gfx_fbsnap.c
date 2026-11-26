@@ -58,7 +58,7 @@ static const char *kSepiaFs =
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec4 c = texture(uTex, uSrc.xy + vUv * uSrc.zw);\n"
-    "    vec3 c5 = floor(c.rgb * 31.0 + 0.5);\n"
+    "    vec3 c5 = floor(floor(c.rgb * 255.0 + 0.5) / 8.0);\n" /* the 5 bits gfxFbSyncRdram would have written */
     "    float sum = c5.r + c5.g + c5.b;\n"
     "    float a = sum >= 48.0 ? floor((sum - 48.0) / 45.0 * 18.0) : 0.0;\n"
     "    float f = sum / 93.0;\n"
@@ -74,36 +74,25 @@ static const char *kLerpFs =
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec4 c = texture(uTex, vUv);\n"
-    "    vec3 c5 = floor(c.rgb * 31.0 + 0.5);\n"
+    "    vec3 c5 = floor(floor(c.rgb * 255.0 + 0.5) / 8.0);\n"
     "    fragColor = vec4(floor((c5 - 31.0) * uT + 31.0) / 31.0, c.a);\n"
     "}\n";
 
-static u64 hashRange(u32 addr, u32 len) {
+/* the bytes a copy stands for, and the same without the coverage bits: the game may set or clear a pixel's
+ * coverage bit (the transition's mask strip) without changing what the pixel looks like, and then only the
+ * copy's alpha has to follow. Both hashes come out of one pass over the range. */
+static void hashRange(u32 addr, u32 len, u64 *full, u64 *colors) {
     const u8 *p = (const u8 *)addr;
-    u64 h = 1469598103934665603ull;
-    u32 i;
-    for (i = 0; i + 8 <= len; i += 8) {
-        u64 v;
-        memcpy(&v, p + i, sizeof v);
-        h = (h ^ v) * 1099511628211ull;
-    }
-    for (; i < len; i++) {
-        h = (h ^ p[i]) * 1099511628211ull;
-    }
-    return h;
-}
-
-/* the same over the colour bits alone: the game may set or clear a pixel's coverage bit (the transition's mask
- * strip) without changing what the pixel looks like, and only the alpha of the copy has to follow that */
-static u64 hashColors(u32 addr, u32 len) {
-    const u8 *p = (const u8 *)addr;
-    u64 h = 1469598103934665603ull;
+    u64 h = 1469598103934665603ull, c = 1469598103934665603ull;
     u32 i;
     for (i = 0; i + 1 < len; i += 2) {
         h = (h ^ p[i]) * 1099511628211ull;
-        h = (h ^ (u8)(p[i + 1] & 0xFE)) * 1099511628211ull; /* big-endian RGBA5551: bit 0 is coverage */
+        h = (h ^ p[i + 1]) * 1099511628211ull;
+        c = (c ^ p[i]) * 1099511628211ull;
+        c = (c ^ (u8)(p[i + 1] & 0xFE)) * 1099511628211ull; /* big-endian RGBA5551: bit 0 is coverage */
     }
-    return h;
+    *full = h;
+    *colors = c;
 }
 
 static FbSnap *snapFind(u32 addr, u32 len) {
@@ -184,7 +173,7 @@ static void snapRefreshAlpha(FbSnap *s) {
         return;
     }
     for (y = 0; y < h; y++) {
-        u8 *o = &sSnapAlpha[(h - 1 - y) * w]; /* GL rows are bottom-up, the copy's are top-down */
+        u8 *o = &sSnapAlpha[y * w]; /* row 0 of the texture is the copy's top row, as the copy is top-down */
         for (x = 0; x < w; x++) {
             u32 px = s->kind == SNAP_TILES
                          ? ((y / s->tileH) * s->cols + x / s->tileW) * s->tileW * s->tileH +
@@ -216,11 +205,22 @@ static void snapRefreshAlpha(FbSnap *s) {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
+/* the slot keeps no image any more; its texture is the largest thing the port holds (11 MB at scale 6) */
 static void snapRelease(FbSnap *s) {
     s->kind = SNAP_FREE;
     s->addr = 0;
     s->len = 0;
+    if (s->tex != 0) {
+        glDeleteTextures(1, &s->tex);
+        glDeleteFramebuffers(1, &s->fbo);
+        s->tex = 0;
+        s->fbo = 0;
+        s->texW = 0;
+        s->texH = 0;
+    }
 }
+
+static int snapValidate(FbSnap *s); /* defined with the other RDRAM checks below */
 
 /* the colour image whose GPU pixels a copy of `src` stands for, or NULL when there is none to copy (never drawn,
  * or RDRAM is newer than it: the caller then leaves the effect on its RDRAM texels) */
@@ -260,8 +260,7 @@ void gfxFbSnapOfImage(u32 dst, u32 src, u32 len) {
     glBlitFramebuffer(fb->ox, 0, fb->ox + w * fb->scale, h * fb->scale, 0, (GLint)s->texH, (GLint)s->texW, 0,
                       GL_COLOR_BUFFER_BIT, GL_NEAREST);
     snapRefreshAlpha(s);
-    s->hash = hashRange(dst, len);
-    s->colorHash = hashColors(dst, len);
+    hashRange(dst, len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
 
@@ -298,19 +297,20 @@ void gfxFbSnapSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tile
                 w * fb->scale / (float)fb->physW, -(float)(h * fb->scale) / (float)fb->physH);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     snapRefreshAlpha(s);
-    s->hash = hashRange(dst, len);
-    s->colorHash = hashColors(dst, len);
+    hashRange(dst, len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
 
 void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t) {
     FbSnap *from = snapFind(src, 2), *s;
     FbSnap copy;
-    if (from == NULL || from->addr != src || from->len != len || from->checkedTask == 0 ||
-        hashRange(from->addr, from->len) != from->hash) {
+    if (from != NULL && from->addr == src && from->len == len && from->checkedTask != sSnapTask) {
+        snapValidate(from);
+    }
+    if (from == NULL || from->kind == SNAP_FREE || from->addr != src || from->len != len) {
         s = snapFind(dst, 2);
         if (s != NULL) {
-            snapRelease(s);
+            snapRelease(s); /* nothing to fade from: the fade draws its own RDRAM texels */
         }
         return;
     }
@@ -338,26 +338,33 @@ void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t) {
     glUniform1f(glGetUniformLocation(sSnapLerpProg, "uT"), t);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     snapRefreshAlpha(s);
-    s->hash = hashRange(dst, s->len);
-    s->colorHash = hashColors(dst, s->len);
+    hashRange(dst, s->len, &s->hash, &s->colorHash);
     s->checkedTask = sSnapTask;
 }
 
-/* the game wrote the copy. Nothing but the coverage bits may differ from what the GPU copy stands for - that is
- * the transition's mask strip, which the copy's alpha follows. A write that changes colours (the screen wipe's
- * blur builds its image that way) leaves the copy behind: the effect draws its own RDRAM texels again. */
-void gfxFbSnapCpuWrote(u32 addr, u32 len) {
-    FbSnap *s = snapFind(addr, len);
-    if (s == NULL) {
-        return;
-    }
-    if (hashColors(s->addr, s->len) != s->colorHash) {
+/* the copy still stands for what RDRAM holds? Nothing but the coverage bits may differ - that is the
+ * transition's mask strip, which the copy's alpha then follows. A write that changes colours (the screen wipe's
+ * blur builds its image that way) or anything else that took the buffer over leaves the copy behind, and the
+ * effect draws its own RDRAM texels again. Returns 1 when a GL pass ran. */
+static int snapValidate(FbSnap *s) {
+    u64 full, colors;
+    hashRange(s->addr, s->len, &full, &colors);
+    s->checkedTask = sSnapTask;
+    if (colors != s->colorHash) {
         snapRelease(s);
-        return;
+        return 0;
+    }
+    if (full == s->hash) {
+        return 0;
     }
     snapRefreshAlpha(s);
-    s->hash = hashRange(s->addr, s->len);
-    s->checkedTask = sSnapTask;
+    s->hash = full;
+    return 1;
+}
+
+int gfxFbSnapCpuWrote(u32 addr, u32 len) {
+    FbSnap *s = snapFind(addr, len);
+    return s != NULL && snapValidate(s);
 }
 
 void gfxFbSnapBeginTask(void) {
@@ -393,11 +400,10 @@ GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size) {
      * there, and the mesh's texture coordinates stay inside it */
     if (s->checkedTask != sSnapTask) {
         /* the bytes the copy stands for must still be in RDRAM: anything else wrote over them */
-        if (hashRange(s->addr, s->len) != s->hash) {
-            snapRelease(s);
+        snapValidate(s);
+        if (s->kind == SNAP_FREE) {
             return 0;
         }
-        s->checkedTask = sSnapTask;
     }
     s->used = sSnapTask;
     origin[0] = (float)x0;

@@ -914,8 +914,9 @@ EMSCRIPTEN_KEEPALIVE int port_debug_capture_height(void) {
 
 void gfxBackendCpuWrote(u32 addr, u32 len) {
     gfxFbCpuWrote(addr, len);
-    gfxFbSnapCpuWrote(addr, len);
-    glsReset(); /* an alpha refresh of a GPU copy drew with its own state */
+    if (gfxFbSnapCpuWrote(addr, len)) {
+        glsReset(); /* an alpha refresh of a GPU copy drew with its own state */
+    }
 }
 
 /* the GPU-side framebuffer effects (issue #35): the game told the port what an RDRAM buffer it just filled is a

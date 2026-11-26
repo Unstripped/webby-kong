@@ -38,7 +38,7 @@ void gfxFbSnapOfImage(u32 dst, u32 src, u32 len); /* dst holds a copy of colour 
 /* dst holds `cols` x `rows` tiles of `tileW` x `tileH` sepia texels from (x, y) of colour image src */
 void gfxFbSnapSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH);
 void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t); /* dst holds src faded towards white by t */
-void gfxFbSnapCpuWrote(u32 addr, u32 len);          /* the game wrote the range: alpha and hash follow it */
+int gfxFbSnapCpuWrote(u32 addr, u32 len); /* the game wrote the range; 1 when the copy's alpha was redrawn */
 void gfxFbSnapBeginTask(void);                      /* each copy is re-checked against RDRAM once per task */
 /* the copy a tile's texels come from: its texture, the tile's origin and the copy's size in N64 pixels; 0 when
  * the tile does not come from one (the caller decodes the texels as usual) */

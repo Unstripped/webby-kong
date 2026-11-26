@@ -1216,8 +1216,12 @@ static void runDl(u32 addr, int depth) {
     }
 }
 
+static int fbGpuState(void); /* below, with the framebuffer-coherence hooks */
+
 void portGfxInit(void) {
     gfxBackendInit();
+    /* which path the copy effects' image comes from, so a bug report says so */
+    portLog("PORT: fb gpu %d", fbGpuState());
 }
 
 static void resetRsp(void) {
@@ -1383,6 +1387,10 @@ int portGfxFbHashLog(int on) {
 
 int portGfxFbGpu(int on) {
     sFbGpu = on != 0;
+    return sFbGpu;
+}
+
+static int fbGpuState(void) {
     return sFbGpu;
 }
 

@@ -150,8 +150,10 @@ flowchart LR
     buffers, so the effect falls back to its texels until the game makes a new copy.
   - Each effect falls back the same way when there is nothing to copy: no colour image at that address, one never
     drawn by the GPU, or RDRAM newer than it.
-  - The invariant: game state is untouched. The CPU path still computes every byte it did, depth readbacks
-    (`zbufferReadDepth`) are unchanged, no game logic reads colour pixels, and the headless build (which has no
+  - The invariant: game state is untouched. The CPU path still computes every byte it did, and patch 0008 has
+    exactly four `portGfxSyncRdram` sites — `fbCopySetAlpha`, `transitionMaskFramebuffer`,
+    `playerViewCaptureSepiaPhoto` and `zbufferReadDepth` — of which only the last feeds game logic, and it reads
+    depth, which this does not touch. No game logic reads colour pixels, and the headless build (which has no
     GPU copies at all) is bit-identical. What does change is the colour bytes a read of a colour image returns
     once the port has drawn an improved image into it — as they already change with the render scale, MSAA,
     alpha-to-coverage or mips. The case that exists today: the barrel's screen wipe copies the framebuffer twice,

@@ -10,20 +10,24 @@
 u8 gGfxTmem[4096];
 
 /* The source of the last loads, newest last: a tile filled by exactly one of them can be drawn from the RDRAM
- * image's GPU copy (gfx_fbsnap.c) instead of its 16-bit texels. */
+ * image's GPU copy (gfx_fbsnap.c) instead of its 16-bit texels. Each record keeps the TMEM it filled, so the
+ * search stops at the newest load that wrote the TMEM the tile reads - an older record of the same shape
+ * describes texels that are no longer there. */
 #define TMEM_LOADS 8
 static struct {
-    u32 tmem;            /* TMEM byte address the load started at */
-    u32 src;             /* RDRAM address of the first texel */
-    u32 width, height;   /* texels loaded */
-    u32 stride;          /* source texels per row */
+    u32 tmem, tmemEnd;  /* TMEM bytes the load filled */
+    u32 src;            /* RDRAM address of the first texel */
+    u32 width, height;  /* texels loaded */
+    u32 stride;         /* source texels per row */
     u8 siz;
 } sLoads[TMEM_LOADS];
 static u32 sLoadSeq;
 
 static void recordLoad(const GfxTile *t, u32 src, u32 width, u32 height, u32 stride) {
     u32 i = sLoadSeq++ % TMEM_LOADS;
+    u32 row = t->line != 0 ? (u32)t->line * 8 : width * 2;
     sLoads[i].tmem = (u32)t->tmem * 8;
+    sLoads[i].tmemEnd = sLoads[i].tmem + row * height;
     sLoads[i].src = src;
     sLoads[i].width = width;
     sLoads[i].height = height;
@@ -35,20 +39,24 @@ static void recordLoad(const GfxTile *t, u32 src, u32 width, u32 height, u32 str
 int gfxTmemTileSource(const GfxState *st, int ti, GfxTileSource *out) {
     const GfxTile *t = &st->tiles[ti];
     u32 w = gfxTileWidth(t), h = gfxTileHeight(t), base = (u32)t->tmem * 8, n;
+    u32 row = t->line != 0 ? (u32)t->line * 8 : w * 2;
+    u32 end = base + row * h; /* the TMEM the tile reads */
     if (w == 0 || h == 0 || t->siz != G_IM_SIZ_16b || t->fmt != G_IM_FMT_RGBA) {
         return 0;
     }
     for (n = sLoadSeq; n > 0 && n + TMEM_LOADS > sLoadSeq; n--) {
         const u32 i = (n - 1) % TMEM_LOADS;
-        if (sLoads[i].tmem != base || sLoads[i].siz != G_IM_SIZ_16b || sLoads[i].width != w ||
-            sLoads[i].height != h) {
-            continue;
+        if (sLoads[i].tmem == base && sLoads[i].siz == G_IM_SIZ_16b && sLoads[i].width == w &&
+            sLoads[i].height == h) {
+            out->addr = sLoads[i].src;
+            out->width = w;
+            out->height = h;
+            out->stride = sLoads[i].stride;
+            return 1;
         }
-        out->addr = sLoads[i].src;
-        out->width = w;
-        out->height = h;
-        out->stride = sLoads[i].stride;
-        return 1;
+        if (sLoads[i].tmem < end && sLoads[i].tmemEnd > base) {
+            return 0; /* a newer load replaced the texels the tile reads */
+        }
     }
     return 0;
 }
@@ -57,9 +65,8 @@ int gfxTmemTileSource(const GfxState *st, int ti, GfxTileSource *out) {
 static u8 *sDecoded;
 
 void gfxTmemQsRanges(QsSink *out) {
+    /* sLoads/sLoadSeq describe gGfxTmem, which a restore replaces, so they are restored with it */
     QS_KEEP(out, sDecoded);
-    QS_KEEP(out, sLoads);
-    QS_KEEP(out, sLoadSeq);
 }
 
 static u32 texelBytesX2(u32 siz) {
