@@ -8,7 +8,7 @@ import { isOpen } from './control';
 
 interface RangeDef {
   kind: 'range';
-  key: 'drawdist' | 'scale' | 'camspeed';
+  key: 'drawdist' | 'scale' | 'camspeed' | 'sharpen';
   name: string;
   min: number;
   max: number;
@@ -67,6 +67,14 @@ const SETTINGS: Array<RangeDef | SegDef> = [
     const m = settings.maxSamples();
     return m >= 2 ? `MSAA; your GPU supports up to ${m}×` : 'MSAA is not supported by this GPU';
   }),
+  seg('downsample', 'Downsample', [[0, 'Bilinear'], [1, 'Area']],
+    () => 'How the rendered image is fitted to the window: area averages every rendered pixel a screen pixel covers'),
+  seg('fxaa', 'FXAA', [[0, 'Off'], [1, 'On']],
+    () => 'Smooths the edges MSAA leaves (cut-out textures, shader aliasing); slightly softer'),
+  range('sharpen', 'Sharpening', 0, 10, ['Off', 'Max'], (v) => (v === 0 ? 'Off' : `${v}`),
+    'Contrast-adaptive sharpening of the presented image'),
+  seg('dither', 'Dither', [[0, 'Off'], [1, 'On']],
+    () => 'Ordered dither against banding where the filtered image meets the canvas\u2019 8 bits'),
   seg('interp', 'Frame rate', [[0, '30 (N64)'], [1, '60'], [2, '120'], [3, '240']],
     () => 'Game logic stays at 30; higher rates add interpolated frames, up to the display\'s refresh rate'),
   seg('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],

@@ -155,8 +155,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F2 | Debug panel ([docs/debugging.md](docs/debugging.md)) |
 | F8 | Record a debug mark |
 
-URL parameters (`drawdist`, `scale`, `msaa`, `interp`, `touch`, `audio3d` and `audiorate` override the Esc menu's
-stored setting for that page load):
+URL parameters (`drawdist`, `scale`, `msaa`, `downsample`, `fxaa`, `sharpen`, `dither`, `interp`, `touch`,
+`audio3d` and `audiorate` override the Esc menu's stored setting for that page load):
 
 | Parameter | Effect |
 | --- | --- |
@@ -164,6 +164,10 @@ stored setting for that page load):
 | `drawdist=1..16` | Draw/spawn distance factor; 1 = N64 distances, default 4 |
 | `scale=0..8` | Render scale; 0 (default) = automatic from the canvas height |
 | `msaa=0\|1\|2\|4\|8` | Multisampling, default 4 |
+| `downsample=0\|1` | How the rendered image is fitted to the window: 0 = bilinear, 1 (default) = area filter, which averages every rendered pixel a screen pixel covers |
+| `fxaa=0\|1` | FXAA on the presented image, for the edges MSAA leaves (cut-out textures, shader aliasing); default off |
+| `sharpen=0..10` | Contrast-adaptive sharpening of the presented image; 0 (default) = off |
+| `dither=0\|1` | Ordered dither against banding where the filtered image meets the canvas' 8 bits; default off |
 | `interp=0..3` | Frame rate: 0 = the game's own 30 fps; 1, 2, 3 = up to 60, 120, 240 fps by interpolated in-between frames (limited by the display's refresh rate); default 1 |
 | `touch=1` / `touch=0` | Force the touch controller on or off |
 | `audio3d=1` / `audio3d=0` | 3D sound for headphones (positional effects get their direction, front and back included); default on |

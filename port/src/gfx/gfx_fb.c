@@ -26,6 +26,25 @@ static u32 sScaleOverride; /* 0: follow the window height */
 static u32 sLoggedScale, sLoggedViW;
 static int sMsaaRequest = 4;
 static int sSamples; /* 0: MSAA off */
+/* Present pass (issue #33): the finished image reaches the canvas through full-screen shader passes - an area
+ * downsample, optional FXAA and CAS sharpening, ordered dither - instead of one bilinear blit. With every option
+ * off the blit is kept, so that output is bit for bit the one from before the pass. */
+static struct {
+    int downsample; /* 0: bilinear, the blit's filter; 1: area (box) */
+    int sharpen;    /* CAS strength, 0 (off) to 10 */
+    int fxaa;
+    int dither;
+} sPost = { 1, 0, 0, 0 };
+typedef struct {
+    GLuint prog;
+    GLint uTex, uDither, uSize, uWidth, uTaps, uTexel, uAmount;
+} PostProg;
+enum { kPostResample, kPostFxaa, kPostSharpen, kPostProgCount };
+static PostProg sPostProg[kPostProgCount]; /* compiled on first use */
+static struct {
+    GLuint tex, fbo;
+    u32 w, h;
+} sPostBuf[2]; /* canvas-sized ping-pong, for the passes that do not write the canvas */
 /* where the last present put its image on the canvas (gfxFbPresentedToN64, the debug pixel probe) */
 static struct PresentedImage {
     int winW, winH, vx, vy, vw, vh;
@@ -156,6 +175,96 @@ static const char *kCopyFs =
     "in vec2 vUv;\n"
     "out vec4 fragColor;\n"
     "void main() { fragColor = texture(uTex, uSrc.xy + vUv * uSrc.zw); }\n";
+/* The present pass (issue #33). kResampleFs weights every source texel by the area it covers of the destination
+ * pixel's footprint - a box uWidth source texels wide, never narrower than one texel, so an upscale is exactly
+ * bilinear and a downsample is an area filter. kFxaaFs is FXAA 3.11's console edge blend, kSharpenFs is AMD's CAS
+ * without scaling. Whichever pass writes the canvas adds ordered 8x8 Bayer dither of half a least significant bit
+ * (uDither; 0 leaves the colour untouched), against the banding that quantising the filtered values - which carry
+ * more precision than the 8-bit image they came from - back to 8 bits would leave. */
+#define POST_HEAD                                                                                                  \
+    "#version 300 es\n"                                                                                            \
+    "precision highp float;\n"                                                                                     \
+    "uniform sampler2D uTex;\n"                                                                                    \
+    "uniform float uDither;\n"                                                                                     \
+    "in vec2 vUv;\n"                                                                                               \
+    "out vec4 fragColor;\n"                                                                                        \
+    "const int kBayer[64] = int[64](\n"                                                                            \
+    " 0,32, 8,40, 2,34,10,42, 48,16,56,24,50,18,58,26, 12,44, 4,36,14,46, 6,38, 60,28,52,20,62,30,54,22,\n"        \
+    " 3,35,11,43, 1,33, 9,41, 51,19,59,27,49,17,57,25, 15,47, 7,39,13,45, 5,37, 63,31,55,23,61,29,53,21);\n"       \
+    "vec3 dither(vec3 c) {\n"                                                                                      \
+    "    ivec2 p = ivec2(gl_FragCoord.xy) & 7;\n"                                                                  \
+    "    return c + uDither * ((float(kBayer[p.y * 8 + p.x]) + 0.5) * (1.0 / 64.0) - 0.5);\n"                      \
+    "}\n"
+static const char *kResampleFs = POST_HEAD
+    "uniform ivec2 uSize;\n" /* source image in texels */
+    "uniform vec2 uWidth;\n" /* footprint of one destination pixel, in source texels */
+    "uniform ivec2 uTaps;\n"
+    "void main() {\n"
+    "    vec2 lo = vUv * vec2(uSize) - uWidth * 0.5, hi = lo + uWidth;\n"
+    "    ivec2 o = ivec2(floor(lo));\n"
+    "    vec4 sum = vec4(0.0);\n"
+    "    float total = 0.0;\n"
+    "    for (int j = 0; j < uTaps.y; j++) {\n"
+    "        float y = float(o.y + j);\n"
+    "        float wy = min(y + 1.0, hi.y) - max(y, lo.y);\n"
+    "        if (wy <= 0.0) continue;\n"
+    "        for (int i = 0; i < uTaps.x; i++) {\n"
+    "            float x = float(o.x + i);\n"
+    "            float w = wy * (min(x + 1.0, hi.x) - max(x, lo.x));\n"
+    "            if (w <= 0.0) continue;\n"
+    "            sum += w * texelFetch(uTex, clamp(ivec2(o.x + i, o.y + j), ivec2(0), uSize - 1), 0);\n"
+    "            total += w;\n"
+    "        }\n"
+    "    }\n"
+    "    sum /= total;\n"
+    "    fragColor = vec4(dither(sum.rgb), sum.a);\n"
+    "}\n";
+static const char *kFxaaFs = POST_HEAD
+    "uniform vec2 uTexel;\n"
+    "const vec3 kLuma = vec3(0.299, 0.587, 0.114);\n"
+    "void main() {\n"
+    "    vec4 m = texture(uTex, vUv);\n"
+    "    float lM = dot(m.rgb, kLuma);\n"
+    "    float lNW = dot(texture(uTex, vUv + vec2(-1.0, -1.0) * uTexel).rgb, kLuma);\n"
+    "    float lNE = dot(texture(uTex, vUv + vec2( 1.0, -1.0) * uTexel).rgb, kLuma);\n"
+    "    float lSW = dot(texture(uTex, vUv + vec2(-1.0,  1.0) * uTexel).rgb, kLuma);\n"
+    "    float lSE = dot(texture(uTex, vUv + vec2( 1.0,  1.0) * uTexel).rgb, kLuma);\n"
+    "    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));\n"
+    "    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));\n"
+    "    if (lMax - lMin < max(0.0625, lMax * 0.125)) {\n"
+    "        fragColor = vec4(dither(m.rgb), m.a);\n"
+    "        return;\n"
+    "    }\n"
+    "    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));\n"
+    "    float reduce = max((lNW + lNE + lSW + lSE) * (0.25 * 0.125), 0.0078125);\n"
+    "    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -8.0, 8.0) * uTexel;\n"
+    "    vec3 a = 0.5 * (texture(uTex, vUv + dir * (1.0 / 3.0 - 0.5)).rgb +\n"
+    "                    texture(uTex, vUv + dir * (2.0 / 3.0 - 0.5)).rgb);\n"
+    "    vec3 b = a * 0.5 + 0.25 * (texture(uTex, vUv - dir * 0.5).rgb + texture(uTex, vUv + dir * 0.5).rgb);\n"
+    "    float lB = dot(b, kLuma);\n"
+    "    fragColor = vec4(dither(lB < lMin || lB > lMax ? a : b), m.a);\n"
+    "}\n";
+static const char *kSharpenFs = POST_HEAD
+    "uniform vec2 uTexel;\n"
+    "uniform float uAmount;\n" /* CAS peak, negative */
+    "void main() {\n"
+    "    vec4 e = texture(uTex, vUv);\n"
+    "    vec3 a = texture(uTex, vUv + vec2(-1.0, -1.0) * uTexel).rgb;\n"
+    "    vec3 b = texture(uTex, vUv + vec2( 0.0, -1.0) * uTexel).rgb;\n"
+    "    vec3 c = texture(uTex, vUv + vec2( 1.0, -1.0) * uTexel).rgb;\n"
+    "    vec3 d = texture(uTex, vUv + vec2(-1.0,  0.0) * uTexel).rgb;\n"
+    "    vec3 f = texture(uTex, vUv + vec2( 1.0,  0.0) * uTexel).rgb;\n"
+    "    vec3 g = texture(uTex, vUv + vec2(-1.0,  1.0) * uTexel).rgb;\n"
+    "    vec3 h = texture(uTex, vUv + vec2( 0.0,  1.0) * uTexel).rgb;\n"
+    "    vec3 i = texture(uTex, vUv + vec2( 1.0,  1.0) * uTexel).rgb;\n"
+    "    vec3 mn = min(min(min(d, e.rgb), min(f, b)), h);\n"
+    "    vec3 mx = max(max(max(d, e.rgb), max(f, b)), h);\n"
+    "    mn += min(min(min(mn, a), min(c, g)), i);\n"
+    "    mx += max(max(max(mx, a), max(c, g)), i);\n"
+    "    vec3 w = sqrt(clamp(min(mn, 2.0 - mx) / max(mx, vec3(1.0 / 255.0)), 0.0, 1.0)) * uAmount;\n"
+    "    vec3 col = clamp((b * w + d * w + f * w + h * w + e.rgb) / (1.0 + 4.0 * w), 0.0, 1.0);\n"
+    "    fragColor = vec4(dither(col), e.a);\n"
+    "}\n";
 
 void gfxFbQsRanges(QsSink *out) {
     QS_KEEP(out, sFbs);
@@ -190,6 +299,9 @@ void gfxFbQsRanges(QsSink *out) {
     QS_KEEP(out, sLoggedViW);
     QS_KEEP(out, sMsaaRequest);
     QS_KEEP(out, sSamples);
+    QS_KEEP(out, sPost);
+    QS_KEEP(out, sPostProg);
+    QS_KEEP(out, sPostBuf);
     QS_KEEP(out, sPresented);
     QS_KEEP(out, sInterpImg);
     QS_KEEP(out, sDepthPrefetch);
@@ -269,6 +381,27 @@ int portGfxSetMsaa(int msaa) {
     }
     portLog("PORT: msaa %d", sSamples);
     return sSamples;
+}
+
+/* present pass options (issue #33), each in effect from the next present on */
+int portGfxSetDownsample(int mode) {
+    sPost.downsample = mode != 0;
+    return sPost.downsample;
+}
+
+int portGfxSetSharpen(int amount) {
+    sPost.sharpen = amount < 0 ? 0 : amount > 10 ? 10 : amount;
+    return sPost.sharpen;
+}
+
+int portGfxSetFxaa(int on) {
+    sPost.fxaa = on != 0;
+    return sPost.fxaa;
+}
+
+int portGfxSetDither(int on) {
+    sPost.dither = on != 0;
+    return sPost.dither;
 }
 
 void gfxFbInit(void) {
@@ -585,8 +718,101 @@ void gfxFbInterpClearDepth(void) {
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
-/* letterboxed blit of an image shaped like `fb` (NULL: black), read from `readFbo`, to the canvas */
-static void presentImage(const GfxFb *fb, GLuint readFbo, int winW, int winH) {
+/* one program of the present pass, compiled and its uniforms looked up on first use */
+static const PostProg *postProgram(int kind) {
+    PostProg *p = &sPostProg[kind];
+    if (p->prog == 0) {
+        p->prog = gfxCompileProgram(kQuadVs, kind == kPostResample ? kResampleFs
+                                             : kind == kPostFxaa   ? kFxaaFs
+                                                                   : kSharpenFs);
+        p->uTex = glGetUniformLocation(p->prog, "uTex");
+        p->uDither = glGetUniformLocation(p->prog, "uDither");
+        p->uSize = glGetUniformLocation(p->prog, "uSize");
+        p->uWidth = glGetUniformLocation(p->prog, "uWidth");
+        p->uTaps = glGetUniformLocation(p->prog, "uTaps");
+        p->uTexel = glGetUniformLocation(p->prog, "uTexel");
+        p->uAmount = glGetUniformLocation(p->prog, "uAmount");
+    }
+    return p;
+}
+
+/* canvas-sized colour target one pass hands to the next */
+static GLuint postTarget(int i, u32 w, u32 h) {
+    if (sPostBuf[i].fbo == 0) {
+        glGenFramebuffers(1, &sPostBuf[i].fbo);
+        glGenTextures(1, &sPostBuf[i].tex);
+    }
+    if (sPostBuf[i].w != w || sPostBuf[i].h != h) {
+        sPostBuf[i].w = w;
+        sPostBuf[i].h = h;
+        glBindTexture(GL_TEXTURE_2D, sPostBuf[i].tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindFramebuffer(GL_FRAMEBUFFER, sPostBuf[i].fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sPostBuf[i].tex, 0);
+        checkComplete(sPostBuf[i].fbo, w, h);
+    }
+    return sPostBuf[i].fbo;
+}
+
+/* `tex` (srcW x srcH) into the canvas rectangle through the enabled passes: the resample always, then FXAA and
+ * sharpening, each reading what the one before wrote. The last one writes the canvas and carries the dither. */
+static void presentPass(GLuint tex, u32 srcW, u32 srcH, int vx, int vy, int vw, int vh) {
+    int kinds[kPostProgCount], n = 0, i, buf = 0;
+    kinds[n++] = kPostResample;
+    if (sPost.fxaa) {
+        kinds[n++] = kPostFxaa;
+    }
+    if (sPost.sharpen > 0) {
+        kinds[n++] = kPostSharpen;
+    }
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_FALSE);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(sDepthReadVao);
+    for (i = 0; i < n; i++) {
+        const PostProg *p = postProgram(kinds[i]);
+        int last = i == n - 1;
+        glBindFramebuffer(GL_FRAMEBUFFER, last ? 0 : postTarget(buf, (u32)vw, (u32)vh));
+        glViewport(last ? vx : 0, last ? vy : 0, vw, vh);
+        glUseProgram(p->prog);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glUniform1i(p->uTex, 0);
+        glUniform1f(p->uDither, last && sPost.dither ? 1.0f / 255.0f : 0.0f);
+        if (kinds[i] == kPostResample) {
+            /* a box of one destination pixel in source texels (at least one: an upscale stays bilinear) */
+            float wx = 1.0f, wy = 1.0f;
+            if (sPost.downsample) {
+                wx = (float)srcW / vw;
+                wy = (float)srcH / vh;
+                wx = wx < 1.0f ? 1.0f : wx;
+                wy = wy < 1.0f ? 1.0f : wy;
+            }
+            glUniform2i(p->uSize, (GLint)srcW, (GLint)srcH);
+            glUniform2f(p->uWidth, wx, wy);
+            glUniform2i(p->uTaps, (GLint)wx + 2, (GLint)wy + 2); /* ceil(width) + 1 texels can overlap it */
+        } else {
+            glUniform2f(p->uTexel, 1.0f / vw, 1.0f / vh);
+            if (kinds[i] == kPostSharpen) {
+                glUniform1f(p->uAmount, -0.125f - 0.075f * (sPost.sharpen / 10.0f)); /* CAS peak, -1/8 .. -1/5 */
+            }
+        }
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        if (!last) {
+            tex = sPostBuf[buf].tex;
+            buf ^= 1;
+        }
+    }
+}
+
+/* letterboxed present of an image shaped like `fb` (NULL: black) to the canvas: the shader passes, or the blit of
+ * `readFbo` they replaced when every present option is off */
+static void presentImage(const GfxFb *fb, GLuint readFbo, GLuint tex, int winW, int winH) {
     int vw, vh, vx, vy;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
@@ -615,8 +841,12 @@ static void presentImage(const GfxFb *fb, GLuint readFbo, int winW, int winH) {
     sPresented.physH = fb->physH;
     sPresented.ox = fb->ox;
     sPresented.scale = fb->scale;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
-    glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    if (!sPost.downsample && !sPost.fxaa && !sPost.sharpen && !sPost.dither) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
+        glBlitFramebuffer(0, 0, fb->physW, fb->physH, vx, vy, vx + vw, vy + vh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        return;
+    }
+    presentPass(tex, fb->physW, fb->physH, vx, vy, vw, vh);
 }
 
 void gfxFbPresent(u32 addr, int black, int winW, int winH) {
@@ -631,7 +861,7 @@ void gfxFbPresent(u32 addr, int black, int winW, int winH) {
         }
         gfxFbResolve(fb);
     }
-    presentImage(fb, fb != NULL ? fb->resolveFbo : 0, winW, winH);
+    presentImage(fb, fb != NULL ? fb->resolveFbo : 0, fb != NULL ? fb->color : 0, winW, winH);
 }
 
 /* the replay just drawn into the in-between image, resolved into `slot` */
@@ -668,7 +898,7 @@ int gfxFbPresentInterp(int slot, int winW, int winH) {
         fb->physW == 0) {
         return 0;
     }
-    presentImage(fb, sInterpImg.slotFbo[slot], winW, winH);
+    presentImage(fb, sInterpImg.slotFbo[slot], sInterpImg.slotTex[slot], winW, winH);
     return 1;
 }
 

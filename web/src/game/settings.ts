@@ -1,5 +1,5 @@
-// Player settings (draw distance, render scale, MSAA, 60 fps, touch controller, 3D sound, audio rate, kong swap,
-// Disco Chunky, right-stick camera):
+// Player settings (draw distance, render scale, MSAA, present pass, 60 fps, touch controller, 3D sound, audio
+// rate, kong swap, Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
 import { signal } from '@preact/signals';
@@ -20,6 +20,10 @@ export interface SettingsValues {
   stickcam: number;
   camspeed: number;
   caminvert: number;
+  downsample: number;
+  sharpen: number;
+  fxaa: number;
+  dither: number;
 }
 
 export type SettingKey = keyof SettingsValues;
@@ -53,6 +57,10 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   stickcam: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_stick_camera' },
   camspeed: { def: 5, valid: isNum((v) => Number.isInteger(v) && v >= 1 && v <= 10), parse: num, fn: 'port_set_camera_speed' },
   caminvert: { def: 0, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_camera_invert' },
+  downsample: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_downsample' },
+  sharpen: { def: 0, valid: isNum((v) => Number.isInteger(v) && v >= 0 && v <= 10), parse: num, fn: 'port_set_sharpen' },
+  fxaa: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_fxaa' },
+  dither: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_dither' },
 };
 
 const KEYS = Object.keys(DEFS) as SettingKey[];
@@ -129,6 +137,8 @@ export function args(): string[] {
     '--kong-swap', String(v.kongswap), '--disco-chunky', String(v.discochunky),
     '--stick-camera', String(v.stickcam),
     '--camera-speed', String(v.camspeed), '--camera-invert', String(v.caminvert),
+    '--downsample', String(v.downsample), '--sharpen', String(v.sharpen),
+    '--fxaa', String(v.fxaa), '--dither', String(v.dither),
   ];
 }
 

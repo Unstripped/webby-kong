@@ -440,6 +440,10 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_stick_camera(s32 on) {
 }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_speed(s32 v) { return setCameraSpeed(v); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_invert(s32 v) { return setCameraInvert(v); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_downsample(s32 mode) { return portGfxSetDownsample(mode); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_sharpen(s32 amount) { return portGfxSetSharpen(amount); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_fxaa(s32 on) { return portGfxSetFxaa(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_dither(s32 on) { return portGfxSetDither(on); }
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -486,6 +490,14 @@ int main(int argc, char **argv) {
             setCameraSpeed(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--camera-invert") == 0) {
             setCameraInvert(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--downsample") == 0) {
+            portGfxSetDownsample(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--sharpen") == 0) {
+            portGfxSetSharpen(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--fxaa") == 0) {
+            portGfxSetFxaa(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--dither") == 0) {
+            portGfxSetDither(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--save-file") == 0) {
             portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }
