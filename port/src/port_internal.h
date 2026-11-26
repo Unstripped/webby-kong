@@ -48,6 +48,7 @@ void portGfxInit(void);
 int portGfxSetScale(int scale); /* 0 (auto) / 1..8; 0 on rejection; the next RSP task resizes the images */
 int portGfxSetMsaa(int msaa);   /* 0/1/2/4/8 (1 = off); before gfxFbInit stores, after rebuilds; returns samples */
 int portGfxMaxSamples(void);    /* GL_MAX_SAMPLES, 0 before gfxFbInit */
+int portGfxSetAlphaToCoverage(int on); /* alpha-tested cutouts as sample coverage under MSAA; returns it in effect */
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */

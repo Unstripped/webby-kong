@@ -25,6 +25,7 @@ export type PortExport =
   | 'port_set_drawdist'
   | 'port_set_scale'
   | 'port_set_msaa'
+  | 'port_set_a2c'
   | 'port_gfx_max_samples'
   | 'port_set_audio_hrtf'
   | 'port_audio_rate'

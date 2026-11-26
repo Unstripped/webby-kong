@@ -1,5 +1,5 @@
-// Player settings (draw distance, render scale, MSAA, 60 fps, touch controller, 3D sound, audio rate, kong swap,
-// Disco Chunky, right-stick camera):
+// Player settings (draw distance, render scale, MSAA, cutout anti-aliasing, 60 fps, touch controller, 3D sound,
+// audio rate, kong swap, Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
 import { signal } from '@preact/signals';
@@ -11,6 +11,7 @@ export interface SettingsValues {
   drawdist: number;
   scale: number;
   msaa: number;
+  a2c: number;
   interp: number;
   touch: TouchMode;
   audio3d: number;
@@ -39,6 +40,7 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   drawdist: { def: 4, valid: isNum((v) => Number.isFinite(v) && v >= 1 && v <= 16), parse: num, fn: 'port_set_drawdist' },
   scale: { def: 0, valid: isNum((v) => Number.isInteger(v) && v >= 0 && v <= 8), parse: num, fn: 'port_set_scale' },
   msaa: { def: 4, valid: isNum((v) => [0, 1, 2, 4, 8].includes(v)), parse: num, fn: 'port_set_msaa' },
+  a2c: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_a2c' },
   interp: { def: 1, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_interp' },
   touch: {
     def: 'auto',
@@ -124,7 +126,7 @@ export function set<K extends SettingKey>(key: K, value: SettingsValues[K]): Set
 export function args(): string[] {
   const v = values.value;
   return [
-    '--drawdist', String(v.drawdist), '--scale', String(v.scale), '--msaa', String(v.msaa),
+    '--drawdist', String(v.drawdist), '--scale', String(v.scale), '--msaa', String(v.msaa), '--a2c', String(v.a2c),
     '--interp', String(v.interp), '--hrtf', String(v.audio3d), '--audio-rate', String(v.audiorate),
     '--kong-swap', String(v.kongswap), '--disco-chunky', String(v.discochunky),
     '--stick-camera', String(v.stickcam),

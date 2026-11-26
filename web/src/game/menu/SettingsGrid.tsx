@@ -67,6 +67,10 @@ const SETTINGS: Array<RangeDef | SegDef> = [
     const m = settings.maxSamples();
     return m >= 2 ? `MSAA; your GPU supports up to ${m}×` : 'MSAA is not supported by this GPU';
   }),
+  seg('a2c', 'Cutout edges', [[0, 'Hard'], [1, 'Smooth']],
+    () => (settings.get('msaa') > 1
+      ? 'Smooth: foliage, fences and grates use the anti-aliasing samples along their cutout edges'
+      : 'Needs anti-aliasing: with MSAA off the edges are always hard')),
   seg('interp', 'Frame rate', [[0, '30 (N64)'], [1, '60'], [2, '120'], [3, '240']],
     () => 'Game logic stays at 30; higher rates add interpolated frames, up to the display\'s refresh rate'),
   seg('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],

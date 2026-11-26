@@ -38,7 +38,7 @@ static size_t sMipChainCap;
 static struct {
     GLuint prog, vao, vbo, tex[2];
     int unit;
-    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest;
+    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest, alphaCoverage;
     GLenum depthFunc;
     GLint scissor[4];
 } sGls;
@@ -572,6 +572,9 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     u32 fp = (blend1 >> 14) & 3, fa = (blend1 >> 10) & 3; /* cycle 1 P/A */
     float tile0[4], tile1[4], size0[2], size1[2], mipTile[8][4], mipSize[8][2];
     int t0 = forRect ? tile : st->texTile, maxLevel;
+    /* the blender the RDP asks for: IN*A_IN + MEM*(1-A) under FORCE_BL (GL_BLEND below) */
+    int blendOn = (om & FORCE_BL) && bp == G_BL_CLR_IN && ba == G_BL_A_IN && bm == G_BL_CLR_MEM && bb == G_BL_1MA &&
+                  cyc < 2;
     memset(&key, 0, sizeof key);
     key.combineHi = st->combineHi;
     key.combineLo = st->combineLo;
@@ -581,6 +584,10 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     } else if ((om & 3) == G_AC_DITHER || ((om & ALPHA_CVG_SEL) && (om & CVG_X_ALPHA) && !(om & FORCE_BL))) {
         key.alphaMode = cyc == 2 ? 1 : 2;
     }
+    /* with MSAA, an alpha-tested triangle turns its alpha into sample coverage instead of discarding whole pixels,
+     * so cutout edges (foliage, fences) are smoothed like geometry edges. Not on a blended draw, whose colour the
+     * sharpened alpha would then weight, and not on rects: the HUD keeps the exact cutout the game asked for. */
+    key.a2c = (u8)(key.alphaMode != 0 && gGfxAlphaCoverage && !blendOn && !forRect);
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
     /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD
@@ -632,7 +639,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     glsU2(p->uSize1, p->cSize1, size1);
 
     /* blending: IN*A_IN + MEM*(1-A) under FORCE_BL */
-    if ((om & FORCE_BL) && bp == G_BL_CLR_IN && ba == G_BL_A_IN && bm == G_BL_CLR_MEM && bb == G_BL_1MA && cyc < 2) {
+    if (blendOn) {
         glsCap(GL_BLEND, &sGls.blend, 1);
         if (sGls.blendFunc != 1) {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -641,6 +648,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     } else {
         glsCap(GL_BLEND, &sGls.blend, 0);
     }
+    glsCap(GL_SAMPLE_ALPHA_TO_COVERAGE, &sGls.alphaCoverage, key.a2c);
     /* depth */
     if (cyc >= 2) {
         glsCap(GL_DEPTH_TEST, &sGls.depthTest, 0);

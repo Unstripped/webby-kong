@@ -172,6 +172,7 @@ static GfxProgram build(const GfxProgramKey *k) {
     static char fs[8192];
     GfxProgram p;
     u8 tex[2] = { 0, 0 };
+    char line[128];
     memset(&p, 0, sizeof p);
     fs[0] = 0;
     strcat(fs,
@@ -230,10 +231,19 @@ static GfxProgram build(const GfxProgramKey *k) {
     if (k->fogBlend) {
         strcat(fs, "    comb.rgb = mix(comb.rgb, uFog.rgb, vShade.a);\n");
     }
-    if (k->alphaMode == 1) {
-        strcat(fs, "    if (comb.a < uAlphaRef) discard;\n");
-    } else if (k->alphaMode == 2) {
-        strcat(fs, "    if (comb.a < 0.5) discard;\n");
+    if (k->alphaMode != 0) {
+        const char *ref = k->alphaMode == 1 ? "uAlphaRef" : "0.5";
+        if (k->a2c) {
+            /* GL_SAMPLE_ALPHA_TO_COVERAGE turns this alpha into a sample mask: a cutout edge crossing the pixel
+             * covers the fraction of it the texture's alpha ramp covers (the ramp is one screen pixel wide, so a
+             * flat alpha still gives the hard cutout the discard gave). Coverage 0 writes no sample: no discard. */
+            snprintf(line, sizeof line,
+                     "    comb.a = clamp((comb.a - %s) / max(fwidth(comb.a), 1e-4) + 0.5, 0.0, 1.0);\n", ref);
+            strcat(fs, line);
+        } else {
+            snprintf(line, sizeof line, "    if (comb.a < %s) discard;\n", ref);
+            strcat(fs, line);
+        }
     }
     strcat(fs, "    fragColor = comb;\n");
     if (k->primDepth) {

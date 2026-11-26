@@ -422,6 +422,7 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
 EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_a2c(s32 on) { return portGfxSetAlphaToCoverage(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
@@ -468,6 +469,8 @@ int main(int argc, char **argv) {
             scale = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--msaa") == 0) {
             msaa = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--a2c") == 0) {
+            portGfxSetAlphaToCoverage(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--drawdist") == 0) {
             setDrawDistance(atof(argv[++a]));
         } else if (strcmp(argv[a], "--audio-rate") == 0) {

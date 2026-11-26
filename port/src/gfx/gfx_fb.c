@@ -26,6 +26,8 @@ static u32 sScaleOverride; /* 0: follow the window height */
 static u32 sLoggedScale, sLoggedViW;
 static int sMsaaRequest = 4;
 static int sSamples; /* 0: MSAA off */
+static int sA2cRequest = 1; /* --a2c: alpha-to-coverage for alpha-tested triangles where MSAA allows it */
+int gGfxAlphaCoverage;
 /* where the last present put its image on the canvas (gfxFbPresentedToN64, the debug pixel probe) */
 static struct PresentedImage {
     int winW, winH, vx, vy, vw, vh;
@@ -190,6 +192,8 @@ void gfxFbQsRanges(QsSink *out) {
     QS_KEEP(out, sLoggedViW);
     QS_KEEP(out, sMsaaRequest);
     QS_KEEP(out, sSamples);
+    QS_KEEP(out, sA2cRequest);
+    QS_KEEP(out, gGfxAlphaCoverage);
     QS_KEEP(out, sPresented);
     QS_KEEP(out, sInterpImg);
     QS_KEEP(out, sDepthPrefetch);
@@ -221,6 +225,17 @@ static int samplesFor(int request) {
     glGetIntegerv(GL_MAX_SAMPLES, &max);
     s = request > max ? max : request;
     return s < 2 ? 0 : s;
+}
+
+/* alpha-to-coverage needs sample coverage to mean anything: only with MSAA, and only while --a2c is on */
+static void updateAlphaCoverage(void) {
+    gGfxAlphaCoverage = sA2cRequest && sSamples != 0;
+}
+
+int portGfxSetAlphaToCoverage(int on) {
+    sA2cRequest = on != 0;
+    updateAlphaCoverage();
+    return gGfxAlphaCoverage;
 }
 
 int portGfxMaxSamples(void) {
@@ -262,6 +277,7 @@ int portGfxSetMsaa(int msaa) {
         sDepthMsRb = sDepthResolveFbo = 0;
     }
     sSamples = samples;
+    updateAlphaCoverage();
     sDepthPhysW = 0; /* ensureDepth reallocates */
     /* eager: gfxFbPresent uploads into images found by gfxFbFind, which never reallocates */
     for (i = 0; i < sFbCount; i++) {
@@ -286,6 +302,7 @@ void gfxFbInit(void) {
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRb);
     sMaxDim = maxTex < maxRb ? maxTex : maxRb;
     sSamples = samplesFor(sMsaaRequest);
+    updateAlphaCoverage();
     portLog("PORT: msaa %d", sSamples);
 }
 

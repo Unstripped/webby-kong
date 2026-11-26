@@ -21,6 +21,7 @@ typedef struct {
     u8 fogBlend;   /* blender mixes fog by shade alpha in cycle 1 */
     u8 primDepth;  /* z source = primitive depth */
     u8 lod;        /* texture LOD: TEXEL0/TEXEL1 are per-pixel mip levels of uTex0 */
+    u8 a2c;        /* alpha test becomes sample coverage (GL_SAMPLE_ALPHA_TO_COVERAGE) instead of a discard */
 } GfxProgramKey;
 
 GfxProgram *gfxProgramGet(const GfxProgramKey *key);
@@ -50,6 +51,7 @@ extern u32 gGfxDepthSerial; /* bumped by every depth write; gfxFbDepthPrefetch's
 extern GLuint gGfxDepthTex;
 extern u32 gGfxDepthW, gGfxDepthH;
 extern u32 gGfxScale; /* GL pixels per N64 pixel for images allocated now (follows the window height) */
+extern int gGfxAlphaCoverage; /* alpha-to-coverage is on for alpha-tested triangles: MSAA on and --a2c not 0 */
 
 void gfxFbInit(void);
 GfxFb *gfxFbFor(u32 addr, u32 width);

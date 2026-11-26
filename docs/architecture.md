@@ -118,6 +118,14 @@ flowchart LR
   one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
   z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied
   to host memory before the replay is queued, so those reads no longer wait for the GPU; each copies just its pixel.
+- Alpha-tested cutouts (foliage, fences, grates) under MSAA: the generated fragment shader sharpens the combined
+  alpha with its own screen-space derivative instead of discarding the fragment, and the draw runs with
+  `GL_SAMPLE_ALPHA_TO_COVERAGE` (`gfx_combiner.c` `build`, `gfx_gl.c` `applyState`), so a cutout edge covers the
+  samples the texture's alpha ramp covers instead of killing or keeping whole pixels. Only triangles whose blender
+  is off, where that alpha reaches nothing else: RDRAM readbacks pack the colour image with the coverage bit set
+  (alpha never leaves the GPU), the blender never reads destination alpha, and rects keep the HUD's exact cutout.
+  With MSAA off (`?msaa=0`), or `--a2c 0` in the browser build, the shader keeps the exact `discard` and the output
+  is unchanged.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the
