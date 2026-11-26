@@ -153,6 +153,7 @@ static void snapPass(const FbSnap *s, GLuint prog) {
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
+    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE); /* a draw may have left it on (gfx_gl.c); this quad writes every sample */
     glDepthMask(GL_FALSE);
     glUseProgram(prog);
     glActiveTexture(GL_TEXTURE0);

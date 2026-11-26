@@ -162,8 +162,8 @@ appears once the game runs and hides while a gamepad is connected.
 | F8 | Record a debug mark |
 
 URL parameters (`drawdist`, `scale`, `msaa`, `a2c`, `mips`, `aniso`, `downsample`, `fxaa`, `sharpen`, `dither`,
-`interp`, `perpixel`, `kongsmooth`, `touch`,
-`audio3d` and `audiorate` override the Esc menu's stored setting for that page load):
+`interp`, `perpixel`, `kongsmooth`, `touch`, `audio3d` and `audiorate` override the Esc menu's stored setting
+for that page load):
 
 | Parameter | Effect |
 | --- | --- |
