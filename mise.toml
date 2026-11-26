@@ -18,3 +18,4 @@ run = "python tools/sync.py"
 description = "Sync (mise run sync), then serve build/web with the save API and the optional passkey gate (same settings as the Docker image)"
 depends = ["sync"]
 run = 'exec tools/.venv/bin/python tools/serve.py "$@"'
+run_windows = 'tools\.venv\Scripts\python.exe tools/serve.py'

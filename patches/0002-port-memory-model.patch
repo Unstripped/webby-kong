@@ -775,7 +775,7 @@ index 2f9174a..597a0d6 100644
  extern PlayerStruct *gPlayerSlots;
  
 diff --git a/src/global/9DD70.c b/src/global/9DD70.c
-index 7941651..026829a 100644
+index a99ceba..82d8c94 100644
 --- a/src/global/9DD70.c
 +++ b/src/global/9DD70.c
 @@ -54,7 +54,7 @@ void mathAngleBetweenPoints3D(s16 *pitch, s16 *yaw, f32 x1, f32 y1, f32 z1, f32
@@ -827,7 +827,7 @@ index fc40dbe..ddffdee 100644
  extern PlayerStruct *gPlayerSlots;
  
 diff --git a/src/global/A8400_text_box.c b/src/global/A8400_text_box.c
-index 8160720..388afae 100644
+index acd5ec4..47f1e91 100644
 --- a/src/global/A8400_text_box.c
 +++ b/src/global/A8400_text_box.c
 @@ -153,8 +153,8 @@ Gfx *textBoxRenderTail(Gfx *dl, ResQueueActorState *state, s32 frame) {
@@ -839,8 +839,8 @@ index 8160720..388afae 100644
 +#define D_1000118 (*(Gfx *)PORT_ABS_D_1000118)
 +#define D_20000C0 (*(Mtx *)PORT_ABS_D_20000C0)
  
- #define WRITE_GFX(pkt, _w0, _w1) { Gfx *_g = (Gfx *)(pkt); _g->words.w0 = (_w0); _g->words.w1 = (_w1); }
- 
+ Gfx *textBoxRender(Gfx *gdl, Actor *actor) {
+     /* pad* are unused slots above the live locals; with scale/alpha/isLast
 diff --git a/src/global/ACDC0_pause_menu.c b/src/global/ACDC0_pause_menu.c
 index ad6adbe..f839c75 100644
 --- a/src/global/ACDC0_pause_menu.c
@@ -1058,10 +1058,10 @@ index b71f7d3..ea7ee4f 100644
  
  Gfx *menuInitGfxState(Gfx *glistp, Actor *menuActor) {
 diff --git a/src/menu/E550_option_lights.c b/src/menu/E550_option_lights.c
-index bccfb02..3c9ff9c 100644
+index 7e2327f..5fd2478 100644
 --- a/src/menu/E550_option_lights.c
 +++ b/src/menu/E550_option_lights.c
-@@ -118,8 +118,8 @@ void menuUpdateLightFadeActor(void) {
+@@ -112,8 +112,8 @@ void menuUpdateLightFadeActor(void) {
  
  
  

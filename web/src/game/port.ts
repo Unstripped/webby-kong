@@ -38,7 +38,17 @@ export type PortExport =
   | 'port_set_kong_swap'
   | 'port_set_disco_chunky'
   | 'port_debug_probe'
-  | 'port_debug_probe_result';
+  | 'port_debug_probe_result'
+  | 'port_texpack_alloc'
+  | 'port_texpack_set'
+  | 'port_texpack_formats'
+  | 'port_texpack_upload_bitmap'
+  | 'port_texpack_upload'
+  | 'port_texpack_fail'
+  | 'port_texdump_set'
+  | 'port_texdump_take'
+  | 'port_texdump_free'
+  | 'port_texdump_dropped';
 
 type CType = 'number' | 'string' | null;
 
@@ -65,6 +75,9 @@ export interface Dk64Module {
   SDL2?: { audioContext?: AudioContext };
   portBuildId: string;
   portRom: Uint8Array;
+  // texpacks/packs.ts: gfx_texpack.c asks for a pack texture, and reads the bitmap port_texpack_upload_bitmap uploads
+  portTexpackRequest?: (entry: number) => void;
+  portTexpackBitmap?: ImageBitmap | null;
 }
 
 let current: Dk64Module | null = null;

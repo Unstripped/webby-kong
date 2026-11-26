@@ -32,7 +32,7 @@ GEN = ROOT / "build" / "gen"
 WEB = ROOT / "build" / "web"
 PATCHES = ROOT / "patches"
 VENV = ROOT / "tools" / ".venv"
-VENV_PY = VENV / "bin" / "python"
+VENV_PY = VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 VENV_STAMP = VENV / "sync-requirements.sha256"
 STATE = ROOT / "build" / "sync.json"
 REQUIREMENTS = (DECOMP / "requirements.txt", ROOT / "tools" / "requirements.txt",
@@ -241,7 +241,10 @@ def main():
         pull()
         if digest(Path(__file__).resolve()) != before:
             log("tools/sync.py changed upstream; restarting it")
-            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "--no-pull"])
+            argv = [sys.executable, str(Path(__file__).resolve()), "--no-pull"]
+            if sys.platform == "win32":  # Windows execv exits this process at once, so mise would not wait
+                sys.exit(subprocess.call(argv))
+            os.execv(sys.executable, argv)
     sync_decomp()
     sync_venv()
     sync_prepare()

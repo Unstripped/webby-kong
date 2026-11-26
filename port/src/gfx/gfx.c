@@ -1161,7 +1161,8 @@ static void runDl(u32 addr, int depth) {
         case G_LOADTLUT:
             flush();
             probeLoad(3, w0, w1);
-            gfxTmemLoadTlut(&gGfx, R.timg, (w1 >> 24) & 7, (w1 >> 14) & 0x3FF);
+            gfxTmemLoadTlut(&gGfx, R.timg, R.timgSiz, R.timgWidth, (w1 >> 24) & 7, (w0 >> 12) & 0xFFF, w0 & 0xFFF,
+                            (w1 >> 12) & 0xFFF, w1 & 0xFFF);
             break;
         case G_SETCOMBINE:
             stateChanging();

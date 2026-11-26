@@ -47,7 +47,7 @@ extern u8 gGfxTmem[4096];
 /* gfx_tmem.c */
 void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 dxt);
 void gfxTmemLoadTile(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 lrt);
-void gfxTmemLoadTlut(const GfxState *st, u32 timg, int tile, u32 count);
+void gfxTmemLoadTlut(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 lrt);
 /* decode tile `t` into an RGBA8 image (pointer valid until next decode); returns 0 if empty */
 int gfxTmemDecode(const GfxState *st, int t, GfxTexImage *out);
 /* the size and key gfxTmemDecode would return, without decoding (rgba NULL); 0 if empty */

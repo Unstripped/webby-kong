@@ -19,7 +19,7 @@ index 49c48b9..f4294e6 100644
  void billboardCacheInit(void);
  #endif
 diff --git a/src/global/1295B0_spawn_nodes.c b/src/global/1295B0_spawn_nodes.c
-index a76ed54..c255677 100644
+index a76ed54..08c9d24 100644
 --- a/src/global/1295B0_spawn_nodes.c
 +++ b/src/global/1295B0_spawn_nodes.c
 @@ -13,6 +13,7 @@
@@ -30,12 +30,17 @@ index a76ed54..c255677 100644
  #include "proto/global/69E60_actor_physics.h"
  #include "proto/global/7130_sfx.h"
  #include "proto/global/79890_collision_hit.h"
-@@ -963,7 +964,7 @@ void spawnNodesUpdate(void) {
+@@ -963,7 +964,12 @@ void spawnNodesUpdate(void) {
          if (active) {
              gBehaviourWorkState = node->actor->customState;
          }
 -        rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
-+        rangeSq = renderExtendDistance(gSpawnEntryTable[node->entryIndex].spawnRange * 0x64); // PORT: enemies spawn as far out as they are drawn
++        // PORT: enemies spawn as far out as they are drawn. Banana fairies (0xF8) keep the N64 range: spawning one
++        // starts the non-positional "fairy nearby" song 0x42, heard at full volume however far away the fairy is.
++        rangeSq = gSpawnEntryTable[node->entryIndex].spawnRange * 0x64;
++        if (gSpawnEntryTable[node->entryIndex].actorType != 0xF8) {
++            rangeSq = renderExtendDistance(rangeSq);
++        }
          rangeSq = rangeSq * rangeSq;
          if (active) {
              node->chunkIndex = node->actor->chunkIndex;

@@ -110,7 +110,8 @@ add_library(dk64_rsp OBJECT ${CMAKE_SOURCE_DIR}/port/src/audio/naudio.c
 target_compile_options(dk64_rsp PRIVATE ${PORT_C_FLAGS})
 target_include_directories(dk64_rsp PRIVATE ${PORT_INCLUDES})
 add_library(dk64_gl OBJECT ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_gl.c
-  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c)
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_combiner.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_fb.c
+  ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_texpack.c ${CMAKE_SOURCE_DIR}/port/src/gfx/gfx_rt64hash.c)
 target_compile_options(dk64_gl PRIVATE ${PORT_C_FLAGS} -sUSE_SDL=2)
 target_include_directories(dk64_gl PRIVATE ${PORT_INCLUDES})
 
@@ -125,14 +126,15 @@ set(LINK_COMMON
   -sINITIAL_MEMORY=64MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=512MB -sSTACK_SIZE=1MB -sCHECK_NULL_WRITES=0
   -Wl,--error-limit=0)
 
-# fail the link on wasm-ld function signature mismatches
-set(LINK_CHECK ${CMAKE_SOURCE_DIR}/tools/link_check.sh)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+# fail the link on wasm-ld function signature mismatches (Python: Ninja on Windows has no sh)
+set(LINK_CHECK "\"${Python3_EXECUTABLE}\" \"${CMAKE_SOURCE_DIR}/tools/link_check.py\"")
 
 # RSP task HLE and the WebGL backend never reach a fiber switch: keep asyncify's instrumentation out of them
 # (tools/asyncify_remove.py lists every function their objects define; ASSERTIONS makes asyncify trap if a listed
 # function is ever on a switching stack). The headless build uses it too, so its long regression runs exercise the
 # list under those asserts.
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_program(LLVM_NM llvm-nm HINTS ${EMSCRIPTEN_ROOT_PATH}/../bin NO_DEFAULT_PATH REQUIRED)
 function(asyncify_remove_list target)
   set(objs)
