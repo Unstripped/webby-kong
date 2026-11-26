@@ -448,6 +448,7 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_fxaa(s32 on) { return portGfxSetFxaa(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_dither(s32 on) { return portGfxSetDither(on); }
 /* RDRAM verification of the GPU-side framebuffer effects (issue #35, docs/debugging.md) */
 EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_hash(s32 on) { return portGfxFbHashLog(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_gpu(s32 on) { return portGfxFbGpu(on); }
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -504,6 +505,8 @@ int main(int argc, char **argv) {
             portGfxSetDither(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--fb-hash") == 0) {
             portGfxFbHashLog(atoi(argv[++a])); /* the browser main's flags all take a value */
+        } else if (strcmp(argv[a], "--fb-gpu") == 0) {
+            portGfxFbGpu(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--save-file") == 0) {
             portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }

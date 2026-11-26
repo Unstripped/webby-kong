@@ -1368,14 +1368,22 @@ int portGfxSetInterp(int level) {
     return gfxBackendSetInterp(level);
 }
 
-/* RDRAM verification (docs/debugging.md): with it on, every framebuffer-coherence call logs a hash of the RDRAM
- * range it touched, so runs of two builds can be compared byte for byte. Ranges below 256 bytes (the single
- * depth pixels the game reads every frame) are left out. */
+/* RDRAM verification (issue #35, docs/debugging.md): with it on, every framebuffer-coherence call logs a hash of
+ * the RDRAM range it touched, so a run with the GPU-side effects can be compared with one without. Ranges below
+ * 256 bytes (the single depth pixels the game reads every frame) are left out. */
 static int sFbHashLog;
+/* the GPU copies can be turned off (debug): without a source image every hook drops the copy it had, so every
+ * effect falls back to the RDRAM texels the CPU path wrote - what the port did before issue #35 */
+static int sFbGpu = 1;
 
 int portGfxFbHashLog(int on) {
     sFbHashLog = on != 0;
     return sFbHashLog;
+}
+
+int portGfxFbGpu(int on) {
+    sFbGpu = on != 0;
+    return sFbGpu;
 }
 
 static void fbHash(const char *site, u32 addr, u32 len) {
@@ -1399,4 +1407,20 @@ void portGfxCpuWrote(const void *p, u32 len) {
 void portGfxSyncRdram(const void *p, u32 len) {
     gfxBackendSyncRdram(portHostAddr((u32)p), len);
     fbHash("sync", portHostAddr((u32)p), len);
+}
+
+void portGfxFbSnapshot(const void *dst, const void *src, u32 len) {
+    gfxBackendFbSnapshot(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, len);
+    fbHash("copy", portHostAddr((u32)dst), len);
+}
+
+void portGfxFbSepia(const void *dst, const void *src, s32 x, s32 y, s32 cols, s32 rows, s32 tileW, s32 tileH) {
+    gfxBackendFbSepia(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, (u32)x, (u32)y, (u32)cols,
+                      (u32)rows, (u32)tileW, (u32)tileH);
+    fbHash("sepia", portHostAddr((u32)dst), (u32)(cols * rows * tileW * tileH * 2));
+}
+
+void portGfxFbLerpWhite(const void *dst, const void *src, u32 len, f32 t) {
+    gfxBackendFbLerpWhite(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, len, t);
+    fbHash("fade", portHostAddr((u32)dst), len);
 }

@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: webby-kong port <port@webby-kong.invalid>
+Date: Thu, 26 Nov 2026 13:27:06 -0700
+Subject: [PATCH] port: gpu framebuffer effects
+
+
+diff --git a/src/global/103AB0_view_effects.c b/src/global/103AB0_view_effects.c
+index ace95b0..3683c9f 100644
+--- a/src/global/103AB0_view_effects.c
++++ b/src/global/103AB0_view_effects.c
+@@ -264,6 +264,8 @@ u16 *playerViewCaptureSepiaPhoto(void) {
+         }
+         src += gScreenWidth * 64;
+     }
++    /* port: the same sepia pixels at render scale, as the tiles this buffer holds */
++    portGfxFbSepia(buf, gFramebuffers[gGfxBufferIndex], 80, 56, 5, 2, 0x20, 0x40);
+     return buf;
+ }
+ 
+@@ -278,6 +280,7 @@ u16 color5551LerpToWhite(f32 t, u16 color) {
+ void color5551CopyLerpToWhite(u16 *src, s16 **outBuf, f32 t) {
+     s16 *dst;
+     s16 i;
++    u16 *start = src;
+ 
+     *outBuf = heapAlloc(0xA000);
+     heapFreeDeferred(*outBuf);
+@@ -285,6 +288,7 @@ void color5551CopyLerpToWhite(u16 *src, s16 **outBuf, f32 t) {
+     for (i = 0; i < 0x5000; i++) {
+         *dst++ = PORT_BE16(color5551LerpToWhite(t, PORT_BE16(*src++)));
+     }
++    portGfxFbLerpWhite(*outBuf, start, 0xA000, t); /* port: the same fade of the render-scale copy of start */
+ }
+ 
+ typedef struct {
+diff --git a/src/global/10E1D0_screen_transition.c b/src/global/10E1D0_screen_transition.c
+index f593ee5..f92b005 100644
+--- a/src/global/10E1D0_screen_transition.c
++++ b/src/global/10E1D0_screen_transition.c
+@@ -377,6 +377,9 @@ void fbCopySetAlpha(void *dstBuf, void *srcBuf) {
+         src += 8;
+     }
+     portGfxCpuWrote(dstBuf, gScreenWidth * gScreenHeight * 2);
++    /* port: dstBuf is this frame's image; the port keeps the same pixels at render scale and draws the tiles of
++     * dstBuf from there (the transition mesh and the screen wipe), instead of its 320x240 texels */
++    portGfxFbSnapshot(dstBuf, srcBuf, gScreenWidth * gScreenHeight * 2);
+ }
+ 
+ extern FrameMatrices *gGfxCurrentFrameBuffer;

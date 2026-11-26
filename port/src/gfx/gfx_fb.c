@@ -14,7 +14,7 @@ u32 gGfxScale = 2;
 static GLuint sDepthFbo;
 static GLuint sDepthMsRb, sDepthResolveFbo; /* MSAA: depth is drawn into sDepthMsRb, resolved into gGfxDepthTex */
 static GLuint sStageTex;
-static GLuint sDepthReadProg, sDepthReadVao, sDepthReadTarget, sDepthReadFbo;
+static GLuint sDepthReadProg, sDepthReadTarget, sDepthReadFbo;
 static GLuint sCopyProg;
 static GLuint sDownTex, sDownFbo; /* N64-sized colour readback target */
 static u32 sDownW, sDownH;
@@ -133,7 +133,8 @@ static void ensureDepth(const GfxFb *fb) {
     }
 }
 
-static const char *kQuadVs =
+GLuint gGfxQuadVao;
+const char *gGfxQuadVs =
     "#version 300 es\n"
     "out vec2 vUv;\n"
     "void main() { vec2 p = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)); vUv = p;"
@@ -281,7 +282,7 @@ void gfxFbQsRanges(QsSink *out) {
     QS_KEEP(out, sDepthResolveFbo);
     QS_KEEP(out, sStageTex);
     QS_KEEP(out, sDepthReadProg);
-    QS_KEEP(out, sDepthReadVao);
+    QS_KEEP(out, gGfxQuadVao);
     QS_KEEP(out, sDepthReadTarget);
     QS_KEEP(out, sDepthReadFbo);
     QS_KEEP(out, sCopyProg);
@@ -432,9 +433,9 @@ int portGfxSetDither(int on) {
 void gfxFbInit(void) {
     GLint maxTex = 0, maxRb = 0;
     glGenTextures(1, &sStageTex);
-    sDepthReadProg = gfxCompileProgram(kQuadVs, kDepthReadFs);
-    sCopyProg = gfxCompileProgram(kQuadVs, kCopyFs);
-    glGenVertexArrays(1, &sDepthReadVao);
+    sDepthReadProg = gfxCompileProgram(gGfxQuadVs, kDepthReadFs);
+    sCopyProg = gfxCompileProgram(gGfxQuadVs, kCopyFs);
+    glGenVertexArrays(1, &gGfxQuadVao);
     glGenTextures(1, &sDepthReadTarget);
     glGenFramebuffers(1, &sDepthReadFbo);
     glGenTextures(1, &sDownTex);
@@ -519,7 +520,7 @@ static void copyTexInto(GfxFb *fb, GLuint tex, float sx, float sy, float sw, flo
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glUniform1i(glGetUniformLocation(sCopyProg, "uTex"), 0);
     glUniform4f(glGetUniformLocation(sCopyProg, "uSrc"), sx, sy, sw, sh);
-    glBindVertexArray(sDepthReadVao);
+    glBindVertexArray(gGfxQuadVao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     fb->resolveDirty = 1;
 }
@@ -749,7 +750,7 @@ void gfxFbInterpClearDepth(void) {
 static const PostProg *postProgram(int kind) {
     PostProg *p = &sPostProg[kind];
     if (p->prog == 0) {
-        p->prog = gfxCompileProgram(kQuadVs, kind == kPostResample ? kResampleFs
+        p->prog = gfxCompileProgram(gGfxQuadVs, kind == kPostResample ? kResampleFs
                                              : kind == kPostFxaa   ? kFxaaFs
                                                                    : kSharpenFs);
         p->uTex = glGetUniformLocation(p->prog, "uTex");
@@ -797,7 +798,7 @@ static void presentPass(GLuint tex, u32 srcW, u32 srcH, int vx, int vy, int vw, 
     glDisable(GL_BLEND);
     glDepthMask(GL_FALSE);
     glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(sDepthReadVao);
+    glBindVertexArray(gGfxQuadVao);
     for (i = 0; i < n; i++) {
         const PostProg *p = postProgram(kinds[i]);
         int last = i == n - 1;
@@ -1002,7 +1003,7 @@ static void depthToReadTarget(void) {
     glUniform1i(uOx, (GLint)sDepthOx);
     glUniform1i(uScale, (GLint)sDepthScale);
     glUniform1i(uW, (GLint)gGfxDepthW);
-    glBindVertexArray(sDepthReadVao);
+    glBindVertexArray(gGfxQuadVao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, sDepthReadFbo);
 }

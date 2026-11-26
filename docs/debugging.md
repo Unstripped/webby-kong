@@ -61,8 +61,12 @@ framebuffer-coherence call the game makes a hash of the RDRAM range it touched:
 PORT: fbhash <site> <addr> <len> <hash>   # site: sync, cpuwrote, copy, sepia, fade
 ```
 
-Ranges under 256 bytes (the single depth pixels `zbufferReadDepth` reads) are left out. The lines of a run with
-the GPU copies must match a run without them line for line: RDRAM as game code sees it does not change.
+Ranges under 256 bytes (the single depth pixels `zbufferReadDepth` reads) are left out. `--fb-gpu 0` (browser
+`callMain`) or `port_debug_fb_gpu(0)` turns the GPU copies off: every effect then draws the RDRAM texels the CPU
+path wrote, as the port did before. Comparing a run with them on against one with them off shows what the game
+sees in RDRAM change or not; today the only difference is a freeze frame the game reads back after the port drew
+it at render scale (`architecture.md`).
+
 
 ## Memory errors
 

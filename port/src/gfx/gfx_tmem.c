@@ -9,11 +9,57 @@
 
 u8 gGfxTmem[4096];
 
+/* The source of the last loads, newest last: a tile filled by exactly one of them can be drawn from the RDRAM
+ * image's GPU copy (gfx_fbsnap.c) instead of its 16-bit texels. */
+#define TMEM_LOADS 8
+static struct {
+    u32 tmem;            /* TMEM byte address the load started at */
+    u32 src;             /* RDRAM address of the first texel */
+    u32 width, height;   /* texels loaded */
+    u32 stride;          /* source texels per row */
+    u8 siz;
+} sLoads[TMEM_LOADS];
+static u32 sLoadSeq;
+
+static void recordLoad(const GfxTile *t, u32 src, u32 width, u32 height, u32 stride) {
+    u32 i = sLoadSeq++ % TMEM_LOADS;
+    sLoads[i].tmem = (u32)t->tmem * 8;
+    sLoads[i].src = src;
+    sLoads[i].width = width;
+    sLoads[i].height = height;
+    sLoads[i].stride = stride;
+    sLoads[i].siz = t->siz;
+}
+
+/* the newest load that filled tile `ti` whole, from 16-bit texels */
+int gfxTmemTileSource(const GfxState *st, int ti, GfxTileSource *out) {
+    const GfxTile *t = &st->tiles[ti];
+    u32 w = gfxTileWidth(t), h = gfxTileHeight(t), base = (u32)t->tmem * 8, n;
+    if (w == 0 || h == 0 || t->siz != G_IM_SIZ_16b || t->fmt != G_IM_FMT_RGBA) {
+        return 0;
+    }
+    for (n = sLoadSeq; n > 0 && n + TMEM_LOADS > sLoadSeq; n--) {
+        const u32 i = (n - 1) % TMEM_LOADS;
+        if (sLoads[i].tmem != base || sLoads[i].siz != G_IM_SIZ_16b || sLoads[i].width != w ||
+            sLoads[i].height != h) {
+            continue;
+        }
+        out->addr = sLoads[i].src;
+        out->width = w;
+        out->height = h;
+        out->stride = sLoads[i].stride;
+        return 1;
+    }
+    return 0;
+}
+
 /* port-only, never game-visible: lives above 16 MB (see memory model) */
 static u8 *sDecoded;
 
 void gfxTmemQsRanges(QsSink *out) {
     QS_KEEP(out, sDecoded);
+    QS_KEEP(out, sLoads);
+    QS_KEEP(out, sLoadSeq);
 }
 
 static u32 texelBytesX2(u32 siz) {
@@ -102,6 +148,14 @@ void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, 
     }
     loadToTmem(timg + ((uls << timgSiz) >> 1) + srcStride * ult, srcStride, (u32)t->tmem << 3, (u32)t->line << 3,
                ((lrs - uls) >> (4 - t->siz)) + 1, 1, dxt, isRgba32(t) ? LOAD_RGBA32 : LOAD_NORMAL);
+    if (t->siz == G_IM_SIZ_16b) {
+        /* a block is one run of texels; the tile's line splits it into rows */
+        u32 total = lrs - uls + 1, row = (u32)t->line * 4;
+        if (row == 0 || row > total) {
+            row = total;
+        }
+        recordLoad(t, timg + ((uls << timgSiz) >> 1) + srcStride * ult, row, total / row, row);
+    }
 }
 
 void gfxTmemLoadTile(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs,
@@ -114,6 +168,9 @@ void gfxTmemLoadTile(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, i
     }
     loadToTmem(timg + ((x0 << timgSiz) >> 1) + srcStride * y0, srcStride, (u32)t->tmem << 3, (u32)t->line << 3,
                ((x1 - x0) >> (4 - t->siz)) + 1, y1 - y0 + 1, 0, isRgba32(t) ? LOAD_RGBA32 : LOAD_NORMAL);
+    if (t->siz == G_IM_SIZ_16b) {
+        recordLoad(t, timg + ((x0 << timgSiz) >> 1) + srcStride * y0, x1 - x0 + 1, y1 - y0 + 1, srcStride >> 1);
+    }
 }
 
 void gfxTmemLoadTlut(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs,
