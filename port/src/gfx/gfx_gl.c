@@ -37,8 +37,9 @@ static u8 *sMipChain; /* decoded mip levels staged for upload (bindMipTiles) */
 static size_t sMipChainCap;
 static u8 *sMipGen; /* levels built on the CPU for a cutout texture (texMipsGenerate) */
 static size_t sMipGenCap;
-/* texture mips and anisotropy (player settings --mips / --aniso): levels are made on a cache miss and used by
- * triangles whose tile addressing maps onto a GL wrap mode; 2D rects and point-filtered tiles keep level 0 */
+/* texture mips and anisotropy (player settings --mips / --aniso): levels are built lazily at the first draw that
+ * would sample them (bindTile) and used by triangles whose tile addressing maps onto a GL wrap mode; 2D rects and
+ * point-filtered tiles keep level 0 */
 static int sMipsOn = 1;
 static int sAnisoRequest = 4;
 static float sAnisoMax = 1.0f; /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 1 when the extension is missing */

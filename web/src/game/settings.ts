@@ -1,5 +1,6 @@
 // Player settings (draw distance, render scale, MSAA, cutout anti-aliasing, texture mips and anisotropy,
-// present pass, 60 fps, touch controller, 3D sound, audio rate, kong swap, Disco Chunky, right-stick camera):
+// present pass, per-pixel lighting, Kong smoothing, 60 fps, touch controller, 3D sound, audio rate, kong swap,
+// Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
 import { signal } from '@preact/signals';
