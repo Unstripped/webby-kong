@@ -26,6 +26,15 @@ void gfxCombinerQsRanges(QsSink *out) {
     QS_KEEP(out, sVertexShaderCount);
 }
 
+/* a quickload restores the light set's serial counter from the snapshot while these programs (a keep range)
+ * hold the uniforms of whatever ran last: make every program upload its light set again */
+void gfxCombinerQsRestored(void) {
+    int i;
+    for (i = 0; i < sProgramCount; i++) {
+        sPrograms[i].prog.cLightSerial = ~0u;
+    }
+}
+
 static const char *kVertex =
     "#version 300 es\n"
     "in vec4 aPos;\n"
@@ -80,6 +89,7 @@ GLuint gfxCompileProgram(const char *vs, const char *fs) {
     glBindAttribLocation(p, 0, "aPos");
     glBindAttribLocation(p, 1, "aColor");
     glBindAttribLocation(p, 2, "aSt");
+    glBindAttribLocation(p, 3, "aNormal"); /* per-pixel lighting; harmless where the shader has no normal */
     glLinkProgram(p);
     glGetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) {
@@ -322,6 +332,7 @@ static GfxProgram build(const GfxProgramKey *k) {
     nanFill(&p.cLodScale, 1);
     nanFill(&p.cMaxLevel, 1);
     nanFill(p.cFogCoef, 2);
+    p.cLightSerial = ~0u; /* no light set uploaded yet; 0 is the empty one a task starts from */
     glUseProgram(p.prog);
     glUniform1i(p.uTex0, 0);
     glUniform1i(p.uTex1, 1);

@@ -206,6 +206,7 @@ void gfxBackendQsRanges(QsSink *out) {
     gfxTexpackQsRanges(out);
     gfxFbQsRanges(out);
     gfxCombinerQsRanges(out);
+    gfxBatchQsRanges(out);
 }
 
 static void texCacheFlush(void) {
@@ -234,6 +235,7 @@ void gfxBackendQsRestored(void) {
     sTargetIsDepth = 0;
     gfxInterpReset();
     gfxFbQsRestored();
+    gfxCombinerQsRestored();
 }
 
 void gfxBackendInit(void) {

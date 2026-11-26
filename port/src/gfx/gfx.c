@@ -21,6 +21,7 @@ typedef struct {
     float sx, sy, sz;      /* screen position (N64 pixels) for G_BRANCH_Z / MODIFYVTX */
     s16 ob[3];             /* object-space position, for the debug probe */
     float nrm[3];          /* eye-space normal, lit vertices with gGfxPerPixel on */
+    u8 lit;                /* G_LIGHTING was on when this vertex was loaded: its shade came from the lights */
 } RspVtx;
 
 typedef struct {
@@ -53,8 +54,10 @@ static struct {
 } R;
 
 static GfxVtx sBatch[BATCH_MAX];
-/* per-pixel lighting: the pending batch's eye-space normals and the light set it draws with */
-static float sBatchNrm[BATCH_MAX][3];
+/* per-pixel lighting: the pending batch's eye-space normals and the light set it draws with. The normals are
+ * scratch for one batch, allocated on the first lit one, so a quicksave of a run with the mode off carries
+ * none of it; gfxBatchQsRanges keeps the pointer across a quickload. */
+static float (*sBatchNrm)[3];
 static GfxLights sBatchLights;
 static int sBatchLit;
 static u32 sLightSerial;
@@ -126,6 +129,10 @@ static void flush(void) {
         gfxBackendDrawTriangles(&sBatchState, sBatch, sBatchCount, sBatchLit ? &lit : NULL);
         sBatchCount = 0;
     }
+}
+
+void gfxBatchQsRanges(QsSink *out) {
+    QS_KEEP(out, sBatchNrm);
 }
 
 /* before a state command writes gGfx */
@@ -267,9 +274,17 @@ static void loadVertices(u32 addr, int n, int dst) {
     if (gGfx.geometry & G_LIGHTING) {
         updateLights();
     }
+    /* the shader's fog coefficients are the ones this load's vertices were fogged with: a G_MW_FOG after it
+     * belongs to the vertices loaded next, as the per-vertex factor baked into shade alpha does */
+    if (gGfxPerPixel && (gGfx.fogMul != R.fogMul || gGfx.fogOff != R.fogOff)) {
+        stateChanging();
+        gGfx.fogMul = R.fogMul;
+        gGfx.fogOff = R.fogOff;
+    }
     for (i = 0; i < n; i++) {
         const Vtx_t *v = &src[i].v;
         RspVtx *d = &R.vtx[dst + i];
+        d->lit = (gGfx.geometry & G_LIGHTING) != 0;
         float x = v->ob[0], y = v->ob[1], z = v->ob[2];
         memcpy(d->ob, v->ob, sizeof d->ob);
         float (*m)[4] = R.mvp;
@@ -510,6 +525,7 @@ static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) 
 
 static void triangle(int a, int b, int c) {
     RspVtx *v0, *v1, *v2;
+    int lit;
     if (a >= MAX_VTX || b >= MAX_VTX || c >= MAX_VTX) {
         gfxWarnOnce("triidx", "PORT: gfx triangle index out of range");
         return;
@@ -539,18 +555,30 @@ static void triangle(int a, int b, int c) {
         }
     }
     probeTriangle(v0, v1, v2);
+    /* shade was worked out when the vertices were loaded, so whether the batch is lit follows them, not the
+     * geometry mode this draw happens to run under */
+    lit = gGfxPerPixel && v0->lit && v1->lit && v2->lit;
     if (sStateDirty) {
         sStateDirty = 0;
         if (sBatchCount != 0 && memcmp(&sBatchState, &gGfx, sizeof gGfx) != 0) {
             flush();
         }
     }
+    if (sBatchCount != 0 && lit != sBatchLit) {
+        flush();
+    }
     if (sBatchCount == 0) {
         memcpy(&sBatchState, &gGfx, sizeof gGfx);
-        /* the batch keeps the light set it started with: a later load ends it (gGfx.lightSerial) */
-        sBatchLit = gGfxPerPixel && (gGfx.geometry & G_LIGHTING) != 0;
+        /* the batch keeps the light set its vertices were loaded with: a later load ends it (gGfx.lightSerial) */
+        sBatchLit = lit;
         if (sBatchLit) {
             sBatchLights = R.lightsEye;
+            if (sBatchNrm == NULL) {
+                sBatchNrm = malloc(BATCH_MAX * sizeof *sBatchNrm);
+                if (sBatchNrm == NULL) {
+                    portAbort("PORT: gfx out of memory for %d batch normals", BATCH_MAX);
+                }
+            }
         }
     }
     emitVertex(v0);
@@ -623,11 +651,6 @@ static void moveWord(u32 w0, u32 w1) {
     case G_MW_FOG:
         R.fogMul = (s16)(w1 >> 16);
         R.fogOff = (s16)(w1 & 0xFFFF);
-        if (gGfxPerPixel && (gGfx.fogMul != R.fogMul || gGfx.fogOff != R.fogOff)) {
-            stateChanging(); /* the fragment shader reads them: the pending batch keeps its own */
-            gGfx.fogMul = R.fogMul;
-            gGfx.fogOff = R.fogOff;
-        }
         break;
     case G_MW_LIGHTCOL: {
         int k = offset / 0x18;

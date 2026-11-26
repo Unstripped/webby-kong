@@ -82,6 +82,7 @@ void gfxFbSyncRdram(u32 addr, u32 len);
 /* quicksave: host statics kept across a restore, and post-restore invalidation */
 void gfxFbQsRanges(QsSink *out);
 void gfxCombinerQsRanges(QsSink *out);
+void gfxCombinerQsRestored(void); /* after a restore every program uploads its light set again */
 void gfxFbQsRestored(void);
 /* gfx_gl.c for gfx_texpack.c: drop every cached texture (looked up again on next use); forget the GL state shadow
  * after GL calls made outside a frame */
