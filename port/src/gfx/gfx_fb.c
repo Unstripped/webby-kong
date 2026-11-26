@@ -393,6 +393,9 @@ static void postPrepare(void) {
     if (!sPost.ready) {
         return; /* before gfxFbInit: the settings are stored, gfxFbInit compiles what they need */
     }
+    if (!sPost.downsample && !sPost.fxaa && !sPost.sharpen && !sPost.dither) {
+        return; /* every option off: present blits, and no program is needed */
+    }
     postProgram(kPostResample); /* every pass starts with the resample */
     if (sPost.fxaa) {
         postProgram(kPostFxaa);
