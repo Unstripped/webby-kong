@@ -186,12 +186,14 @@ flowchart LR
   the whole patch follows it, so a sample that curves past the silhouette is drawn rather than notching it.
   Which models are Kongs comes from game code: `controllerAnimStateLoadAsset` names a model's vertex block —
   what `renderActorDisplayList` binds to segment 3 — as it enters the model cache and `controllerAnimFreeModel`
-  unnames it as it leaves (patch 0028, `portGfxKongModelLoaded`/`Freed`); a load of any other model clears the
-  address it lands on, so a free the patch never sees (a heap reset on a map change) cannot leave a stale entry
-  for a later model to inherit. The renderer smooths the `G_VTX` loads whose segment base matches. The
-  table is port state: no RDRAM changes, so game logic and quicksave determinism do not, and a kong swap, a
-  Disco Chunky change or a quickload reach it through the same cache calls. The interpolation replays smooth
-  with the same tessellation, so in-between images line up with their game frames.
+  unnames it as it leaves (the kong-model-registry patch, `portGfxKongModelLoaded`/`Freed`); a load of any other
+  model clears the address it lands on, so a free the patch never sees (a heap reset on a map change) cannot
+  leave a stale entry for a later model to inherit. `renderActorDisplayList` is the only producer of segment-3
+  vertex blocks, so every address the renderer can see has passed through that load. The renderer smooths the
+  `G_VTX` loads whose segment base matches. The table is port state: no RDRAM changes, so game logic and
+  quicksave determinism do not, and a kong swap, a Disco Chunky change or a quickload reach it through the same
+  cache calls. The interpolation replays smooth with the same tessellation, so in-between images line up with
+  their game frames.
   Known coupling: the game reads the depth buffer every frame (`zbufferReadDepth`: camera probes around the
   player, the sun, Banana Fairy photos), and smoothing moves Kong surfaces by small amounts, so those reads can
   differ while the mode is on. Making it safe by default needs the game-visible depth to come from the original
