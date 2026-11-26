@@ -124,7 +124,7 @@ void portGfxWideClipX(s16 *left, s16 *right) {
 }
 
 void gfxBackendQsRanges(QsSink *out) {
-    gfxBatchQsRanges(out);
+    gfxQsRanges(out);
 }
 
 void gfxBackendQsRestored(void) {}

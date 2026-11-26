@@ -120,8 +120,8 @@ int gfxBackendInterpEnd(int slot); /* 1 when the replay drew the VI image, now k
 int gfxBackendPresentInterp(int slot);
 void gfxInterpReset(void);
 void gfxInterpQsRanges(QsSink *out);
-/* the per-pixel lighting batch scratch (gfx.c): a host allocation a quickload must keep */
-void gfxBatchQsRanges(QsSink *out);
+/* gfx.c host state a quickload keeps: the player's graphics settings and the batch scratch allocation */
+void gfxQsRanges(QsSink *out);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);

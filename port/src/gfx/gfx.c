@@ -60,7 +60,7 @@ static struct {
 static GfxVtx sBatch[BATCH_MAX];
 /* per-pixel lighting: the pending batch's eye-space normals and the light set it draws with. The normals are
  * scratch for one batch, allocated on the first lit one, so a quicksave of a run with the mode off carries
- * none of it; gfxBatchQsRanges keeps the pointer across a quickload. */
+ * none of it; gfxQsRanges keeps the pointer across a quickload. */
 static float (*sBatchNrm)[3];
 static GfxLights sBatchLights;
 static int sBatchLit;
@@ -135,7 +135,12 @@ static void flush(void) {
     }
 }
 
-void gfxBatchQsRanges(QsSink *out) {
+/* host state a quickload keeps: the player's setting, as the other graphics settings are kept, and the batch
+ * scratch the pointer owns. What the mode derives from the display list (gGfx.lightSerial, gGfx.fogMul/fogOff)
+ * is not kept: a load lands on a frame boundary, resetRsp zeroes it at the next task, and that task's own light
+ * and fog loads put it back. */
+void gfxQsRanges(QsSink *out) {
+    QS_KEEP(out, gGfxPerPixel);
     QS_KEEP(out, sBatchNrm);
 }
 

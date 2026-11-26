@@ -234,7 +234,7 @@ void gfxBackendQsRanges(QsSink *out) {
     gfxFbQsRanges(out);
     gfxFbSnapQsRanges(out);
     gfxCombinerQsRanges(out);
-    gfxBatchQsRanges(out);
+    gfxQsRanges(out);
 }
 
 static void texCacheFlush(void) {
