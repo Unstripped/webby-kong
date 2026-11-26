@@ -79,10 +79,18 @@ node tools/bench/run.mjs            # after cmake --build build/web
 ```
 
 Boots eight levels (`--scenes japes,isles,aztec,factory,galleon,fungi,caves,castle`) through the resume point in
-headless Chrome for Testing (ANGLE Metal; `CHROME=` selects another binary) at 1280x720 CSS, DPR 2, default
+headless Chrome (ANGLE Metal; `CHROME=` selects another binary; on Windows it finds Playwright's Chromium or an
+installed Chrome and uses ANGLE D3D11; `--angle <name>` overrides, `--angle default` passes no flag) at 1280x720 CSS, DPR 2, default
 settings, steps one VI per animation frame and times each step plus `gl.finish`. It prints `METRIC` lines:
 `game_fps` (images presented per second of game time, 59.94 with interpolation), `frame_p95_ms` and friends, and
 fails when p95 exceeds 10 ms, when a scene's render thumbnail or 1 s stick-forward distance drifts from the
-references in `build/bench/ref` (written by the first run, or with `--update-ref`; ROM-derived, never commit), or
-when a presented image repeats while the camera turns. Audio and gamepads are stubbed out: with them, real-time
+references in `build/bench/ref/<config>` (written by the first run, or with `--update-ref`; ROM-derived, never commit),
+or when a presented image repeats while the camera turns. Audio and gamepads are stubbed out: with them, real-time
 audio queue length and a connected controller make runs diverge.
+
+Feature settings: `--arg <port flag> <value>` (repeatable) is appended to the port's command line after the bench
+defaults (`--drawdist 4 --scale 0 --msaa 4`; a repeated flag replaces its default), e.g.
+`node tools/bench/run.mjs --arg --msaa 0 --arg --drawdist 2`. Each config gets its own refs in
+`build/bench/ref/<slug>` (`default`, `msaa-0`, `drawdist-2_msaa-0`; sorted flags); the used dir is printed. To check a
+feature config against the baseline render/motion, pass `--ref build/bench/ref/default`. The bench fails on a
+software renderer (SwiftShader, llvmpipe, Microsoft Basic Render) unless `--allow-software`.
