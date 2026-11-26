@@ -142,24 +142,26 @@ flowchart LR
 - Per-pixel lighting and fog (`--per-pixel`, `?perpixel=`, Esc menu "Per-pixel lighting", `port_set_per_pixel`;
   off by default, the art was drawn for per-vertex shading): `loadVertices` normally sums the F3DEX2 lights per
   vertex (the object-space normal against the lights `updateLights` moved into object space) and bakes
-  `z / w * fogMul + fogOff`, clamped to 0–255, into shade alpha. With the mode on a lit vertex instead carries its
+  `z / w * fogMul + fogOff`, clamped to 0–255, into shade alpha. With the mode on a lit vertex also carries its
   normal transformed by the modelview, and the light set goes in as uniforms in eye space — the space the RSP is
   given the directions in, so one set serves a batch spanning several bone matrices — where the fragment shader
-  sums and clamps them. The eye-space cosine equals the RSP's object-space one for a rotation with uniform scale;
-  non-uniform scale or shear in the modelview makes the two differ slightly (both normalise, neither uses the
-  inverse transpose). Fog is mixed from the fragment's own depth (`2 * gl_FragCoord.z - 1` is the N64's `z / w`
-  under the default depth range) with the same coefficients and clamp, while shade alpha still carries the
-  per-vertex fog value, so combiners that read SHADE alpha are unaffected. The two differ where the per-vertex
-  factor is clamped inside a triangle, where GL interpolates shade alpha perspective-correct (the RDP and
-  `gl_FragCoord.z` are screen-linear), and around the near plane: a fragment exists only after clipping, so the
-  `w < 0` sign flip the per-vertex formula needs has no per-fragment counterpart. `G_TEXTURE_GEN` keeps its
-  per-vertex object-space normal: it produces texture coordinates, not shading. The light set and the fog
-  coefficients are part of the batch state (`GfxState.lightSerial`, `fogMul`/`fogOff`, all 0 while the mode is
-  off) and are taken at G_VTX time, as hardware shades and fogs vertices as they load, so a light or fog load
-  ends the pending batch and the interpolation replays rebuild the same state per draw; whether a batch is lit
-  follows its vertices, not the geometry mode of the draw. Each program key gains one bit per mode, so with the
-  mode off exactly the same shaders are built and used as before; the normals ride in their own vertex buffer
-  (attribute 3, bound by name), enabled only for lit batches. The headless backend ignores both.
+  sums and clamps them; the RSP's own sum stays the vertex colour, which is what a triangle whose vertices were
+  not all loaded under `G_LIGHTING` is drawn from. The eye-space cosine equals the RSP's object-space one for a
+  rotation with uniform scale; non-uniform scale or shear in the modelview makes the two differ slightly (both
+  normalise, neither uses the inverse transpose). Fog is mixed from the fragment's own depth
+  (`2 * gl_FragCoord.z - 1` is the N64's `z / w` under the default depth range) with the same coefficients and
+  clamp, while shade alpha still carries the per-vertex fog value, so combiners that read SHADE alpha are
+  unaffected. The two differ where the per-vertex factor is clamped inside a triangle, where GL interpolates
+  shade alpha perspective-correct (the RDP and `gl_FragCoord.z` are screen-linear), and around the near plane: a
+  fragment exists only after clipping, so the `w < 0` sign flip the per-vertex formula needs has no per-fragment
+  counterpart. `G_TEXTURE_GEN` keeps its per-vertex object-space normal: it produces texture coordinates, not
+  shading. The light set and the fog coefficients are part of the batch state (`GfxState.lightSerial`,
+  `fogMul`/`fogOff`, all 0 while the mode is off) and are taken at G_VTX time, as hardware shades and fogs
+  vertices as they load, so a light or fog load ends the pending batch and the interpolation replays rebuild the
+  same state per draw; whether a batch is lit follows its vertices, not the geometry mode of the draw. Each
+  program key gains one bit per mode, so with the mode off exactly the same shaders are built and used as
+  before; the normals ride in their own vertex buffer (attribute 3, bound by name), enabled only for lit
+  batches. The headless backend ignores both.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and
