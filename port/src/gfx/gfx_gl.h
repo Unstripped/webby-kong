@@ -8,10 +8,13 @@ typedef struct {
     GLuint prog;
     GLint uTex0, uTex1, uPrim, uEnv, uFog, uBlend, uPrimLod, uTile0, uTile1, uSize0, uSize1, uAlphaRef, uPrimDepth;
     GLint uLodScale, uMaxLevel, uMipTile, uMipSize;
+    GLint uLightDir, uLightCol, uAmbient, uNumLights, uFogCoef; /* per-pixel lighting and fog */
     u8 usesTex0, usesTex1;
     /* last values set (gfx_gl.c skips unchanged uniforms); NaN until first set */
     float cPrim[4], cEnv[4], cFog[4], cBlend[4], cTile0[4], cTile1[4], cSize0[2], cSize1[2];
-    float cPrimLod, cAlphaRef, cPrimDepth, cLodScale, cMaxLevel;
+    float cPrimLod, cAlphaRef, cPrimDepth, cLodScale, cMaxLevel, cFogCoef[2];
+    /* light set last uploaded: 0 is the empty one a new program's zeroed uniforms already hold */
+    u32 cLightSerial;
 } GfxProgram;
 
 typedef struct {
@@ -22,6 +25,8 @@ typedef struct {
     u8 primDepth;  /* z source = primitive depth */
     u8 lod;        /* texture LOD: TEXEL0/TEXEL1 are per-pixel mip levels of uTex0 */
     u8 a2c;        /* alpha test becomes sample coverage (GL_SAMPLE_ALPHA_TO_COVERAGE) instead of a discard */
+    u8 perPixelLight; /* the fragment sums the light set over its normal instead of taking vShade.rgb */
+    u8 perPixelFog;   /* fog comes from the fragment's depth instead of interpolated shade alpha */
 } GfxProgramKey;
 
 GfxProgram *gfxProgramGet(const GfxProgramKey *key);
@@ -81,6 +86,7 @@ void gfxFbSyncRdram(u32 addr, u32 len);
 /* quicksave: host statics kept across a restore, and post-restore invalidation */
 void gfxFbQsRanges(QsSink *out);
 void gfxCombinerQsRanges(QsSink *out);
+void gfxCombinerQsRestored(void); /* after a restore every program uploads its light set again */
 void gfxFbQsRestored(void);
 /* gfx_gl.c for gfx_texpack.c: drop every cached texture (looked up again on next use); forget the GL state shadow
  * after GL calls made outside a frame */

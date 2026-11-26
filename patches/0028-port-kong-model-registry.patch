@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <port@local>
+Date: Thu, 26 Nov 2026 13:32:03 -0700
+Subject: [PATCH] port: kong model registry
+
+
+diff --git a/src/global/17B90_anim_controller.c b/src/global/17B90_anim_controller.c
+index e66e0bd..a46a160 100644
+--- a/src/global/17B90_anim_controller.c
++++ b/src/global/17B90_anim_controller.c
+@@ -68,6 +68,19 @@ unsigned char cullSwap;
+     controllerCommandRelocateAssets(*asset->displayLists, asset->displayLists);
+     animListInit(actor, asset);
+ 
++    /* port: name the Kong models for the renderer's optional smoothing; it recognises their draws by the
++     * vertex block renderActorDisplayList binds to segment 3. The Kongs are entries 0-15 of actor table 5,
++     * Disco Chunky (0xE) included, and this asset is entry assetId - 1. Every other model clears the address
++     * it loaded at, so a free this code never sees (a heap reset on a map change, a cache drop) cannot leave
++     * a stale entry behind; that holds because renderActorDisplayList is the only code that binds a vertex
++     * block to segment 3, so every address the renderer can take for a Kong came through this load.
++     * Port-side only: nothing here reads or writes game state. */
++    if ((u32)(assetId - 1) <= 0xF) {
++        portGfxKongModelLoaded(asset->vertices);
++    } else {
++        portGfxKongModelFreed(asset->vertices);
++    }
++
+     if (cullSwap & 1) {
+         gfxSwapGeometryModeCullBits(*asset->displayLists, asset->displayLists);
+     }
+@@ -369,6 +382,7 @@ void controllerAnimFreeModel(Actor *actor, u8 modelIndex) {
+             gModelCache[gModelCacheCount].cullSwap = 0;
+             gModelCache[gModelCacheCount].refCount = 0;
+ 
++            portGfxKongModelFreed(model->vertices); /* port: this vertex block is no longer a Kong model */
+             assetFreeBuffer(model, 0x281, 0x15);
+         }
+     }

@@ -27,6 +27,7 @@ describe('settings', () => {
       '--drawdist', '2', '--scale', '0', '--msaa', '4', '--a2c', '1', '--mips', '1', '--aniso', '4',
       '--interp', '1', '--hrtf', '1', '--audio-rate', '44100',
       '--kong-swap', '1', '--disco-chunky', '0', '--stick-camera', '1', '--camera-speed', '5', '--camera-invert', '0',
+      '--per-pixel', '0', '--kong-smooth', '0',
     ]);
   });
 

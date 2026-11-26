@@ -24,6 +24,11 @@ typedef struct {
     int texTile;
     int texLevels; /* G_TEXTURE max mip level: texture LOD uses tiles texTile..texTile + texLevels */
     GfxTile tiles[8];
+    /* per-pixel lighting and fog (gGfxPerPixel): the light set the batch draws with, as a serial that changes
+     * whenever its contents do, and the G_MOVEWORD fog coefficients. Both stay 0 while the mode is off, so
+     * batches end on exactly the same state changes as before. */
+    u32 lightSerial;
+    s16 fogMul, fogOff;
 } GfxState;
 
 /* one vertex as drawn: clip-space position, shade color (0..1), texture coords in texels of the render tile */
@@ -32,6 +37,24 @@ typedef struct {
     float r, g, b, a;
     float s, t;
 } GfxVtx;
+
+#define GFX_MAX_LIGHTS 8
+
+/* per-pixel lighting: the F3DEX2 light set a batch draws with. The RSP's light directions are eye space (it moves
+ * them into object space to dot them with the vertex normals there); these stay in eye space and the normals are
+ * transformed instead, so one uniform set serves a batch spanning several modelview matrices (bones). */
+typedef struct {
+    int count;                      /* directional lights */
+    float dir[GFX_MAX_LIGHTS][3];   /* normalized */
+    float col[GFX_MAX_LIGHTS][3];   /* 0..1 */
+    float ambient[3];               /* 0..1 */
+} GfxLights;
+
+/* what a batch of lit triangles carries on top of its vertices: one eye-space normal each, and that light set */
+typedef struct {
+    const GfxLights *lights;
+    const float (*normal)[3];
+} GfxLit;
 
 /* decoded texture (RGBA8, rows top-down); key identifies TMEM contents + params */
 typedef struct {
@@ -43,6 +66,8 @@ typedef struct {
 extern GfxState gGfx;
 extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * GfxFb.scale), >= 1 */
 extern u8 gGfxTmem[4096];
+extern int gGfxPerPixel; /* player setting: light and fog per fragment instead of per vertex */
+extern int gGfxKongSmooth; /* player setting: PN-triangle smoothing of registered Kong models */
 
 /* gfx_tmem.c */
 void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 dxt);
@@ -60,7 +85,8 @@ void gfxBackendInit(void);
 void gfxBackendBeginTask(void);
 void gfxBackendEndTask(void);
 void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz);
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count);
+/* `lit` is NULL unless the batch is lit with gGfxPerPixel on */
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit);
 /* screen-space rectangle in N64 pixels (lrx/lry exclusive) */
 void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, float lry);
 void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float lrx, float lry,
@@ -80,6 +106,8 @@ int gfxBackendInterpEnd(int slot); /* 1 when the replay drew the VI image, now k
 int gfxBackendPresentInterp(int slot);
 void gfxInterpReset(void);
 void gfxInterpQsRanges(QsSink *out);
+/* the per-pixel lighting batch scratch (gfx.c): a host allocation a quickload must keep */
+void gfxBatchQsRanges(QsSink *out);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);

@@ -33,6 +33,8 @@ export type PortExport =
   | 'port_set_audio_hrtf'
   | 'port_audio_rate'
   | 'port_set_interp'
+  | 'port_set_per_pixel'
+  | 'port_set_kong_smooth'
   | 'port_frame_step'
   | 'port_save_request'
   | 'port_save_busy'

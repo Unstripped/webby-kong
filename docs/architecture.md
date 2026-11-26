@@ -186,6 +186,65 @@ flowchart LR
   distances, capped at each map's far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64
   behaviour, any value 1–16 sets the factor. Banana fairies keep the N64 spawn range: a spawned fairy starts the
   non-positional "fairy nearby" song, which would otherwise play from across the map.
+- Per-pixel lighting and fog (`--per-pixel`, `?perpixel=`, Esc menu "Per-pixel lighting", `port_set_per_pixel`;
+  off by default, the art was drawn for per-vertex shading): `loadVertices` normally sums the F3DEX2 lights per
+  vertex (the object-space normal against the lights `updateLights` moved into object space) and bakes
+  `z / w * fogMul + fogOff`, clamped to 0–255, into shade alpha. With the mode on a lit vertex also carries its
+  normal transformed by the modelview, and the light set goes in as uniforms in eye space — the space the RSP is
+  given the directions in, so one set serves a batch spanning several bone matrices — where the fragment shader
+  sums and clamps them; the RSP's own sum stays the vertex colour, which is what a triangle whose vertices were
+  not all loaded under `G_LIGHTING` is drawn from. The eye-space cosine equals the RSP's object-space one for a
+  rotation with uniform scale; non-uniform scale or shear in the modelview makes the two differ slightly (both
+  normalise, neither uses the inverse transpose). Fog is mixed from the fragment's own depth
+  (`2 * gl_FragCoord.z - 1` is the N64's `z / w` under the default depth range) with the same coefficients and
+  clamp, while shade alpha still carries the per-vertex fog value, so combiners that read SHADE alpha are
+  unaffected. The two differ where the per-vertex factor is clamped inside a triangle, where GL interpolates
+  shade alpha perspective-correct (the RDP and `gl_FragCoord.z` are screen-linear), and around the near plane: a
+  fragment exists only after clipping, so the `w < 0` sign flip the per-vertex formula needs has no per-fragment
+  counterpart. `G_TEXTURE_GEN` keeps its per-vertex object-space normal: it produces texture coordinates, not
+  shading. The light set and the fog coefficients are part of the batch state (`GfxState.lightSerial`,
+  `fogMul`/`fogOff`, all 0 while the mode is off) and are taken at G_VTX time, as hardware shades and fogs
+  vertices as they load, so a light or fog load ends the pending batch and the interpolation replays rebuild the
+  same state per draw; whether a batch is lit follows its vertices, not the geometry mode of the draw. Each
+  program key gains one bit per mode, so with the mode off exactly the same shaders are built and used as
+  before; the normals ride in their own vertex buffer (attribute 3, bound by name), enabled only for lit
+  batches. The headless backend ignores both.
+- Kong smoothing (`--kong-smooth`, `?kongsmooth=`, Esc menu "Kong smoothing", `port_set_kong_smooth`; off by
+  default, a prototype): the Kong models are 770–900 triangles each and every one of them is lit, so they carry
+  normals and suit automatic curved-surface subdivision. With the mode on, each lit triangle of a registered Kong
+  model becomes a PN triangle (Vlachos et al. 2001) — a cubic patch through its corners whose tangents follow
+  their normals — sampled on a 3×3 grid and emitted as 9 triangles through the usual batching path, so a Kong
+  costs about nine times its triangles (the batch flushes at its usual size, nothing grows). Positions and
+  normals are in eye space, because about a third of the Kong triangles mix vertices loaded under different bone
+  matrices (one `G_MTX` load per bone); the samples project with `R.proj`. Shade, texture coordinates and the fog
+  alpha are barycentric; with per-pixel lighting on the shading normal is the patch's own quadratic normal, which
+  is what makes the shading as round as the silhouette. `G_TEXTURE_GEN` draws keep their vertices (their texture
+  coordinates come from the normal, so moving them would slide the environment map), as does every unlit or
+  non-Kong draw and every rectangle. Decal draws are smoothed with the rest: their vertices come from the same
+  block under the same bone matrix, so they get the surface's own patch; left flat they sink into it (Lanky's
+  overall buttons disappear).
+  The N64 duplicates a vertex wherever texture coordinates or colours break; the duplicates' normals differ, so
+  the patches would crack along those seams. Within one `G_VTX` load — one bone matrix — the normals of equal
+  object-space positions are averaged and displace together, while shading keeps the originals. That is the
+  whole guarantee: duplicates split across two loads, as a bone seam or a decal in its own load can be, get a
+  weld each and may still part. Attributes are interpolated over displaced positions, so a texture swims
+  slightly against the original as the patch bends. The mode looks best with per-pixel lighting on, which rounds
+  the shading the same way the patch rounds the silhouette. Culling is decided once from the flat triangle and
+  the whole patch follows it, so a sample that curves past the silhouette is drawn rather than notching it.
+  Which models are Kongs comes from game code: `controllerAnimStateLoadAsset` names a model's vertex block —
+  what `renderActorDisplayList` binds to segment 3 — as it enters the model cache and `controllerAnimFreeModel`
+  unnames it as it leaves (the kong-model-registry patch, `portGfxKongModelLoaded`/`Freed`); a load of any other
+  model clears the address it lands on, so a free the patch never sees (a heap reset on a map change) cannot
+  leave a stale entry for a later model to inherit. `renderActorDisplayList` is the only producer of segment-3
+  vertex blocks, so every address the renderer can see has passed through that load. The renderer smooths the
+  `G_VTX` loads whose segment base matches. The table is port state: no RDRAM changes, so game logic and
+  quicksave determinism do not, and a kong swap, a Disco Chunky change or a quickload reach it through the same
+  cache calls. The interpolation replays smooth with the same tessellation, so in-between images line up with
+  their game frames.
+  Known coupling: the game reads the depth buffer every frame (`zbufferReadDepth`: camera probes around the
+  player, the sun, Banana Fairy photos), and smoothing moves Kong surfaces by small amounts, so those reads can
+  differ while the mode is on. Making it safe by default needs the game-visible depth to come from the original
+  geometry.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and
