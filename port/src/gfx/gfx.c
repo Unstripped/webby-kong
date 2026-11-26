@@ -7,11 +7,11 @@
 #define MAX_VTX 64
 #define MAX_MTX_STACK 32
 #define MAX_DL_DEPTH 18
-#define MAX_LIGHTS 8
 #define BATCH_MAX 3 * 1024
 
 GfxState gGfx;
 float gGfxTargetWide = 1.0f;
+int gGfxPerPixel;
 
 typedef struct {
     float x, y, z, w;      /* clip space */
@@ -20,6 +20,7 @@ typedef struct {
     u8 clip;               /* outcode */
     float sx, sy, sz;      /* screen position (N64 pixels) for G_BRANCH_Z / MODIFYVTX */
     s16 ob[3];             /* object-space position, for the debug probe */
+    float nrm[3];          /* eye-space normal, lit vertices with gGfxPerPixel on */
 } RspVtx;
 
 typedef struct {
@@ -36,9 +37,11 @@ static struct {
     float mvp[4][4];
     int mvpDirty;
     RspVtx vtx[MAX_VTX];
-    RspLight lights[MAX_LIGHTS + 1];
+    RspLight lights[GFX_MAX_LIGHTS + 1];
     int numLights;
     int lightsDirty;
+    GfxLights lightsEye; /* the same lights as the fragment shader wants them (gGfxPerPixel) */
+    int lightsEyeDirty;
     s8 lookat[2][3];
     float lookatObj[2][3];
     s16 fogMul, fogOff;
@@ -50,6 +53,11 @@ static struct {
 } R;
 
 static GfxVtx sBatch[BATCH_MAX];
+/* per-pixel lighting: the pending batch's eye-space normals and the light set it draws with */
+static float sBatchNrm[BATCH_MAX][3];
+static GfxLights sBatchLights;
+static int sBatchLit;
+static u32 sLightSerial;
 static u32 sCurW0, sCurW1; /* command being interpreted, for diagnostics */
 static u32 sCurCmd, sDlStack[MAX_DL_DEPTH + 2];
 static int sDlDepth;
@@ -112,7 +120,10 @@ u8 *gfxHost(u32 a) {
 
 static void flush(void) {
     if (sBatchCount != 0) {
-        gfxBackendDrawTriangles(&sBatchState, sBatch, sBatchCount);
+        GfxLit lit;
+        lit.lights = &sBatchLights;
+        lit.normal = sBatchNrm;
+        gfxBackendDrawTriangles(&sBatchState, sBatch, sBatchCount, sBatchLit ? &lit : NULL);
         sBatchCount = 0;
     }
 }
@@ -120,6 +131,19 @@ static void flush(void) {
 /* before a state command writes gGfx */
 static void stateChanging(void) {
     sStateDirty = 1;
+}
+
+/* web/src/game/settings.ts (port_set_per_pixel) and --per-pixel: shade and fog per fragment instead of per vertex.
+ * The fields the mode adds to gGfx keep their off value (0) while it is off, so batching there is unchanged. */
+int portGfxSetPerPixel(int on) {
+    gGfxPerPixel = on != 0;
+    stateChanging();
+    memset(&R.lightsEye, 0, sizeof R.lightsEye);
+    R.lightsEyeDirty = 1;
+    gGfx.lightSerial = 0;
+    gGfx.fogMul = gGfxPerPixel ? R.fogMul : 0;
+    gGfx.fogOff = gGfxPerPixel ? R.fogOff : 0;
+    return gGfxPerPixel;
 }
 
 static void mtxMul(float out[4][4], float a[4][4], float b[4][4]) {
@@ -175,13 +199,46 @@ static void toObject(const s8 in[3], float out[3]) {
     normalize3(out);
 }
 
+/* per-pixel lighting: the light set as the fragment shader takes it, in eye space (the space the RSP is given its
+ * light directions in). A change ends the pending batch, so every draw keeps the lights it was loaded with. */
+static void updateLightsEye(void) {
+    GfxLights set;
+    int i;
+    memset(&set, 0, sizeof set);
+    set.count = R.numLights;
+    for (i = 0; i < R.numLights; i++) {
+        set.dir[i][0] = R.lights[i].dir[0];
+        set.dir[i][1] = R.lights[i].dir[1];
+        set.dir[i][2] = R.lights[i].dir[2];
+        normalize3(set.dir[i]);
+        set.col[i][0] = R.lights[i].col[0] / 255.0f;
+        set.col[i][1] = R.lights[i].col[1] / 255.0f;
+        set.col[i][2] = R.lights[i].col[2] / 255.0f;
+    }
+    set.ambient[0] = R.lights[R.numLights].col[0] / 255.0f;
+    set.ambient[1] = R.lights[R.numLights].col[1] / 255.0f;
+    set.ambient[2] = R.lights[R.numLights].col[2] / 255.0f;
+    R.lightsEyeDirty = 0;
+    if (memcmp(&set, &R.lightsEye, sizeof set) == 0) {
+        return;
+    }
+    R.lightsEye = set;
+    stateChanging();
+    gGfx.lightSerial = ++sLightSerial; /* serial 0 is the empty set a task starts from (resetRsp) */
+}
+
 static void updateLights(void) {
     int i;
+    if (gGfxPerPixel && R.lightsEyeDirty) {
+        updateLightsEye();
+    }
     if (!R.lightsDirty) {
         return;
     }
-    for (i = 0; i < R.numLights; i++) {
-        toObject(R.lights[i].dir, R.lights[i].dirObj);
+    if (!gGfxPerPixel) { /* per pixel the lights are dotted in eye space, so no object-space copy is needed */
+        for (i = 0; i < R.numLights; i++) {
+            toObject(R.lights[i].dir, R.lights[i].dirObj);
+        }
     }
     toObject(R.lookat[0], R.lookatObj[0]);
     toObject(R.lookat[1], R.lookatObj[1]);
@@ -224,23 +281,34 @@ static void loadVertices(u32 addr, int n, int dst) {
         if (gGfx.geometry & G_LIGHTING) {
             const Vtx_tn *vn = &src[i].n;
             float nrm[3] = { vn->n[0], vn->n[1], vn->n[2] };
-            float r, g, b;
-            int l;
             normalize3(nrm);
-            r = R.lights[R.numLights].col[0];
-            g = R.lights[R.numLights].col[1];
-            b = R.lights[R.numLights].col[2];
-            for (l = 0; l < R.numLights; l++) {
-                float dp = nrm[0] * R.lights[l].dirObj[0] + nrm[1] * R.lights[l].dirObj[1] + nrm[2] * R.lights[l].dirObj[2];
-                if (dp > 0) {
-                    r += dp * R.lights[l].col[0];
-                    g += dp * R.lights[l].col[1];
-                    b += dp * R.lights[l].col[2];
+            if (gGfxPerPixel) {
+                /* the fragment shader sums the lights: carry the normal into eye space, transformed like the
+                 * position by the modelview, and leave the vertex the colour an unlit fragment gets */
+                float (*mv)[4] = R.mv[R.mvDepth];
+                d->nrm[0] = nrm[0] * mv[0][0] + nrm[1] * mv[1][0] + nrm[2] * mv[2][0];
+                d->nrm[1] = nrm[0] * mv[0][1] + nrm[1] * mv[1][1] + nrm[2] * mv[2][1];
+                d->nrm[2] = nrm[0] * mv[0][2] + nrm[1] * mv[1][2] + nrm[2] * mv[2][2];
+                d->r = R.lightsEye.ambient[0];
+                d->g = R.lightsEye.ambient[1];
+                d->b = R.lightsEye.ambient[2];
+            } else {
+                float r = R.lights[R.numLights].col[0];
+                float g = R.lights[R.numLights].col[1];
+                float b = R.lights[R.numLights].col[2];
+                int l;
+                for (l = 0; l < R.numLights; l++) {
+                    float dp = nrm[0] * R.lights[l].dirObj[0] + nrm[1] * R.lights[l].dirObj[1] + nrm[2] * R.lights[l].dirObj[2];
+                    if (dp > 0) {
+                        r += dp * R.lights[l].col[0];
+                        g += dp * R.lights[l].col[1];
+                        b += dp * R.lights[l].col[2];
+                    }
                 }
+                d->r = (r > 255 ? 255 : r) / 255.0f;
+                d->g = (g > 255 ? 255 : g) / 255.0f;
+                d->b = (b > 255 ? 255 : b) / 255.0f;
             }
-            d->r = (r > 255 ? 255 : r) / 255.0f;
-            d->g = (g > 255 ? 255 : g) / 255.0f;
-            d->b = (b > 255 ? 255 : b) / 255.0f;
             if (gGfx.geometry & G_TEXTURE_GEN) {
                 float dx = nrm[0] * R.lookatObj[0][0] + nrm[1] * R.lookatObj[0][1] + nrm[2] * R.lookatObj[0][2];
                 float dy = nrm[0] * R.lookatObj[1][0] + nrm[1] * R.lookatObj[1][1] + nrm[2] * R.lookatObj[1][2];
@@ -302,6 +370,9 @@ static void emitVertex(const RspVtx *v) {
         flush();
     }
     o = &sBatch[sBatchCount++];
+    if (sBatchLit) {
+        memcpy(sBatchNrm[sBatchCount - 1], v->nrm, sizeof v->nrm);
+    }
     /* screen_x = x/w*sx + tx ; ndc = screen_x/(W/2) - 1, squeezed into the centre of a wide target */
     o->x = (v->x * (sx / (fbW / 2)) + v->w * (tx / (fbW / 2) - 1.0f)) / gGfxTargetWide;
     o->y = v->y * (sy / (fbH / 2)) + v->w * (1.0f - ty / (fbH / 2));
@@ -476,6 +547,11 @@ static void triangle(int a, int b, int c) {
     }
     if (sBatchCount == 0) {
         memcpy(&sBatchState, &gGfx, sizeof gGfx);
+        /* the batch keeps the light set it started with: a later load ends it (gGfx.lightSerial) */
+        sBatchLit = gGfxPerPixel && (gGfx.geometry & G_LIGHTING) != 0;
+        if (sBatchLit) {
+            sBatchLights = R.lightsEye;
+        }
     }
     emitVertex(v0);
     emitVertex(v1);
@@ -512,12 +588,13 @@ static void moveMem(u32 w0, u32 w1) {
             memcpy(R.lookat[k], p + 8, 3);
         } else {
             int k = (ofs - 0x30) / 0x18;
-            if (k <= MAX_LIGHTS) {
+            if (k <= GFX_MAX_LIGHTS) {
                 memcpy(R.lights[k].col, p, 3);
                 memcpy(R.lights[k].dir, p + 8, 3);
             }
         }
         R.lightsDirty = 1;
+        R.lightsEyeDirty = 1;
         break;
     case G_MV_MATRIX:
         mtxLoad(R.mvp, p);
@@ -537,21 +614,28 @@ static void moveWord(u32 w0, u32 w1) {
         break;
     case G_MW_NUMLIGHT:
         R.numLights = (int)(w1 / 24);
-        if (R.numLights > MAX_LIGHTS) {
-            R.numLights = MAX_LIGHTS;
+        if (R.numLights > GFX_MAX_LIGHTS) {
+            R.numLights = GFX_MAX_LIGHTS;
         }
         R.lightsDirty = 1;
+        R.lightsEyeDirty = 1;
         break;
     case G_MW_FOG:
         R.fogMul = (s16)(w1 >> 16);
         R.fogOff = (s16)(w1 & 0xFFFF);
+        if (gGfxPerPixel && (gGfx.fogMul != R.fogMul || gGfx.fogOff != R.fogOff)) {
+            stateChanging(); /* the fragment shader reads them: the pending batch keeps its own */
+            gGfx.fogMul = R.fogMul;
+            gGfx.fogOff = R.fogOff;
+        }
         break;
     case G_MW_LIGHTCOL: {
         int k = offset / 0x18;
-        if (k <= MAX_LIGHTS) {
+        if (k <= GFX_MAX_LIGHTS) {
             R.lights[k].col[0] = w1 >> 24;
             R.lights[k].col[1] = w1 >> 16;
             R.lights[k].col[2] = w1 >> 8;
+            R.lightsEyeDirty = 1;
         }
         break;
     }
@@ -1231,6 +1315,9 @@ static void resetRsp(void) {
     R.texScaleS = R.texScaleT = 1.0f;
     stateChanging();
     gGfx.texOn = 0;
+    /* R's lights and fog are zeroed: serial 0 is that empty light set */
+    gGfx.lightSerial = 0;
+    gGfx.fogMul = gGfx.fogOff = 0;
 }
 
 /* in-between image m: the pending task's list again from the RDP state and TMEM it started with, every matrix

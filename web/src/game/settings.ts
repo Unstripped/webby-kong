@@ -20,6 +20,7 @@ export interface SettingsValues {
   stickcam: number;
   camspeed: number;
   caminvert: number;
+  perpixel: number;
 }
 
 export type SettingKey = keyof SettingsValues;
@@ -53,6 +54,7 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   stickcam: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_stick_camera' },
   camspeed: { def: 5, valid: isNum((v) => Number.isInteger(v) && v >= 1 && v <= 10), parse: num, fn: 'port_set_camera_speed' },
   caminvert: { def: 0, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_camera_invert' },
+  perpixel: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_per_pixel' },
 };
 
 const KEYS = Object.keys(DEFS) as SettingKey[];
@@ -129,6 +131,7 @@ export function args(): string[] {
     '--kong-swap', String(v.kongswap), '--disco-chunky', String(v.discochunky),
     '--stick-camera', String(v.stickcam),
     '--camera-speed', String(v.camspeed), '--camera-invert', String(v.caminvert),
+    '--per-pixel', String(v.perpixel),
   ];
 }
 

@@ -139,6 +139,20 @@ flowchart LR
   distances, capped at each map's far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64
   behaviour, any value 1–16 sets the factor. Banana fairies keep the N64 spawn range: a spawned fairy starts the
   non-positional "fairy nearby" song, which would otherwise play from across the map.
+- Per-pixel lighting and fog (`--per-pixel`, `?perpixel=`, Esc menu "Per-pixel lighting", `port_set_per_pixel`;
+  off by default, the art was drawn for per-vertex shading): `loadVertices` normally sums the F3DEX2 lights per
+  vertex (the object-space normal against the lights `updateLights` moved into object space) and bakes
+  `z / w * fogMul + fogOff`, clamped to 0–255, into shade alpha. With the mode on a lit vertex instead carries its
+  normal transformed by the modelview, and the light set goes in as uniforms in eye space — the space the RSP is
+  given the directions in, so one set serves a batch spanning several bone matrices — where the fragment shader
+  sums and clamps them. Fog is mixed from the fragment's own depth (`2 * gl_FragCoord.z - 1` is the N64's `z / w`)
+  with the same coefficients and clamp, while shade alpha still carries the per-vertex fog value, so combiners
+  that read SHADE alpha are unaffected. `G_TEXTURE_GEN` keeps its per-vertex object-space normal: it produces
+  texture coordinates, not shading. The light set and the fog coefficients are part of the batch state
+  (`GfxState.lightSerial`, `fogMul`/`fogOff`, all 0 while the mode is off), so a light or fog load ends the pending
+  batch and the interpolation replays rebuild the same state per draw. Each program key gains one bit per mode, so
+  with the mode off exactly the same shaders are built and used as before; the normals ride in their own vertex
+  buffer (attribute 3), enabled only for lit batches. The headless backend ignores both.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and

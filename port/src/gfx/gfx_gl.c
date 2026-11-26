@@ -22,6 +22,7 @@ typedef struct {
 static SDL_Window *sWindow;
 static SDL_GLContext sContext;
 static GLuint sVao, sVbo;
+static GLuint sNrmVbo; /* per-pixel lighting: eye-space normals of the batch being drawn (attribute 3) */
 static TexEntry sTexCache[TEX_CACHE_SIZE];
 static int sTexCount;
 static u16 sTexIndex[TEX_INDEX_SIZE]; /* texCacheFind's hash index; a quickload's texCacheFlush clears it */
@@ -38,7 +39,7 @@ static size_t sMipChainCap;
 static struct {
     GLuint prog, vao, vbo, tex[2];
     int unit;
-    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest;
+    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest, normals;
     GLenum depthFunc;
     GLint scissor[4];
 } sGls;
@@ -119,6 +120,26 @@ static void glsBindGeometry(void) {
     }
 }
 
+/* attribute 3, the eye-space normals of a per-pixel-lit batch. It is disabled for every other draw: an enabled
+ * array still has to hold a vertex for every index drawn, whether or not the program reads it. */
+static void glsNormals(const float (*n)[3], u32 count) {
+    if (n == NULL) {
+        if (sGls.normals != 0) {
+            glDisableVertexAttribArray(3);
+            sGls.normals = 0;
+        }
+        return;
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, sNrmVbo);
+    sGls.vbo = sNrmVbo;
+    glBufferData(GL_ARRAY_BUFFER, count * 3 * sizeof(float), n, GL_STREAM_DRAW);
+    if (sGls.normals != 1) {
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+        sGls.normals = 1;
+    }
+}
+
 /* per-program uniform shadows (GfxProgram.c*): uniforms are program state, so they survive glUseProgram */
 static void glsU4(GLint loc, float *c, float a, float b, float d, float e) {
     if (c[0] != a || c[1] != b || c[2] != d || c[3] != e) {
@@ -164,6 +185,7 @@ void gfxBackendQsRanges(QsSink *out) {
     QS_KEEP(out, sContext);
     QS_KEEP(out, sVao);
     QS_KEEP(out, sVbo);
+    QS_KEEP(out, sNrmVbo);
     QS_KEEP(out, sTexCache);
     QS_KEEP(out, sTexCount);
     QS_KEEP(out, sWhiteTex);
@@ -234,6 +256,7 @@ void gfxBackendInit(void) {
     }
     glGenVertexArrays(1, &sVao);
     glGenBuffers(1, &sVbo);
+    glGenBuffers(1, &sNrmVbo);
     glBindVertexArray(sVao);
     glBindBuffer(GL_ARRAY_BUFFER, sVbo);
     glEnableVertexAttribArray(0);
@@ -560,7 +583,7 @@ static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
     glsScissor(px0, (h - y1) * s, px1 - px0, (y1 - y0) * s);
 }
 
-static void applyState(const GfxState *st, int forRect, int tile) {
+static void applyState(const GfxState *st, int forRect, int tile, const GfxLit *lit) {
     GfxProgramKey key;
     GfxProgram *p;
     u32 cyc = (st->otherH >> G_MDSFT_CYCLETYPE) & 3;
@@ -583,6 +606,10 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
+    /* per-pixel lighting applies to the lit triangle batches gfx.c hands normals for; per-pixel fog to every
+     * triangle batch that mixes fog, rects keeping the shade alpha they are built with */
+    key.perPixelLight = lit != NULL;
+    key.perPixelFog = gGfxPerPixel && key.fogBlend && !forRect;
     /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD
      * left set by an earlier draw. Triangles only: rects have no per-pixel LOD. */
     maxLevel = 0;
@@ -604,6 +631,20 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     glsU1(p->uPrimLod, &p->cPrimLod, st->primLodFrac / 255.0f);
     glsU1(p->uAlphaRef, &p->cAlphaRef, st->blend[3] / 255.0f);
     glsU1(p->uPrimDepth, &p->cPrimDepth, (st->primDepth & 0x7FFF) / 32767.0f);
+    if (key.perPixelLight && p->cLightSerial != st->lightSerial) {
+        const GfxLights *l = lit->lights;
+        p->cLightSerial = st->lightSerial;
+        glUniform1i(p->uNumLights, l->count);
+        if (l->count > 0) {
+            glUniform3fv(p->uLightDir, l->count, &l->dir[0][0]);
+            glUniform3fv(p->uLightCol, l->count, &l->col[0][0]);
+        }
+        glUniform3fv(p->uAmbient, 1, l->ambient);
+    }
+    if (key.perPixelFog) {
+        float coef[2] = { (float)st->fogMul, (float)st->fogOff };
+        glsU2(p->uFogCoef, p->cFogCoef, coef);
+    }
     if (key.lod) {
         /* both texels come from the mip chain on unit 0; LOD counts tile0 texels per N64 pixel */
         glsU1(p->uLodScale, &p->cLodScale, (float)sTarget->scale);
@@ -679,9 +720,10 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
 }
 
-static void draw(const GfxVtx *v, u32 count) {
+static void draw(const GfxVtx *v, u32 count, const GfxLit *lit) {
     glsBindGeometry();
     glBufferData(GL_ARRAY_BUFFER, count * sizeof(GfxVtx), v, GL_STREAM_DRAW);
+    glsNormals(lit != NULL ? lit->normal : NULL, count);
     glDrawArrays(GL_TRIANGLES, 0, count);
     if (sTarget != NULL) {
         gfxFbDrew(sTarget);
@@ -692,12 +734,12 @@ static void draw(const GfxVtx *v, u32 count) {
     }
 }
 
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit) {
     if (sTarget == NULL) {
         return;
     }
-    applyState(st, 0, st->texTile);
-    draw(v, count);
+    applyState(st, 0, st->texTile, lit);
+    draw(v, count, lit);
 }
 
 static void screenVtx(GfxVtx *o, float x, float y, float z, float s, float t, float r, float g, float b, float a) {
@@ -748,14 +790,14 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
             lrx = (float)(sTarget->physW - sTarget->ox) / sTarget->scale;
         }
         /* rectangles have no shade on the RDP: a SHADE input reads 0 (the arcade's 1-cycle backdrop is black) */
-        applyState(st, 1, 0);
+        applyState(st, 1, 0, NULL);
         screenVtx(&q[0], ulx, uly, 0, 0, 0, 0, 0, 0, 0);
         screenVtx(&q[1], lrx, uly, 0, 0, 0, 0, 0, 0, 0);
         screenVtx(&q[2], ulx, lry, 0, 0, 0, 0, 0, 0, 0);
         q[3] = q[2];
         q[4] = q[1];
         screenVtx(&q[5], lrx, lry, 0, 0, 0, 0, 0, 0, 0);
-        draw(q, 6);
+        draw(q, 6, NULL);
     }
 }
 
@@ -768,7 +810,7 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     }
     s1 = s + dsdx * (flip ? (lry - uly) : (lrx - ulx));
     t1 = t + dtdy * (flip ? (lrx - ulx) : (lry - uly));
-    applyState(st, 1, tile);
+    applyState(st, 1, tile, NULL);
     if (!flip) {
         screenVtx(&q[0], ulx, uly, 0, s, t, 0, 0, 0, 0);
         screenVtx(&q[1], lrx, uly, 0, s1, t, 0, 0, 0, 0);
@@ -782,7 +824,7 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     }
     q[3] = q[2];
     q[4] = q[1];
-    draw(q, 6);
+    draw(q, 6, NULL);
 }
 
 /* web/src/game/debug/api.ts frame grab: the canvas as just presented */

@@ -53,6 +53,7 @@ int portGfxPresentInterp(void); /* the in-between image due on this refresh, if 
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */
 void portGfxRunDeferred(void);  /* draws the in-between images still to come (gfx.c frame interpolation) */
 int portGfxSetInterp(int level); /* 0 = 30 fps; 1, 2, 3 = up to 60, 120, 240 by interpolation; returns it */
+int portGfxSetPerPixel(int on); /* shade and fog per fragment instead of per vertex; returns the value in effect */
 int portPaceRefreshesPerVi(void); /* display refreshes per VI when phase-locked (main.c), else 1 */
 
 /* audio output (ai.c) */

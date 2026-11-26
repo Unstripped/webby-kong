@@ -89,6 +89,8 @@ const SETTINGS: Array<RangeDef | SegDef> = [
       ? `Applies when the game is reloaded (running at ${running / 1000} kHz)`
       : 'Sample rate of the sound mix';
   }),
+  seg('perpixel', 'Per-pixel lighting', [[0, 'Off (N64)'], [1, 'On']],
+    () => 'Lights and fog are worked out for every pixel instead of every vertex: smoother shading on large surfaces, no fog steps across big triangles'),
 ];
 
 function SettingBox(props: { name: string; now: string; note: string; children: ComponentChildren }) {

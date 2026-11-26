@@ -19,7 +19,7 @@ import { toast } from './ui/toast';
 const REPO = 'https://github.com/Unstripped/webby-kong';
 const MAX_URL = 7500;
 const PREFIX = 'DK64R1.';
-const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert'] as const;
+const SETTING_KEYS = ['drawdist', 'scale', 'msaa', 'interp', 'audio3d', 'audiorate', 'stickcam', 'camspeed', 'caminvert', 'perpixel'] as const;
 const PROBE_CAPS = [6000, 3000, 1500, 0]; // probe chars per blob variant, largest first
 const LOG_MAX = 60;
 const HIT_RE = /^#\d+ dl=/m;
@@ -40,6 +40,7 @@ export interface ReportSettings {
   camspeed?: number;
   caminvert?: number;
   touch?: string;
+  perpixel?: number;
 }
 
 export interface ReportMark {
@@ -210,6 +211,7 @@ export function settingsText(s: ReportSettings): string {
   if (s.scale != null) parts.push(`render scale ${s.scale === 0 ? 'auto' : s.scale + '×'}`);
   if (s.msaa != null) parts.push(`MSAA ${s.msaa > 1 ? s.msaa + '×' : 'off'}`);
   if (s.interp != null) parts.push(`${30 << s.interp} fps`);
+  if (s.perpixel) parts.push('per-pixel lighting');
   if (s.audio3d != null) parts.push(`3D sound ${s.audio3d ? 'on' : 'off'}`);
   if (s.audiorate != null) parts.push(`audio ${s.audiorate / 1000} kHz`);
   if (s.stickcam != null) parts.push(`right-stick camera ${s.stickcam ? 'on' : 'off'}`);

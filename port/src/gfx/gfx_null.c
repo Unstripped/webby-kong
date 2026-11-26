@@ -10,9 +10,10 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     (void)siz;
 }
 
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit) {
     (void)v;
     (void)count;
+    (void)lit;
     if (st->texOn) {
         GfxTexImage img;
         (void)gfxTmemDecode(st, st->texTile, &img);
