@@ -7,11 +7,12 @@
 #define MAX_VTX 64
 #define MAX_MTX_STACK 32
 #define MAX_DL_DEPTH 18
-#define MAX_LIGHTS 8
 #define BATCH_MAX 3 * 1024
 
 GfxState gGfx;
 float gGfxTargetWide = 1.0f;
+int gGfxPerPixel;
+int gGfxKongSmooth;
 
 typedef struct {
     float x, y, z, w;      /* clip space */
@@ -20,6 +21,11 @@ typedef struct {
     u8 clip;               /* outcode */
     float sx, sy, sz;      /* screen position (N64 pixels) for G_BRANCH_Z / MODIFYVTX */
     s16 ob[3];             /* object-space position, for the debug probe */
+    float nrm[3];          /* eye-space normal, lit vertices with gGfxPerPixel or smoothing on */
+    float ev[3];           /* eye-space position, smoothed vertices */
+    float wn[3];           /* eye-space normal welded across the G_VTX load, for the PN displacement */
+    u8 lit;                /* G_LIGHTING was on when this vertex was loaded: its shade came from the lights */
+    u8 smooth;             /* lit vertex of a registered Kong model: smoothTriangle may subdivide it */
 } RspVtx;
 
 typedef struct {
@@ -36,9 +42,11 @@ static struct {
     float mvp[4][4];
     int mvpDirty;
     RspVtx vtx[MAX_VTX];
-    RspLight lights[MAX_LIGHTS + 1];
+    RspLight lights[GFX_MAX_LIGHTS + 1];
     int numLights;
     int lightsDirty;
+    GfxLights lightsEye; /* the same lights as the fragment shader wants them (gGfxPerPixel) */
+    int lightsEyeDirty;
     s8 lookat[2][3];
     float lookatObj[2][3];
     s16 fogMul, fogOff;
@@ -50,6 +58,13 @@ static struct {
 } R;
 
 static GfxVtx sBatch[BATCH_MAX];
+/* per-pixel lighting: the pending batch's eye-space normals and the light set it draws with. The normals are
+ * scratch for one batch, allocated on the first lit one, so a quicksave of a run with the mode off carries
+ * none of it; gfxQsRanges keeps the pointer across a quickload. */
+static float (*sBatchNrm)[3];
+static GfxLights sBatchLights;
+static int sBatchLit;
+static u32 sLightSerial;
 static u32 sCurW0, sCurW1; /* command being interpreted, for diagnostics */
 static u32 sCurCmd, sDlStack[MAX_DL_DEPTH + 2];
 static int sDlDepth;
@@ -112,14 +127,105 @@ u8 *gfxHost(u32 a) {
 
 static void flush(void) {
     if (sBatchCount != 0) {
-        gfxBackendDrawTriangles(&sBatchState, sBatch, sBatchCount);
+        GfxLit lit;
+        lit.lights = &sBatchLights;
+        lit.normal = sBatchNrm;
+        gfxBackendDrawTriangles(&sBatchState, sBatch, sBatchCount, sBatchLit ? &lit : NULL);
         sBatchCount = 0;
     }
+}
+
+/* host state a quickload keeps: the player's setting, as the other graphics settings are kept, and the batch
+ * scratch the pointer owns. What the mode derives from the display list (gGfx.lightSerial, gGfx.fogMul/fogOff)
+ * is not kept: a load lands on a frame boundary, resetRsp zeroes it at the next task, and that task's own light
+ * and fog loads put it back. */
+void gfxQsRanges(QsSink *out) {
+    QS_KEEP(out, gGfxPerPixel);
+    QS_KEEP(out, gGfxKongSmooth);
+    QS_KEEP(out, sBatchNrm);
 }
 
 /* before a state command writes gGfx */
 static void stateChanging(void) {
     sStateDirty = 1;
+}
+
+/* web/src/game/settings.ts (port_set_per_pixel) and --per-pixel: shade and fog per fragment instead of per vertex.
+ * The fields the mode adds to gGfx keep their off value (0) while it is off, so batching there is unchanged. */
+int portGfxSetPerPixel(int on) {
+    gGfxPerPixel = on != 0;
+    stateChanging();
+    memset(&R.lightsEye, 0, sizeof R.lightsEye);
+    R.lightsEyeDirty = 1;
+    gGfx.lightSerial = 0;
+    gGfx.fogMul = gGfxPerPixel ? R.fogMul : 0;
+    gGfx.fogOff = gGfxPerPixel ? R.fogOff : 0;
+    return gGfxPerPixel;
+}
+
+/* ---- Kong model registry (port/include/port/port.h, the kong-model-registry patch)
+ * The renderer only sees display lists, so game code names the Kong models (actor table 5 entries 0-15) as they
+ * are cached: their vertex block is what renderActorDisplayList binds to segment 3. This table is port state
+ * only - no RDRAM is touched, so game logic and quicksave determinism are unchanged (a quicksave snapshots it
+ * with the rest of the port's statics, next to the RDRAM the addresses point into). */
+#define KONG_MODELS 16
+static u32 sKongVtx[KONG_MODELS]; /* segment bases as R.seg holds them; 0 is free */
+static int sKongNext;             /* round-robin slot: the oldest registration goes first when all 16 are taken */
+
+void portGfxKongModelLoaded(const void *vertices) {
+    u32 base = portHostAddr((u32)vertices) & 0x00FFFFFFu;
+    int i, slot = -1;
+    if (base == 0) {
+        return;
+    }
+    for (i = 0; i < KONG_MODELS; i++) {
+        if (sKongVtx[i] == base) {
+            return;
+        }
+        if (sKongVtx[i] == 0 && slot < 0) {
+            slot = i;
+        }
+    }
+    if (slot < 0) {
+        /* all sixteen Kong models can be cached at once; past that the oldest registration is the one least
+         * likely to still be drawn, and losing one only costs its smoothing */
+        slot = sKongNext;
+        sKongNext = (sKongNext + 1) % KONG_MODELS;
+    }
+    sKongVtx[slot] = base;
+}
+
+void portGfxKongModelFreed(const void *vertices) {
+    u32 base = portHostAddr((u32)vertices) & 0x00FFFFFFu;
+    int i;
+    for (i = 0; i < KONG_MODELS; i++) {
+        if (sKongVtx[i] == base) {
+            sKongVtx[i] = 0;
+        }
+    }
+}
+
+/* actorInit: the model cache is emptied without freeing its entries one at a time, because a map change resets
+ * the heap under them, so every address the table holds is stale from here on */
+void portGfxKongRegistryClear(void) {
+    memset(sKongVtx, 0, sizeof sKongVtx);
+    sKongNext = 0;
+}
+
+static int kongModelVertices(u32 base) {
+    int i;
+    for (i = 0; i < KONG_MODELS; i++) {
+        if (sKongVtx[i] == base) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* web/src/game/settings.ts (port_set_kong_smooth) and --kong-smooth */
+int portGfxSetKongSmooth(int on) {
+    gGfxKongSmooth = on != 0;
+    return gGfxKongSmooth;
 }
 
 static void mtxMul(float out[4][4], float a[4][4], float b[4][4]) {
@@ -175,8 +281,39 @@ static void toObject(const s8 in[3], float out[3]) {
     normalize3(out);
 }
 
+/* per-pixel lighting: the light set as the fragment shader takes it, in eye space (the space the RSP is given its
+ * light directions in). A change ends the pending batch, so every draw keeps the lights it was loaded with. */
+static void updateLightsEye(void) {
+    GfxLights set;
+    int i;
+    memset(&set, 0, sizeof set);
+    set.count = R.numLights;
+    for (i = 0; i < R.numLights; i++) {
+        set.dir[i][0] = R.lights[i].dir[0];
+        set.dir[i][1] = R.lights[i].dir[1];
+        set.dir[i][2] = R.lights[i].dir[2];
+        normalize3(set.dir[i]);
+        set.col[i][0] = R.lights[i].col[0] / 255.0f;
+        set.col[i][1] = R.lights[i].col[1] / 255.0f;
+        set.col[i][2] = R.lights[i].col[2] / 255.0f;
+    }
+    set.ambient[0] = R.lights[R.numLights].col[0] / 255.0f;
+    set.ambient[1] = R.lights[R.numLights].col[1] / 255.0f;
+    set.ambient[2] = R.lights[R.numLights].col[2] / 255.0f;
+    R.lightsEyeDirty = 0;
+    if (memcmp(&set, &R.lightsEye, sizeof set) == 0) {
+        return;
+    }
+    R.lightsEye = set;
+    stateChanging();
+    gGfx.lightSerial = ++sLightSerial; /* serial 0 is the empty set a task starts from (resetRsp) */
+}
+
 static void updateLights(void) {
     int i;
+    if (gGfxPerPixel && R.lightsEyeDirty) {
+        updateLightsEye();
+    }
     if (!R.lightsDirty) {
         return;
     }
@@ -190,15 +327,70 @@ static void updateLights(void) {
 
 /* ---------------------------------------------------------------- vertices */
 
+/* the viewport terms a transformed vertex needs. x outcodes test the displayed span, not the viewport: a wide
+ * target shows the side areas and the game's overscan border around the viewport too, so trivial rejects and
+ * G_CULLDL must keep what lands there. Screen x is relative to the viewport centre, as x * vx / w. */
+typedef struct {
+    float vx, vy, tx, ty, zs, zt, xLo, xHi;
+} Viewport;
+
+static void viewportOf(Viewport *vp) {
+    float fbHalf = (gGfx.cimgWidth ? gGfx.cimgWidth : 320) * 0.5f;
+    vp->vx = R.vpScale[0] / 4.0f;
+    vp->vy = R.vpScale[1] / 4.0f;
+    vp->tx = R.vpTrans[0] / 4.0f;
+    vp->ty = R.vpTrans[1] / 4.0f;
+    vp->zs = R.vpScale[2] / 4.0f;
+    vp->zt = R.vpTrans[2] / 4.0f;
+    vp->xLo = fbHalf - fbHalf * gGfxTargetWide - vp->tx;
+    vp->xHi = fbHalf + fbHalf * gGfxTargetWide - vp->tx;
+}
+
+/* outcodes and screen position of a vertex whose clip-space position is set */
+static void finishVertex(RspVtx *d, const Viewport *vp) {
+    d->clip = 0;
+    if (d->x * vp->vx < d->w * vp->xLo) d->clip |= 1;
+    if (d->x * vp->vx > d->w * vp->xHi) d->clip |= 2;
+    if (d->y < -d->w) d->clip |= 4;
+    if (d->y > d->w) d->clip |= 8;
+    if (d->z < -d->w) d->clip |= 16;
+    if (d->z > d->w) d->clip |= 32;
+    if (d->w != 0) {
+        d->sx = d->x / d->w * vp->vx + vp->tx;
+        d->sy = -d->y / d->w * vp->vy + vp->ty;
+        d->sz = (d->z / d->w * vp->zs + vp->zt) * 32.0f;
+    } else {
+        d->sx = d->sy = d->sz = 0;
+    }
+}
+
+/* The N64 duplicates a vertex wherever texture coordinates or colours break, and PN edges built from the
+ * duplicates' differing normals pull apart. Displace with the average of the normals at one object-space
+ * position in this load (one G_VTX window is one bone matrix, so an equal position is the same point); the
+ * originals stay for shading. */
+static void weldNormals(int dst, int n) {
+    int i, j;
+    for (i = 0; i < n; i++) {
+        RspVtx *d = &R.vtx[dst + i];
+        float sum[3] = { d->nrm[0], d->nrm[1], d->nrm[2] };
+        for (j = 0; j < n; j++) {
+            const RspVtx *o = &R.vtx[dst + j];
+            if (j != i && o->ob[0] == d->ob[0] && o->ob[1] == d->ob[1] && o->ob[2] == d->ob[2]) {
+                sum[0] += o->nrm[0];
+                sum[1] += o->nrm[1];
+                sum[2] += o->nrm[2];
+            }
+        }
+        normalize3(sum);
+        memcpy(d->wn, sum, sizeof d->wn);
+    }
+}
+
 static void loadVertices(u32 addr, int n, int dst) {
     const Vtx *src = (const Vtx *)gfxHost(addr);
-    int i;
-    float vx = R.vpScale[0] / 4.0f, vy = R.vpScale[1] / 4.0f, tx = R.vpTrans[0] / 4.0f, ty = R.vpTrans[1] / 4.0f;
-    /* x outcodes test the displayed span, not the viewport: a wide target shows the side areas and the game's
-     * overscan border around the viewport too, so trivial rejects and G_CULLDL must keep what lands there.
-     * Screen x relative to the viewport centre, as x * vx / w. */
-    float fbHalf = (gGfx.cimgWidth ? gGfx.cimgWidth : 320) * 0.5f;
-    float xLo = fbHalf - fbHalf * gGfxTargetWide - tx, xHi = fbHalf + fbHalf * gGfxTargetWide - tx;
+    Viewport vp;
+    int i, smooth;
+    viewportOf(&vp);
     if (dst < 0 || dst + n > MAX_VTX) {
         gfxWarnOnce("vtxrange", "PORT: gfx G_VTX range %d+%d", dst, n);
         return;
@@ -210,11 +402,23 @@ static void loadVertices(u32 addr, int n, int dst) {
     if (gGfx.geometry & G_LIGHTING) {
         updateLights();
     }
+    /* the shader's fog coefficients are the ones this load's vertices were fogged with: a G_MW_FOG after it
+     * belongs to the vertices loaded next, as the per-vertex factor baked into shade alpha does */
+    if (gGfxPerPixel && (gGfx.fogMul != R.fogMul || gGfx.fogOff != R.fogOff)) {
+        stateChanging();
+        gGfx.fogMul = R.fogMul;
+        gGfx.fogOff = R.fogOff;
+    }
+    /* Kong smoothing: a lit vertex out of a registered model's vertex block, the segment an actor display list
+     * binds before it loads its vertices */
+    smooth = gGfxKongSmooth && (gGfx.geometry & G_LIGHTING) != 0 && kongModelVertices(R.seg[(addr >> 24) & 0xF]);
     for (i = 0; i < n; i++) {
         const Vtx_t *v = &src[i].v;
         RspVtx *d = &R.vtx[dst + i];
+        d->lit = (gGfx.geometry & G_LIGHTING) != 0;
         float x = v->ob[0], y = v->ob[1], z = v->ob[2];
         memcpy(d->ob, v->ob, sizeof d->ob);
+        d->smooth = (u8)smooth;
         float (*m)[4] = R.mvp;
         float s = v->tc[0], t = v->tc[1];
         d->x = x * m[0][0] + y * m[1][0] + z * m[2][0] + m[3][0];
@@ -224,23 +428,41 @@ static void loadVertices(u32 addr, int n, int dst) {
         if (gGfx.geometry & G_LIGHTING) {
             const Vtx_tn *vn = &src[i].n;
             float nrm[3] = { vn->n[0], vn->n[1], vn->n[2] };
-            float r, g, b;
-            int l;
             normalize3(nrm);
-            r = R.lights[R.numLights].col[0];
-            g = R.lights[R.numLights].col[1];
-            b = R.lights[R.numLights].col[2];
-            for (l = 0; l < R.numLights; l++) {
-                float dp = nrm[0] * R.lights[l].dirObj[0] + nrm[1] * R.lights[l].dirObj[1] + nrm[2] * R.lights[l].dirObj[2];
-                if (dp > 0) {
-                    r += dp * R.lights[l].col[0];
-                    g += dp * R.lights[l].col[1];
-                    b += dp * R.lights[l].col[2];
+            if (gGfxPerPixel || smooth) {
+                /* the fragment shader of a lit batch sums the lights itself, and the PN patches are built in
+                 * eye space: carry the normal there, transformed like the position by the modelview */
+                float (*mv)[4] = R.mv[R.mvDepth];
+                d->nrm[0] = nrm[0] * mv[0][0] + nrm[1] * mv[1][0] + nrm[2] * mv[2][0];
+                d->nrm[1] = nrm[0] * mv[0][1] + nrm[1] * mv[1][1] + nrm[2] * mv[2][1];
+                d->nrm[2] = nrm[0] * mv[0][2] + nrm[1] * mv[1][2] + nrm[2] * mv[2][2];
+                if (smooth) {
+                    /* a patch wants unit normals and the eye-space position of its corners */
+                    normalize3(d->nrm);
+                    d->ev[0] = x * mv[0][0] + y * mv[1][0] + z * mv[2][0] + mv[3][0];
+                    d->ev[1] = x * mv[0][1] + y * mv[1][1] + z * mv[2][1] + mv[3][1];
+                    d->ev[2] = x * mv[0][2] + y * mv[1][2] + z * mv[2][2] + mv[3][2];
                 }
             }
-            d->r = (r > 255 ? 255 : r) / 255.0f;
-            d->g = (g > 255 ? 255 : g) / 255.0f;
-            d->b = (b > 255 ? 255 : b) / 255.0f;
+            {
+                /* the RSP's own sum stays the vertex colour whatever the mode: a triangle whose vertices were
+                 * not all loaded under G_LIGHTING draws from interpolated shade, and this is its diffuse term */
+                float r = R.lights[R.numLights].col[0];
+                float g = R.lights[R.numLights].col[1];
+                float b = R.lights[R.numLights].col[2];
+                int l;
+                for (l = 0; l < R.numLights; l++) {
+                    float dp = nrm[0] * R.lights[l].dirObj[0] + nrm[1] * R.lights[l].dirObj[1] + nrm[2] * R.lights[l].dirObj[2];
+                    if (dp > 0) {
+                        r += dp * R.lights[l].col[0];
+                        g += dp * R.lights[l].col[1];
+                        b += dp * R.lights[l].col[2];
+                    }
+                }
+                d->r = (r > 255 ? 255 : r) / 255.0f;
+                d->g = (g > 255 ? 255 : g) / 255.0f;
+                d->b = (b > 255 ? 255 : b) / 255.0f;
+            }
             if (gGfx.geometry & G_TEXTURE_GEN) {
                 float dx = nrm[0] * R.lookatObj[0][0] + nrm[1] * R.lookatObj[0][1] + nrm[2] * R.lookatObj[0][2];
                 float dy = nrm[0] * R.lookatObj[1][0] + nrm[1] * R.lookatObj[1][1] + nrm[2] * R.lookatObj[1][2];
@@ -274,20 +496,10 @@ static void loadVertices(u32 addr, int n, int dst) {
             if (f > 255) f = 255;
             d->a = f / 255.0f;
         }
-        d->clip = 0;
-        if (d->x * vx < d->w * xLo) d->clip |= 1;
-        if (d->x * vx > d->w * xHi) d->clip |= 2;
-        if (d->y < -d->w) d->clip |= 4;
-        if (d->y > d->w) d->clip |= 8;
-        if (d->z < -d->w) d->clip |= 16;
-        if (d->z > d->w) d->clip |= 32;
-        if (d->w != 0) {
-            d->sx = d->x / d->w * vx + tx;
-            d->sy = -d->y / d->w * vy + ty;
-            d->sz = (d->z / d->w * (R.vpScale[2] / 4.0f) + R.vpTrans[2] / 4.0f) * 32.0f;
-        } else {
-            d->sx = d->sy = d->sz = 0;
-        }
+        finishVertex(d, &vp);
+    }
+    if (smooth) {
+        weldNormals(dst, n);
     }
 }
 
@@ -302,6 +514,9 @@ static void emitVertex(const RspVtx *v) {
         flush();
     }
     o = &sBatch[sBatchCount++];
+    if (sBatchLit) {
+        memcpy(sBatchNrm[sBatchCount - 1], v->nrm, sizeof v->nrm);
+    }
     /* screen_x = x/w*sx + tx ; ndc = screen_x/(W/2) - 1, squeezed into the centre of a wide target */
     o->x = (v->x * (sx / (fbW / 2)) + v->w * (tx / (fbW / 2) - 1.0f)) / gGfxTargetWide;
     o->y = v->y * (sy / (fbH / 2)) + v->w * (1.0f - ty / (fbH / 2));
@@ -437,6 +652,211 @@ static void probeTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) 
 
 #undef PP
 
+/* the triangle faces away from the viewer under the geometry mode's culling */
+static int culled(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+    /* winding in clip space projected (w-signs handled by the cross product of x/w, y/w) */
+    float dx1, dy1, dx2, dy2, cross;
+    if (!(gGfx.geometry & G_CULL_BOTH)) {
+        return 0;
+    }
+    if ((gGfx.geometry & G_CULL_BOTH) == G_CULL_BOTH) {
+        return 1;
+    }
+    dx1 = v1->x / v1->w - v0->x / v0->w;
+    dy1 = v1->y / v1->w - v0->y / v0->w;
+    dx2 = v2->x / v2->w - v0->x / v0->w;
+    dy2 = v2->y / v2->w - v0->y / v0->w;
+    cross = dx1 * dy2 - dy1 * dx2;
+    if ((v0->w < 0) ^ (v1->w < 0) ^ (v2->w < 0)) {
+        cross = -cross;
+    }
+    return (gGfx.geometry & G_CULL_FRONT) ? cross >= 0 : cross <= 0;
+}
+
+/* one triangle into the pending batch; culling and the debug probe are the caller's, so a smoothed patch is
+ * kept or dropped as a whole (a per-sample cull notches the silhouette it was meant to round) */
+static void batchTriangle(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+    int lit;
+    if (v0->clip & v1->clip & v2->clip) {
+        return;
+    }
+    /* shade was worked out when the vertices were loaded, so whether the batch is lit follows them, not the
+     * geometry mode this draw happens to run under */
+    lit = gGfxPerPixel && v0->lit && v1->lit && v2->lit;
+    if (sStateDirty) {
+        sStateDirty = 0;
+        if (sBatchCount != 0 && memcmp(&sBatchState, &gGfx, sizeof gGfx) != 0) {
+            flush();
+        }
+    }
+    if (sBatchCount != 0 && lit != sBatchLit) {
+        flush();
+    }
+    if (sBatchCount == 0) {
+        memcpy(&sBatchState, &gGfx, sizeof gGfx);
+        /* the batch keeps the light set its vertices were loaded with: a later load ends it (gGfx.lightSerial) */
+        sBatchLit = lit;
+        if (sBatchLit) {
+            sBatchLights = R.lightsEye;
+            if (sBatchNrm == NULL) {
+                sBatchNrm = malloc(BATCH_MAX * sizeof *sBatchNrm);
+                if (sBatchNrm == NULL) {
+                    portAbort("PORT: gfx out of memory for %d batch normals", BATCH_MAX);
+                }
+            }
+        }
+    }
+    emitVertex(v0);
+    emitVertex(v1);
+    emitVertex(v2);
+}
+
+/* ------------------------------------------------- Kong smoothing (PN triangles, Vlachos et al. 2001)
+ * A lit triangle of a registered Kong model becomes a cubic Bezier patch through its three eye-space corners
+ * whose tangents follow the welded normals, sampled on a PN_LEVEL grid and emitted through the batching path
+ * above. Eye space, because a third of the Kong triangles mix vertices loaded under different bone matrices;
+ * the samples project with R.proj. Shade, texture coordinates and alpha come out barycentric, the shading
+ * normal of per-pixel lighting quadratically. */
+
+#define PN_LEVEL 3 /* samples per edge: PN_LEVEL * PN_LEVEL triangles out of each Kong triangle */
+#define PN_GRID ((PN_LEVEL + 1) * (PN_LEVEL + 2) / 2) /* samples of the triangular barycentric grid */
+#define PN_AT(r, k) ((r) * ((r) + 1) / 2 + (k))
+
+typedef struct {
+    float p[10][3]; /* b300 b030 b003 b210 b120 b021 b012 b102 b201 b111 */
+    float n[6][3];  /* n200 n020 n002 n110 n011 n101; only built with per-pixel lighting on */
+} PnPatch;
+
+/* the control point a third of the way from p0 to p1, pulled into the tangent plane of p0's normal */
+static void pnEdge(float out[3], const float p0[3], const float p1[3], const float n0[3]) {
+    float w = (p1[0] - p0[0]) * n0[0] + (p1[1] - p0[1]) * n0[1] + (p1[2] - p0[2]) * n0[2];
+    int k;
+    for (k = 0; k < 3; k++) {
+        out[k] = (2.0f * p0[k] + p1[k] - w * n0[k]) / 3.0f;
+    }
+}
+
+/* the quadratic normal patch's edge coefficient: the average normal reflected across the edge's plane */
+static void pnEdgeNormal(float out[3], const float p0[3], const float p1[3], const float n0[3], const float n1[3]) {
+    float d[3], dd = 0.0f, v = 0.0f;
+    int k;
+    for (k = 0; k < 3; k++) {
+        d[k] = p1[k] - p0[k];
+        dd += d[k] * d[k];
+        v += d[k] * (n0[k] + n1[k]);
+    }
+    v = dd > 0.0f ? 2.0f * v / dd : 0.0f;
+    for (k = 0; k < 3; k++) {
+        out[k] = n0[k] + n1[k] - v * d[k];
+    }
+    normalize3(out);
+}
+
+static void pnBuild(PnPatch *q, const RspVtx *a, const RspVtx *b, const RspVtx *c) {
+    int k;
+    memcpy(q->p[0], a->ev, sizeof q->p[0]);
+    memcpy(q->p[1], b->ev, sizeof q->p[1]);
+    memcpy(q->p[2], c->ev, sizeof q->p[2]);
+    pnEdge(q->p[3], a->ev, b->ev, a->wn);
+    pnEdge(q->p[4], b->ev, a->ev, b->wn);
+    pnEdge(q->p[5], b->ev, c->ev, b->wn);
+    pnEdge(q->p[6], c->ev, b->ev, c->wn);
+    pnEdge(q->p[7], c->ev, a->ev, c->wn);
+    pnEdge(q->p[8], a->ev, c->ev, a->wn);
+    for (k = 0; k < 3; k++) {
+        float e = (q->p[3][k] + q->p[4][k] + q->p[5][k] + q->p[6][k] + q->p[7][k] + q->p[8][k]) / 6.0f;
+        float v = (q->p[0][k] + q->p[1][k] + q->p[2][k]) / 3.0f;
+        q->p[9][k] = e + (e - v) * 0.5f;
+    }
+    if (gGfxPerPixel) {
+        memcpy(q->n[0], a->nrm, sizeof q->n[0]);
+        memcpy(q->n[1], b->nrm, sizeof q->n[1]);
+        memcpy(q->n[2], c->nrm, sizeof q->n[2]);
+        pnEdgeNormal(q->n[3], a->ev, b->ev, a->nrm, b->nrm);
+        pnEdgeNormal(q->n[4], b->ev, c->ev, b->nrm, c->nrm);
+        pnEdgeNormal(q->n[5], a->ev, c->ev, a->nrm, c->nrm);
+    }
+}
+
+/* the patch at barycentric (u, v, w) of its corners a, b, c */
+static void pnSample(const PnPatch *q, float u, float v, float w, float pos[3], float nrm[3]) {
+    float u2 = u * u, v2 = v * v, w2 = w * w;
+    float c[10];
+    int i, k;
+    c[0] = u2 * u;
+    c[1] = v2 * v;
+    c[2] = w2 * w;
+    c[3] = 3.0f * u2 * v;
+    c[4] = 3.0f * u * v2;
+    c[5] = 3.0f * v2 * w;
+    c[6] = 3.0f * v * w2;
+    c[7] = 3.0f * u * w2;
+    c[8] = 3.0f * u2 * w;
+    c[9] = 6.0f * u * v * w;
+    for (k = 0; k < 3; k++) {
+        float s = 0.0f;
+        for (i = 0; i < 10; i++) {
+            s += c[i] * q->p[i][k];
+        }
+        pos[k] = s;
+    }
+    if (nrm != NULL) {
+        for (k = 0; k < 3; k++) {
+            nrm[k] = q->n[0][k] * u2 + q->n[1][k] * v2 + q->n[2][k] * w2 + q->n[3][k] * u * v + q->n[4][k] * v * w +
+                     q->n[5][k] * u * w;
+        }
+    }
+}
+
+static void smoothTriangle(const RspVtx *a, const RspVtx *b, const RspVtx *c) {
+    PnPatch q;
+    Viewport vp;
+    RspVtx grid[PN_GRID]; /* row r holds r + 1 samples, from the corner a down to the edge b-c */
+    int r, k;
+    pnBuild(&q, a, b, c);
+    viewportOf(&vp);
+    for (r = 0; r <= PN_LEVEL; r++) {
+        for (k = 0; k <= r; k++) {
+            float u = (float)(PN_LEVEL - r) / PN_LEVEL, v = (float)(r - k) / PN_LEVEL, w = (float)k / PN_LEVEL;
+            const RspVtx *corner = u >= v && u >= w ? a : v >= w ? b : c;
+            RspVtx *d = &grid[PN_AT(r, k)];
+            float (*m)[4] = R.proj;
+            float pos[3];
+            pnSample(&q, u, v, w, pos, gGfxPerPixel ? d->nrm : NULL);
+            d->x = pos[0] * m[0][0] + pos[1] * m[1][0] + pos[2] * m[2][0] + m[3][0];
+            d->y = pos[0] * m[0][1] + pos[1] * m[1][1] + pos[2] * m[2][1] + m[3][1];
+            d->z = pos[0] * m[0][2] + pos[1] * m[1][2] + pos[2] * m[2][2] + m[3][2];
+            d->w = pos[0] * m[0][3] + pos[1] * m[1][3] + pos[2] * m[2][3] + m[3][3];
+            d->r = u * a->r + v * b->r + w * c->r;
+            d->g = u * a->g + v * b->g + w * c->g;
+            d->b = u * a->b + v * b->b + w * c->b;
+            d->a = u * a->a + v * b->a + w * c->a;
+            d->s = u * a->s + v * b->s + w * c->s;
+            d->t = u * a->t + v * b->t + w * c->t;
+            memcpy(d->ob, corner->ob, sizeof d->ob); /* the debug probe reports the nearest original corner */
+            d->lit = a->lit; /* the corners are lit, so the samples are too; they are not smoothed again */
+            d->smooth = 0;
+            finishVertex(d, &vp);
+        }
+    }
+    for (r = 1; r <= PN_LEVEL; r++) {
+        for (k = 0; k < r; k++) {
+            batchTriangle(&grid[PN_AT(r - 1, k)], &grid[PN_AT(r, k)], &grid[PN_AT(r, k + 1)]);
+            if (k + 1 < r) {
+                batchTriangle(&grid[PN_AT(r - 1, k)], &grid[PN_AT(r, k + 1)], &grid[PN_AT(r - 1, k + 1)]);
+            }
+        }
+    }
+}
+
+/* A `G_TEXTURE_GEN` draw takes its texture coordinates from the normal, so moving its vertices would slide the
+ * environment map over the model. Decals are smoothed with everything else: they are vertices of the same block
+ * under the same bone matrix, so their patch is the one of the surface they lie on, and leaving them flat sinks
+ * them into it. */
+static int smoothable(const RspVtx *v0, const RspVtx *v1, const RspVtx *v2) {
+    return v0->smooth && v1->smooth && v2->smooth && !(gGfx.geometry & G_TEXTURE_GEN);
+}
+
 static void triangle(int a, int b, int c) {
     RspVtx *v0, *v1, *v2;
     if (a >= MAX_VTX || b >= MAX_VTX || c >= MAX_VTX) {
@@ -446,40 +866,15 @@ static void triangle(int a, int b, int c) {
     v0 = &R.vtx[a];
     v1 = &R.vtx[b];
     v2 = &R.vtx[c];
-    if (v0->clip & v1->clip & v2->clip) {
+    if ((v0->clip & v1->clip & v2->clip) || culled(v0, v1, v2)) {
         return;
     }
-    if (gGfx.geometry & G_CULL_BOTH) {
-        /* winding in clip space projected (w-signs handled by the cross product of x/w, y/w) */
-        float dx1 = v1->x / v1->w - v0->x / v0->w, dy1 = v1->y / v1->w - v0->y / v0->w;
-        float dx2 = v2->x / v2->w - v0->x / v0->w, dy2 = v2->y / v2->w - v0->y / v0->w;
-        float cross = dx1 * dy2 - dy1 * dx2;
-        if ((v0->w < 0) ^ (v1->w < 0) ^ (v2->w < 0)) {
-            cross = -cross;
-        }
-        if ((gGfx.geometry & G_CULL_BOTH) == G_CULL_BOTH) {
-            return;
-        }
-        if ((gGfx.geometry & G_CULL_FRONT) && cross >= 0) {
-            return;
-        }
-        if ((gGfx.geometry & G_CULL_BACK) && cross <= 0) {
-            return;
-        }
-    }
     probeTriangle(v0, v1, v2);
-    if (sStateDirty) {
-        sStateDirty = 0;
-        if (sBatchCount != 0 && memcmp(&sBatchState, &gGfx, sizeof gGfx) != 0) {
-            flush();
-        }
+    if (smoothable(v0, v1, v2)) {
+        smoothTriangle(v0, v1, v2);
+        return;
     }
-    if (sBatchCount == 0) {
-        memcpy(&sBatchState, &gGfx, sizeof gGfx);
-    }
-    emitVertex(v0);
-    emitVertex(v1);
-    emitVertex(v2);
+    batchTriangle(v0, v1, v2);
 }
 
 /* ---------------------------------------------------------------- state changes */
@@ -512,12 +907,13 @@ static void moveMem(u32 w0, u32 w1) {
             memcpy(R.lookat[k], p + 8, 3);
         } else {
             int k = (ofs - 0x30) / 0x18;
-            if (k <= MAX_LIGHTS) {
+            if (k <= GFX_MAX_LIGHTS) {
                 memcpy(R.lights[k].col, p, 3);
                 memcpy(R.lights[k].dir, p + 8, 3);
             }
         }
         R.lightsDirty = 1;
+        R.lightsEyeDirty = 1;
         break;
     case G_MV_MATRIX:
         mtxLoad(R.mvp, p);
@@ -537,10 +933,11 @@ static void moveWord(u32 w0, u32 w1) {
         break;
     case G_MW_NUMLIGHT:
         R.numLights = (int)(w1 / 24);
-        if (R.numLights > MAX_LIGHTS) {
-            R.numLights = MAX_LIGHTS;
+        if (R.numLights > GFX_MAX_LIGHTS) {
+            R.numLights = GFX_MAX_LIGHTS;
         }
         R.lightsDirty = 1;
+        R.lightsEyeDirty = 1;
         break;
     case G_MW_FOG:
         R.fogMul = (s16)(w1 >> 16);
@@ -548,10 +945,11 @@ static void moveWord(u32 w0, u32 w1) {
         break;
     case G_MW_LIGHTCOL: {
         int k = offset / 0x18;
-        if (k <= MAX_LIGHTS) {
+        if (k <= GFX_MAX_LIGHTS) {
             R.lights[k].col[0] = w1 >> 24;
             R.lights[k].col[1] = w1 >> 16;
             R.lights[k].col[2] = w1 >> 8;
+            R.lightsEyeDirty = 1;
         }
         break;
     }
@@ -639,9 +1037,8 @@ static struct {
     u8 tmemStart[sizeof gGfxTmem];
 } sInterp;
 
-int gfxInterpQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sInterp);
-    return 1;
+void gfxInterpQsRanges(QsSink *out) {
+    QS_KEEP(out, sInterp);
 }
 
 /* quickload: the previous frame's matrices belong to another timeline */
@@ -1217,8 +1614,13 @@ static void runDl(u32 addr, int depth) {
     }
 }
 
+/* the GPU copies of the framebuffer-read effects (issue #35) can be turned off (debug): without a source image
+ * every hook drops the copy it had, so every effect falls back to the RDRAM texels the CPU path wrote */
+static int sFbGpu = 1;
+
 void portGfxInit(void) {
     gfxBackendInit();
+    portLog("PORT: fb gpu %d", sFbGpu); /* which path the copy effects' image comes from, for bug reports */
 }
 
 static void resetRsp(void) {
@@ -1232,6 +1634,9 @@ static void resetRsp(void) {
     R.texScaleS = R.texScaleT = 1.0f;
     stateChanging();
     gGfx.texOn = 0;
+    /* R's lights and fog are zeroed: serial 0 is that empty light set */
+    gGfx.lightSerial = 0;
+    gGfx.fogMul = gGfx.fogOff = 0;
 }
 
 /* in-between image m: the pending task's list again from the RDP state and TMEM it started with, every matrix
@@ -1369,10 +1774,56 @@ int portGfxSetInterp(int level) {
     return gfxBackendSetInterp(level);
 }
 
+/* RDRAM verification (issue #35, docs/debugging.md): with it on, every framebuffer-coherence call logs a hash of
+ * the RDRAM range it touched, so a run with the GPU-side effects can be compared with one without. Ranges below
+ * 256 bytes (the single depth pixels the game reads every frame) are left out. */
+static int sFbHashLog;
+
+int portGfxFbHashLog(int on) {
+    sFbHashLog = on != 0;
+    return sFbHashLog;
+}
+
+int portGfxFbGpu(int on) {
+    sFbGpu = on != 0;
+    return sFbGpu;
+}
+
+static void fbHash(const char *site, u32 addr, u32 len) {
+    const u8 *p = (const u8 *)addr;
+    u64 h = 1469598103934665603ull;
+    u32 i;
+    if (!sFbHashLog || len < 256) {
+        return;
+    }
+    for (i = 0; i < len; i++) {
+        h = (h ^ p[i]) * 1099511628211ull;
+    }
+    portLog("PORT: fbhash %s 0x%08x %u %08x%08x", site, addr, len, (u32)(h >> 32), (u32)h);
+}
+
 void portGfxCpuWrote(const void *p, u32 len) {
     gfxBackendCpuWrote(portHostAddr((u32)p), len);
+    fbHash("cpuwrote", portHostAddr((u32)p), len);
 }
 
 void portGfxSyncRdram(const void *p, u32 len) {
     gfxBackendSyncRdram(portHostAddr((u32)p), len);
+    fbHash("sync", portHostAddr((u32)p), len);
+}
+
+void portGfxFbSnapshot(const void *dst, const void *src, u32 len) {
+    gfxBackendFbSnapshot(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, len);
+    fbHash("copy", portHostAddr((u32)dst), len);
+}
+
+void portGfxFbSepia(const void *dst, const void *src, s32 x, s32 y, s32 cols, s32 rows, s32 tileW, s32 tileH) {
+    gfxBackendFbSepia(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, (u32)x, (u32)y, (u32)cols,
+                      (u32)rows, (u32)tileW, (u32)tileH);
+    fbHash("sepia", portHostAddr((u32)dst), (u32)(cols * rows * tileW * tileH * 2));
+}
+
+void portGfxFbLerpWhite(const void *dst, const void *src, u32 len, f32 t) {
+    gfxBackendFbLerpWhite(portHostAddr((u32)dst), sFbGpu ? portHostAddr((u32)src) : 0, len, t);
+    fbHash("fade", portHostAddr((u32)dst), len);
 }

@@ -24,6 +24,11 @@ typedef struct {
     int texTile;
     int texLevels; /* G_TEXTURE max mip level: texture LOD uses tiles texTile..texTile + texLevels */
     GfxTile tiles[8];
+    /* per-pixel lighting and fog (gGfxPerPixel): the light set the batch draws with, as a serial that changes
+     * whenever its contents do, and the G_MOVEWORD fog coefficients. Both stay 0 while the mode is off, so
+     * batches end on exactly the same state changes as before. */
+    u32 lightSerial;
+    s16 fogMul, fogOff;
 } GfxState;
 
 /* one vertex as drawn: clip-space position, shade color (0..1), texture coords in texels of the render tile */
@@ -32,6 +37,24 @@ typedef struct {
     float r, g, b, a;
     float s, t;
 } GfxVtx;
+
+#define GFX_MAX_LIGHTS 8
+
+/* per-pixel lighting: the F3DEX2 light set a batch draws with. The RSP's light directions are eye space (it moves
+ * them into object space to dot them with the vertex normals there); these stay in eye space and the normals are
+ * transformed instead, so one uniform set serves a batch spanning several modelview matrices (bones). */
+typedef struct {
+    int count;                      /* directional lights */
+    float dir[GFX_MAX_LIGHTS][3];   /* normalized */
+    float col[GFX_MAX_LIGHTS][3];   /* 0..1 */
+    float ambient[3];               /* 0..1 */
+} GfxLights;
+
+/* what a batch of lit triangles carries on top of its vertices: one eye-space normal each, and that light set */
+typedef struct {
+    const GfxLights *lights;
+    const float (*normal)[3];
+} GfxLit;
 
 /* decoded texture (RGBA8, rows top-down); key identifies TMEM contents + params */
 typedef struct {
@@ -43,6 +66,8 @@ typedef struct {
 extern GfxState gGfx;
 extern float gGfxTargetWide; /* current colour image: FBO width / (N64 width * GfxFb.scale), >= 1 */
 extern u8 gGfxTmem[4096];
+extern int gGfxPerPixel; /* player setting: light and fog per fragment instead of per vertex */
+extern int gGfxKongSmooth; /* player setting: PN-triangle smoothing of registered Kong models */
 
 /* gfx_tmem.c */
 void gfxTmemLoadBlock(const GfxState *st, u32 timg, u32 timgSiz, u32 timgWidth, int tile, u32 uls, u32 ult, u32 lrs, u32 dxt);
@@ -54,13 +79,22 @@ int gfxTmemDecode(const GfxState *st, int t, GfxTexImage *out);
 int gfxTmemKey(const GfxState *st, int t, GfxTexImage *out);
 u32 gfxTileWidth(const GfxTile *t);
 u32 gfxTileHeight(const GfxTile *t);
+/* where a tile's texels came from, when one load filled it from a 16-bit RDRAM image: the GPU-side framebuffer
+ * effects (gfx_fbsnap.c) draw such a tile from the image's GPU copy instead of the decoded texels */
+typedef struct {
+    u32 addr;          /* RDRAM address of the tile's first texel */
+    u32 width, height; /* texels loaded */
+    u32 stride;        /* source texels per row */
+} GfxTileSource;
+int gfxTmemTileSource(const GfxState *st, int t, GfxTileSource *out); /* 0 when the tile has no such load */
 
 /* backend (gfx_gl.c or gfx_null.c) */
 void gfxBackendInit(void);
 void gfxBackendBeginTask(void);
 void gfxBackendEndTask(void);
 void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz);
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count);
+/* `lit` is NULL unless the batch is lit with gGfxPerPixel on */
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit);
 /* screen-space rectangle in N64 pixels (lrx/lry exclusive) */
 void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, float lry);
 void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float lrx, float lry,
@@ -69,6 +103,12 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
 void gfxBackendBlankSides(const GfxState *st);
 void gfxBackendPresent(u32 fb, int black);
 void gfxBackendCpuWrote(u32 addr, u32 len);
+/* GPU-side framebuffer effects (issue #35): what an RDRAM buffer the game just filled is a copy of. The GL
+ * backend keeps the same pixels at render scale beside it and draws tiles of it from there; the null backend has
+ * nothing to keep. RDRAM is only read. */
+void gfxBackendFbSnapshot(u32 dst, u32 src, u32 len);
+void gfxBackendFbSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH);
+void gfxBackendFbLerpWhite(u32 dst, u32 src, u32 len, float t);
 void gfxBackendSyncRdram(u32 addr, u32 len);
 /* frame interpolation (gfx.c): the backend draws a VI-image task's matrix-blended replays into the in-between image
  * (offscreen images and RDRAM are left alone), keeps each in a slot and presents a slot on request. The null
@@ -79,7 +119,9 @@ void gfxBackendInterpBegin(void);
 int gfxBackendInterpEnd(int slot); /* 1 when the replay drew the VI image, now kept in `slot` */
 int gfxBackendPresentInterp(int slot);
 void gfxInterpReset(void);
-int gfxInterpQsRanges(QsRange *out);
+void gfxInterpQsRanges(QsSink *out);
+/* gfx.c host state a quickload keeps: the player's graphics settings and the batch scratch allocation */
+void gfxQsRanges(QsSink *out);
 
 void gfxWarnOnce(const char *key, const char *fmt, ...);
 u8 *gfxHost(u32 segAddr);

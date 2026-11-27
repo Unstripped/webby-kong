@@ -56,6 +56,13 @@ void portSwapSeqHeader(void *hdr);
 /* ---- framebuffer coherence ---- */
 void portGfxCpuWrote(const void *p, u32 len);
 void portGfxSyncRdram(const void *p, u32 len);
+/* GPU-side versions of the effects that build their image from a framebuffer read (issue #35): what the buffer
+ * the game just filled is a copy of. The port keeps the same pixels at render scale beside it and draws them
+ * instead of the buffer's 320x240 texels; the buffer itself is only read. */
+void portGfxFbSnapshot(const void *dst, const void *src, u32 len);
+/* dst is `cols` x `rows` tiles of `tileW` x `tileH` sepia texels from (x, y) of framebuffer src */
+void portGfxFbSepia(const void *dst, const void *src, s32 x, s32 y, s32 cols, s32 rows, s32 tileW, s32 tileH);
+void portGfxFbLerpWhite(const void *dst, const void *src, u32 len, f32 t); /* dst is src faded towards white by t */
 
 /* ---- io registers ---- */
 u32 portIoRead(u32 reg);
@@ -126,13 +133,21 @@ s32 mapCaptureSaveSummary(PortSaveSummary *out, const char **reason); /* src/glo
 extern s32 gPortSaveRequest;  /* Esc menu exit: mainThreadLoop runs eepromSavePlayerData once (src/global/450.c) */
 extern s32 gPortEepromQueued; /* EEPROM thread commands sent and not yet finished (src/global/104F0.c) */
 
-/* ---- kong swap (web settings; patches/0027-port-dpad-kong-swap.patch) ---- */
+/* ---- kong swap (web settings; the dpad-kong-swap patch) ---- */
 extern s32 gPortKongSwap; /* 1: D-pad Left/Right swaps to an unlocked kong (src/global/CEAE0.c); switchable live */
 
-/* ---- Disco Chunky (web settings; patches/0029-port-disco-chunky.patch) ---- */
+/* ---- Disco Chunky (web settings; the disco-chunky patch) ---- */
 extern s32 gPortDiscoChunky; /* 1: Chunky uses model 0xE (afro, disco suit) instead of 0xC (src/global/CC800.c); switchable live */
 
-/* ---- right-stick camera (web settings; port/src/input.c, patches/0028-port-right-stick-camera.patch) ---- */
+/* ---- Kong model registry (web setting "Kong smoothing"; the kong-model-registry patch) ----
+ * The renderer smooths the Kong models' lit triangles (actor table 5 entries 0-15, Disco Chunky included) when
+ * the setting is on, and it only sees display lists: these name a model's vertex block, the one an actor display
+ * list binds to segment 3, as it enters and leaves the model cache. Port state only; no RDRAM is touched. */
+void portGfxKongModelLoaded(const void *vertices); /* src/global/17B90_anim_controller.c */
+void portGfxKongModelFreed(const void *vertices);
+void portGfxKongRegistryClear(void); /* actorInit (src/global/7CA80_actor_manager.c): the cache is emptied */
+
+/* ---- right-stick camera (web settings; port/src/input.c, the right-stick-camera patch) ---- */
 extern s32 gPortStickCamera;  /* 1: gamepad right stick turns/tilts the camera, D-pad = C buttons, LB/RB add D-pad Left/Right */
 extern s32 gPortCameraSpeed;  /* 1..10; 5 = the C-button turn rate at full tilt */
 extern s32 gPortCameraInvert; /* bit 0: horizontal, bit 1: vertical */

@@ -10,9 +10,10 @@ void gfxBackendSetColorImage(u32 addr, u32 width, u32 siz) {
     (void)siz;
 }
 
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit) {
     (void)v;
     (void)count;
+    (void)lit;
     if (st->texOn) {
         GfxTexImage img;
         (void)gfxTmemDecode(st, st->texTile, &img);
@@ -57,6 +58,30 @@ void gfxBackendSyncRdram(u32 addr, u32 len) {
     (void)len;
 }
 
+void gfxBackendFbSnapshot(u32 dst, u32 src, u32 len) {
+    (void)dst;
+    (void)src;
+    (void)len;
+}
+
+void gfxBackendFbSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH) {
+    (void)dst;
+    (void)src;
+    (void)x;
+    (void)y;
+    (void)cols;
+    (void)rows;
+    (void)tileW;
+    (void)tileH;
+}
+
+void gfxBackendFbLerpWhite(u32 dst, u32 src, u32 len, float t) {
+    (void)dst;
+    (void)src;
+    (void)len;
+    (void)t;
+}
+
 void gfxBackendBlankSides(const GfxState *st) {
     (void)st;
 }
@@ -98,9 +123,8 @@ void portGfxWideClipX(s16 *left, s16 *right) {
     (void)right;
 }
 
-int gfxBackendQsRanges(QsRange *out) {
-    (void)out;
-    return 0;
+void gfxBackendQsRanges(QsSink *out) {
+    gfxQsRanges(out);
 }
 
 void gfxBackendQsRestored(void) {}

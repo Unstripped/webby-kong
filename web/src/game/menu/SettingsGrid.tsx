@@ -8,7 +8,7 @@ import { isOpen } from './control';
 
 interface RangeDef {
   kind: 'range';
-  key: 'drawdist' | 'scale' | 'camspeed';
+  key: 'drawdist' | 'scale' | 'camspeed' | 'sharpen';
   name: string;
   min: number;
   max: number;
@@ -67,6 +67,24 @@ const SETTINGS: Array<RangeDef | SegDef> = [
     const m = settings.maxSamples();
     return m >= 2 ? `MSAA; your GPU supports up to ${m}×` : 'MSAA is not supported by this GPU';
   }),
+  seg('a2c', 'Cutout edges', [[0, 'Hard'], [1, 'Smooth']],
+    () => (settings.get('msaa') > 1
+      ? 'Smooth: foliage, fences and grates use the anti-aliasing samples along their cutout edges'
+      : 'Needs anti-aliasing: with MSAA off the edges are always hard')),
+  seg('mips', 'Texture mips', [[0, 'Off'], [1, 'On']],
+    () => 'Trilinear mip levels for 3D textures: distant floors and walls stop shimmering as the camera moves'),
+  seg('aniso', 'Anisotropic filtering', [[0, 'Off'], [2, '2×'], [4, '4×'], [8, '8×'], [16, '16×']], () => {
+    const m = settings.maxAniso();
+    return m >= 2 ? `Sharpens textures at grazing angles; your GPU supports up to ${m}×` : 'Not supported by this GPU';
+  }),
+  seg('downsample', 'Downsample', [[0, 'Bilinear'], [1, 'Area']],
+    () => 'How the rendered image is fitted to the window: area averages every rendered pixel a screen pixel covers'),
+  seg('fxaa', 'FXAA', [[0, 'Off'], [1, 'On']],
+    () => 'Smooths the edges MSAA leaves (cut-out textures, shader aliasing); slightly softer'),
+  range('sharpen', 'Sharpening', 0, 10, ['Off', 'Max'], (v) => (v === 0 ? 'Off' : `${v}`),
+    'Contrast-adaptive sharpening of the presented image'),
+  seg('dither', 'Dither', [[0, 'Off'], [1, 'On']],
+    () => 'Ordered dither against banding where the filtered image meets the canvas\u2019 8 bits'),
   seg('interp', 'Frame rate', [[0, '30 (N64)'], [1, '60'], [2, '120'], [3, '240']],
     () => 'Game logic stays at 30; higher rates add interpolated frames, up to the display\'s refresh rate'),
   seg('touch', 'Touch controls', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
@@ -89,6 +107,10 @@ const SETTINGS: Array<RangeDef | SegDef> = [
       ? `Applies when the game is reloaded (running at ${running / 1000} kHz)`
       : 'Sample rate of the sound mix';
   }),
+  seg('perpixel', 'Per-pixel lighting', [[0, 'Off (N64)'], [1, 'On']],
+    () => 'Lights and fog are worked out for every pixel instead of every vertex: smoother shading on large surfaces, no fog steps across big triangles'),
+  seg('kongsmooth', 'Kong smoothing', [[0, 'Off (N64)'], [1, 'On']],
+    () => 'Curved-surface (PN triangle) subdivision of the Kong models, for rounder silhouettes; best with per-pixel lighting on, which rounds their shading too'),
 ];
 
 function SettingBox(props: { name: string; now: string; note: string; children: ComponentChildren }) {

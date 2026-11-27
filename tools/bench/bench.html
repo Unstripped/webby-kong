@@ -39,7 +39,14 @@
       printErr: (t) => log.push(t),
     });
     m.portRom = rom;
-    m.callMain(['--drawdist', '4', '--scale', '0', '--msaa', '4']);
+    // defaults, then the extra port flags (?args=[flag,value,...]); a repeated flag replaces its default
+    const args = ['--drawdist', '4', '--scale', '0', '--msaa', '4'];
+    const extra = JSON.parse(q.get('args') || '[]');
+    for (let i = 0; i < extra.length; i += 2) {
+      const at = args.indexOf(extra[i]);
+      if (at >= 0 && at % 2 === 0) args[at + 1] = extra[i + 1]; else args.push(extra[i], extra[i + 1]);
+    }
+    m.callMain(args);
     m._port_set_paused(1); // the emscripten main loop idles; this page steps the game itself
     const gl = canvas.getContext('webgl2'); // the context SDL created
     if (!gl) throw new Error('no WebGL2 context');

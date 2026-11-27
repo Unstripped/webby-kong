@@ -48,11 +48,26 @@ void portGfxInit(void);
 int portGfxSetScale(int scale); /* 0 (auto) / 1..8; 0 on rejection; the next RSP task resizes the images */
 int portGfxSetMsaa(int msaa);   /* 0/1/2/4/8 (1 = off); before gfxFbInit stores, after rebuilds; returns samples */
 int portGfxMaxSamples(void);    /* GL_MAX_SAMPLES, 0 before gfxFbInit */
+int portGfxSetAlphaToCoverage(int on); /* alpha-tested cutouts as sample coverage under MSAA; returns it in effect */
+int portGfxSetMips(int on);     /* generated texture mips (trilinear) for 3D tiles; returns it in effect */
+int portGfxSetAniso(int level); /* anisotropic filtering 0..16 (0/1 = off), clamped to the GPU's maximum */
+int portGfxMaxAniso(void);      /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 1 without the extension */
+/* present pass options (gfx_fb.c), each returning the value in effect */
+int portGfxSetDownsample(int mode); /* 0 = bilinear, 1 = area filter */
+int portGfxSetSharpen(int amount);  /* CAS strength 0 (off) .. 10 */
+int portGfxSetFxaa(int on);
+int portGfxSetDither(int on); /* ordered dither in the pass that writes the canvas */
+/* RDRAM verification of the GPU-side framebuffer effects (gfx.c): log a hash of every framebuffer-coherence
+ * range the game touches; returns the state in effect */
+int portGfxFbHashLog(int on);
+int portGfxFbGpu(int on); /* 0: the effects use the RDRAM texels the CPU path wrote, as before issue #35 */
 void portGfxPresent(void *fb, int black);
 int portGfxPresentInterp(void); /* the in-between image due on this refresh, if new; 1 when presented */
 void portGfxInterpTick(int ticks); /* refreshes of this animation frame (one per VI when unlocked), before its VIs */
 void portGfxRunDeferred(void);  /* draws the in-between images still to come (gfx.c frame interpolation) */
 int portGfxSetInterp(int level); /* 0 = 30 fps; 1, 2, 3 = up to 60, 120, 240 by interpolation; returns it */
+int portGfxSetPerPixel(int on); /* shade and fog per fragment instead of per vertex; returns the value in effect */
+int portGfxSetKongSmooth(int on); /* PN-triangle smoothing of the registered Kong models; returns it */
 int portPaceRefreshesPerVi(void); /* display refreshes per VI when phase-locked (main.c), else 1 */
 
 /* audio output (ai.c) */
@@ -106,14 +121,18 @@ void portGenLayoutCheck(void);
 /* quicksave (port/src/qs.c): host-only statics kept from the live session across a restore */
 typedef struct { void *p; u32 n; } QsRange;
 #define QS_RANGE(v) ((QsRange){ (void *)&(v), (u32)sizeof(v) })
-int portMainQsRanges(QsRange *out);
-int portSaveQsRanges(QsRange *out);
-int portInputQsRanges(QsRange *out);
-int portAiQsRanges(QsRange *out);
-int portDebugQsRanges(QsRange *out);
-int portOverlayQsRanges(QsRange *out);
-int gfxTmemQsRanges(QsRange *out);
-int gfxBackendQsRanges(QsRange *out);
+/* keep-range collector output: portQsAdd aborts before writing past cap */
+typedef struct { QsRange *r; int n, cap; } QsSink;
+void portQsAdd(QsSink *s, QsRange r);
+#define QS_KEEP(s, v) portQsAdd((s), QS_RANGE(v))
+void portMainQsRanges(QsSink *out);
+void portSaveQsRanges(QsSink *out);
+void portInputQsRanges(QsSink *out);
+void portAiQsRanges(QsSink *out);
+void portDebugQsRanges(QsSink *out);
+void portOverlayQsRanges(QsSink *out);
+void gfxTmemQsRanges(QsSink *out);
+void gfxBackendQsRanges(QsSink *out);
 void gfxBackendQsRestored(void);
 int portThreadsQsEncode(void);
 void portThreadsQsRestoreLive(void);

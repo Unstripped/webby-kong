@@ -19,12 +19,20 @@ static struct {
 } sVertexShaders[4];
 static int sVertexShaderCount;
 
-int gfxCombinerQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sPrograms);
-    out[1] = QS_RANGE(sProgramCount);
-    out[2] = QS_RANGE(sVertexShaders);
-    out[3] = QS_RANGE(sVertexShaderCount);
-    return 4;
+void gfxCombinerQsRanges(QsSink *out) {
+    QS_KEEP(out, sPrograms);
+    QS_KEEP(out, sProgramCount);
+    QS_KEEP(out, sVertexShaders);
+    QS_KEEP(out, sVertexShaderCount);
+}
+
+/* a quickload restores the light set's serial counter from the snapshot while these programs (a keep range)
+ * hold the uniforms of whatever ran last: make every program upload its light set again */
+void gfxCombinerQsRestored(void) {
+    int i;
+    for (i = 0; i < sProgramCount; i++) {
+        sPrograms[i].prog.cLightSerial = ~0u;
+    }
 }
 
 static const char *kVertex =
@@ -35,6 +43,18 @@ static const char *kVertex =
     "out vec4 vShade;\n"
     "out vec2 vSt;\n"
     "void main() { gl_Position = aPos; vShade = aColor; vSt = aSt; }\n";
+
+/* per-pixel lighting: the same, plus the vertex's eye-space normal */
+static const char *kVertexLit =
+    "#version 300 es\n"
+    "in vec4 aPos;\n"
+    "in vec4 aColor;\n"
+    "in vec2 aSt;\n"
+    "in vec3 aNormal;\n"
+    "out vec4 vShade;\n"
+    "out vec2 vSt;\n"
+    "out vec3 vNormal;\n"
+    "void main() { gl_Position = aPos; vShade = aColor; vSt = aSt; vNormal = aNormal; }\n";
 
 /* status is not queried here: each query is a synchronous round trip to the GPU process (a build stalls the frame
  * it happens in), so only a failed link fetches the compile logs */
@@ -69,6 +89,7 @@ GLuint gfxCompileProgram(const char *vs, const char *fs) {
     glBindAttribLocation(p, 0, "aPos");
     glBindAttribLocation(p, 1, "aColor");
     glBindAttribLocation(p, 2, "aSt");
+    glBindAttribLocation(p, 3, "aNormal"); /* per-pixel lighting; harmless where the shader has no normal */
     glLinkProgram(p);
     glGetProgramiv(p, GL_LINK_STATUS, &ok);
     if (!ok) {
@@ -85,7 +106,8 @@ GLuint gfxCompileProgram(const char *vs, const char *fs) {
 }
 
 /* ---- mux decode ---- */
-static const char *colorIn(int slot, int v, u8 *tex) {
+/* `ppl`: the shade colour is the fragment's own light sum (`shade`), not the interpolated vShade.rgb */
+static const char *colorIn(int slot, int v, u8 *tex, int ppl) {
     if (v == 1) tex[0] = 1;
     if (v == 2) tex[1] = 1;
     if (slot == 2) {
@@ -99,7 +121,7 @@ static const char *colorIn(int slot, int v, u8 *tex) {
     case 1: return "t0.rgb";
     case 2: return "t1.rgb";
     case 3: return "uPrim.rgb";
-    case 4: return "vShade.rgb";
+    case 4: return ppl ? "shade" : "vShade.rgb";
     case 5: return "uEnv.rgb";
     }
     switch (slot) {
@@ -146,7 +168,7 @@ static const char *alphaIn(int slot, int v, u8 *tex) {
     }
 }
 
-static void emitCycle(char *out, size_t cap, int cycle, u32 hi, u32 lo, u8 *tex) {
+static void emitCycle(char *out, size_t cap, int cycle, u32 hi, u32 lo, u8 *tex, int ppl) {
     int a, b, c, d, aa, ab, ac, ad;
     char buf[1024];
     if (cycle == 0) {
@@ -158,7 +180,7 @@ static void emitCycle(char *out, size_t cap, int cycle, u32 hi, u32 lo, u8 *tex)
     }
     snprintf(buf, sizeof buf,
              "    comb = vec4((%s - %s) * %s + %s, (%s - %s) * %s + %s);\n",
-             colorIn(0, a, tex), colorIn(1, b, tex), colorIn(2, c, tex), colorIn(3, d, tex),
+             colorIn(0, a, tex, ppl), colorIn(1, b, tex, ppl), colorIn(2, c, tex, ppl), colorIn(3, d, tex, ppl),
              alphaIn(0, aa, tex), alphaIn(1, ab, tex), alphaIn(2, ac, tex), alphaIn(3, ad, tex));
     strncat(out, buf, cap - strlen(out) - 1);
 }
@@ -173,6 +195,7 @@ static GfxProgram build(const GfxProgramKey *k) {
     static char fs[8192];
     GfxProgram p;
     u8 tex[2] = { 0, 0 };
+    char line[192];
     memset(&p, 0, sizeof p);
     fs[0] = 0;
     strcat(fs,
@@ -188,11 +211,35 @@ static GfxProgram build(const GfxProgramKey *k) {
            "uniform vec2 uSize0, uSize1;\n"
            "uniform float uLodScale, uMaxLevel;\n"
            "uniform vec4 uMipTile[8];\n"
-           "uniform vec2 uMipSize[8];\n"
+           "uniform vec2 uMipSize[8];\n");
+    if (k->perPixelLight) {
+        strcat(fs,
+               "in vec3 vNormal;\n"
+               "uniform vec3 uLightDir[8];\n"
+               "uniform vec3 uLightCol[8];\n"
+               "uniform vec3 uAmbient;\n"
+               "uniform int uNumLights;\n");
+    }
+    if (k->perPixelFog) {
+        strcat(fs, "uniform vec2 uFogCoef;\n"); /* fogMul, fogOff */
+    }
+    strcat(fs,
            "out vec4 fragColor;\n"
            "float noise() { return fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453); }\n"
            "void main() {\n"
            "    float lodFrac = 0.0;\n");
+    if (k->perPixelLight) {
+        /* the RSP's per-vertex light sum, per fragment: the normal arrives in eye space, the lights are the set
+         * the batch was drawn with, and the sum clamps at white exactly as the fixed-point one does */
+        strcat(fs,
+               "    vec3 nrm = normalize(vNormal);\n"
+               "    vec3 shade = uAmbient;\n"
+               "    for (int i = 0; i < uNumLights; i++) {\n"
+               "        float d = dot(nrm, uLightDir[i]);\n"
+               "        if (d > 0.0) shade += d * uLightCol[i];\n"
+               "    }\n"
+               "    shade = min(shade, vec3(1.0));\n");
+    }
     if (k->lod) {
         /* RDP texture LOD (no detail/sharpen): tile0 texels per N64 pixel picks mip level l = floor(log2(lod)),
          * TEXEL0/TEXEL1 are levels l and l + 1, LOD_FRAC = lod / 2^l - 1; magnified: level 0, frac 0;
@@ -219,29 +266,52 @@ static GfxProgram build(const GfxProgramKey *k) {
         strcat(fs, "    comb = t0;\n");
         tex[0] = 1;
     } else if (k->cycle == 3) {
-        strcat(fs, "    comb = vShade;\n");
+        strcat(fs, k->perPixelLight ? "    comb = vec4(shade, vShade.a);\n" : "    comb = vShade;\n");
     } else {
-        emitCycle(fs, sizeof fs, 0, k->combineHi, k->combineLo, tex);
+        emitCycle(fs, sizeof fs, 0, k->combineHi, k->combineLo, tex, k->perPixelLight);
         if (k->cycle == 1) {
             strcat(fs, "    comb = clamp(comb, 0.0, 1.0);\n");
-            emitCycle(fs, sizeof fs, 1, k->combineHi, k->combineLo, tex);
+            emitCycle(fs, sizeof fs, 1, k->combineHi, k->combineLo, tex, k->perPixelLight);
         }
     }
     strcat(fs, "    comb = clamp(comb, 0.0, 1.0);\n");
-    if (k->fogBlend) {
+    if (k->perPixelFog) {
+        /* the RSP's z/w * fogMul + fogOff, clamped to 0..255, from this fragment's depth: ndc z is
+         * 2 * gl_FragCoord.z - 1 under the default depth range, and is interpolated the way the RDP shades */
+        strcat(fs, "    comb.rgb = mix(comb.rgb, uFog.rgb,\n"
+                   "        clamp(((2.0 * gl_FragCoord.z - 1.0) * uFogCoef.x + uFogCoef.y) / 255.0, 0.0, 1.0));\n");
+    } else if (k->fogBlend) {
         strcat(fs, "    comb.rgb = mix(comb.rgb, uFog.rgb, vShade.a);\n");
     }
-    if (k->alphaMode == 1) {
-        strcat(fs, "    if (comb.a < uAlphaRef) discard;\n");
-    } else if (k->alphaMode == 2) {
-        strcat(fs, "    if (comb.a < 0.5) discard;\n");
+    if (k->alphaMode != 0) {
+        const char *ref = k->alphaMode == 1 ? "uAlphaRef" : "0.5";
+        if (k->a2c) {
+            /* GL_SAMPLE_ALPHA_TO_COVERAGE turns this alpha into a sample mask. Every pixel the discard kept
+             * (alpha at or above the reference) keeps full coverage; only the pixels it killed can gain samples,
+             * across the one screen pixel the alpha ramp needs to reach the reference. A flat alpha then still
+             * gives the hard cutout, and a reference of 0 or 1 cannot halve a surface. Coverage 0 writes no
+             * sample, so no discard is needed.
+             * The coverage modes (alphaMode 2: G_AC_DITHER, CVG_X_ALPHA) are sharpened the same way instead of
+             * feeding alpha to coverage directly. The RDP does scale coverage by alpha, but its band of partly
+             * covered texels is one TMEM texel of bilinear ramp wide; here a texel covers up to six screen pixels,
+             * so passing alpha through makes most of a magnified cutout translucent (measured: Isles palm fronds
+             * lose half their body). The sharpened ramp keeps that band one pixel wide, as it is on hardware. */
+            snprintf(line, sizeof line,
+                     "    comb.a = comb.a >= %s ? 1.0 :"
+                     " clamp((comb.a - %s) / max(fwidth(comb.a), 1e-4) + 1.0, 0.0, 1.0);\n",
+                     ref, ref);
+            strcat(fs, line);
+        } else {
+            snprintf(line, sizeof line, "    if (comb.a < %s) discard;\n", ref);
+            strcat(fs, line);
+        }
     }
     strcat(fs, "    fragColor = comb;\n");
     if (k->primDepth) {
         strcat(fs, "    gl_FragDepth = uPrimDepth;\n");
     }
     strcat(fs, "}\n");
-    p.prog = gfxCompileProgram(kVertex, fs);
+    p.prog = gfxCompileProgram(k->perPixelLight ? kVertexLit : kVertex, fs);
     p.uTex0 = glGetUniformLocation(p.prog, "uTex0");
     p.uTex1 = glGetUniformLocation(p.prog, "uTex1");
     p.uPrim = glGetUniformLocation(p.prog, "uPrim");
@@ -259,6 +329,11 @@ static GfxProgram build(const GfxProgramKey *k) {
     p.uMaxLevel = glGetUniformLocation(p.prog, "uMaxLevel");
     p.uMipTile = glGetUniformLocation(p.prog, "uMipTile");
     p.uMipSize = glGetUniformLocation(p.prog, "uMipSize");
+    p.uLightDir = glGetUniformLocation(p.prog, "uLightDir");
+    p.uLightCol = glGetUniformLocation(p.prog, "uLightCol");
+    p.uAmbient = glGetUniformLocation(p.prog, "uAmbient");
+    p.uNumLights = glGetUniformLocation(p.prog, "uNumLights");
+    p.uFogCoef = glGetUniformLocation(p.prog, "uFogCoef");
     p.usesTex0 = tex[0];
     p.usesTex1 = tex[1];
     /* uniform shadows start unknown: NaN compares unequal to every value */
@@ -275,6 +350,8 @@ static GfxProgram build(const GfxProgramKey *k) {
     nanFill(&p.cPrimDepth, 1);
     nanFill(&p.cLodScale, 1);
     nanFill(&p.cMaxLevel, 1);
+    nanFill(p.cFogCoef, 2);
+    p.cLightSerial = ~0u; /* no light set uploaded yet; 0 is the empty one a task starts from */
     glUseProgram(p.prog);
     glUniform1i(p.uTex0, 0);
     glUniform1i(p.uTex1, 1);
@@ -284,15 +361,32 @@ static GfxProgram build(const GfxProgramKey *k) {
 
 int gGfxProgramBuilt;
 
+static int sLastProgram = -1; /* gfxProgramGet's one-entry hint; every hit still compares the whole key */
+
+/* the alpha-to-coverage setting (and MSAA, which gates it) changed: drop the programs built for the old one, so a
+ * session that toggles it does not keep both variants of every alpha-tested combiner against MAX_PROGRAMS */
+void gfxCombinerDropA2c(void) {
+    int i = 0;
+    while (i < sProgramCount) {
+        if (sPrograms[i].key.a2c) {
+            glDeleteProgram(sPrograms[i].prog.prog);
+            sPrograms[i] = sPrograms[--sProgramCount];
+        } else {
+            i++;
+        }
+    }
+    sLastProgram = -1;
+}
+
 GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
-    static int last = -1;
     int i;
-    if (last >= 0 && last < sProgramCount && memcmp(&sPrograms[last].key, key, sizeof *key) == 0) {
-        return &sPrograms[last].prog;
+    if (sLastProgram >= 0 && sLastProgram < sProgramCount &&
+        memcmp(&sPrograms[sLastProgram].key, key, sizeof *key) == 0) {
+        return &sPrograms[sLastProgram].prog;
     }
     for (i = 0; i < sProgramCount; i++) {
         if (memcmp(&sPrograms[i].key, key, sizeof *key) == 0) {
-            last = i;
+            sLastProgram = i;
             return &sPrograms[i].prog;
         }
     }
@@ -301,6 +395,6 @@ GfxProgram *gfxProgramGet(const GfxProgramKey *key) {
     }
     sPrograms[sProgramCount].key = *key;
     sPrograms[sProgramCount].prog = build(key);
-    last = sProgramCount;
+    sLastProgram = sProgramCount;
     return &sPrograms[sProgramCount++].prog;
 }

@@ -5,6 +5,7 @@
 #include <emscripten.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define TEX_CACHE_SIZE 4096
 #define TEX_INDEX_SIZE (2 * TEX_CACHE_SIZE)
@@ -17,11 +18,14 @@ typedef struct {
     u32 w, h;
     u32 sampling; /* setSampling's packed parameters last set on tex, 0 unknown */
     s32 pack;     /* gfxTexpackLookup's pack entry replacing this texture, -1 none */
+    u8 mips;      /* generated mip levels above level 0 (texMipsGenerate) */
+    u8 mipsTried; /* generation was attempted: do not pay for it again on every draw */
 } TexEntry;
 
 static SDL_Window *sWindow;
 static SDL_GLContext sContext;
 static GLuint sVao, sVbo;
+static GLuint sNrmVbo; /* per-pixel lighting: eye-space normals of the batch being drawn (attribute 3) */
 static TexEntry sTexCache[TEX_CACHE_SIZE];
 static int sTexCount;
 static u16 sTexIndex[TEX_INDEX_SIZE]; /* texCacheFind's hash index; a quickload's texCacheFlush clears it */
@@ -31,6 +35,25 @@ static int sTargetIsDepth;
 static u32 sTaskSerial;
 static u8 *sMipChain; /* decoded mip levels staged for upload (bindMipTiles) */
 static size_t sMipChainCap;
+static u8 *sMipGen; /* levels built on the CPU for a cutout texture (texMipsGenerate) */
+static size_t sMipGenCap;
+/* texture mips and anisotropy (player settings --mips / --aniso): levels are built lazily at the first draw that
+ * would sample them (bindTile) and used by triangles whose tile addressing maps onto a GL wrap mode; 2D rects and
+ * point-filtered tiles keep level 0 */
+static int sMipsOn = 1;
+static int sAnisoRequest = 4;
+static float sAnisoMax = 1.0f; /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 1 when the extension is missing */
+static float sAniso = 1.0f;    /* in effect: 1 = off */
+/* anisotropy: in GLES3's headers only through EXT_texture_filter_anisotropic */
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#endif
+
+static void updateAniso(void) {
+    float want = (float)sAnisoRequest;
+    sAniso = want < 2.0f || sAnisoMax < 2.0f ? 1.0f : want > sAnisoMax ? sAnisoMax : want;
+}
 
 /* GL state shadow for the draw path: every WebGL call crosses into JS and Chrome's validation, so applyState and
  * draw skip calls that change nothing. All-ones means unknown; glsReset() follows anything else that touches this
@@ -38,7 +61,7 @@ static size_t sMipChainCap;
 static struct {
     GLuint prog, vao, vbo, tex[2];
     int unit;
-    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest;
+    s8 blend, blendFunc, depthTest, depthMask, polyOffset, scissorTest, alphaCoverage, normals;
     GLenum depthFunc;
     GLint scissor[4];
 } sGls;
@@ -119,6 +142,26 @@ static void glsBindGeometry(void) {
     }
 }
 
+/* attribute 3, the eye-space normals of a per-pixel-lit batch. It is disabled for every other draw: an enabled
+ * array still has to hold a vertex for every index drawn, whether or not the program reads it. */
+static void glsNormals(const float (*n)[3], u32 count) {
+    if (n == NULL) {
+        if (sGls.normals != 0) {
+            glDisableVertexAttribArray(3);
+            sGls.normals = 0;
+        }
+        return;
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, sNrmVbo);
+    sGls.vbo = sNrmVbo;
+    glBufferData(GL_ARRAY_BUFFER, count * 3 * sizeof(float), n, GL_STREAM_DRAW);
+    if (sGls.normals != 1) {
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+        sGls.normals = 1;
+    }
+}
+
 /* per-program uniform shadows (GfxProgram.c*): uniforms are program state, so they survive glUseProgram */
 static void glsU4(GLint loc, float *c, float a, float b, float d, float e) {
     if (c[0] != a || c[1] != b || c[2] != d || c[3] != e) {
@@ -159,33 +202,40 @@ static struct {
     int drawn; /* it drew a VI image */
 } sInterpGl;
 
-int gfxBackendQsRanges(QsRange *out) {
-    int n = 0;
-    out[n++] = QS_RANGE(sWindow);
-    out[n++] = QS_RANGE(sContext);
-    out[n++] = QS_RANGE(sVao);
-    out[n++] = QS_RANGE(sVbo);
-    out[n++] = QS_RANGE(sTexCache);
-    out[n++] = QS_RANGE(sTexCount);
-    out[n++] = QS_RANGE(sWhiteTex);
-    out[n++] = QS_RANGE(sTarget);
-    out[n++] = QS_RANGE(sTargetIsDepth);
-    out[n++] = QS_RANGE(sTaskSerial);
-    out[n++] = QS_RANGE(sCaptureReq);
-    out[n++] = QS_RANGE(sCaptureW);
-    out[n++] = QS_RANGE(sCaptureH);
-    out[n++] = QS_RANGE(sCaptureSeq);
-    out[n++] = QS_RANGE(sCapturePx);
-    out[n++] = QS_RANGE(sCaptureCap);
-    out[n++] = QS_RANGE(sMipChain);
-    out[n++] = QS_RANGE(sMipChainCap);
-    out[n++] = QS_RANGE(sInterpGl);
-    out[n++] = QS_RANGE(sInterpLevel);
-    n += gfxInterpQsRanges(out + n);
-    n += gfxTexpackQsRanges(out + n);
-    n += gfxFbQsRanges(out + n);
-    n += gfxCombinerQsRanges(out + n);
-    return n;
+void gfxBackendQsRanges(QsSink *out) {
+    QS_KEEP(out, sWindow);
+    QS_KEEP(out, sContext);
+    QS_KEEP(out, sVao);
+    QS_KEEP(out, sVbo);
+    QS_KEEP(out, sNrmVbo);
+    QS_KEEP(out, sTexCache);
+    QS_KEEP(out, sTexCount);
+    QS_KEEP(out, sWhiteTex);
+    QS_KEEP(out, sTarget);
+    QS_KEEP(out, sTargetIsDepth);
+    QS_KEEP(out, sTaskSerial);
+    QS_KEEP(out, sCaptureReq);
+    QS_KEEP(out, sCaptureW);
+    QS_KEEP(out, sCaptureH);
+    QS_KEEP(out, sCaptureSeq);
+    QS_KEEP(out, sCapturePx);
+    QS_KEEP(out, sCaptureCap);
+    QS_KEEP(out, sMipChain);
+    QS_KEEP(out, sMipChainCap);
+    QS_KEEP(out, sMipGen);
+    QS_KEEP(out, sMipGenCap);
+    QS_KEEP(out, sMipsOn);
+    QS_KEEP(out, sAnisoRequest);
+    QS_KEEP(out, sAnisoMax);
+    QS_KEEP(out, sAniso);
+    QS_KEEP(out, sInterpGl);
+    QS_KEEP(out, sInterpLevel);
+    gfxInterpQsRanges(out);
+    gfxTexpackQsRanges(out);
+    gfxFbQsRanges(out);
+    gfxFbSnapQsRanges(out);
+    gfxCombinerQsRanges(out);
+    gfxQsRanges(out);
 }
 
 static void texCacheFlush(void) {
@@ -202,8 +252,41 @@ void gfxGlTexCacheFlush(void) {
     texCacheFlush();
 }
 
+/* --mips: no cache flush, because the levels are built lazily (bindTile) and a texture that has them is still
+ * sampled at level 0 once the setting is off; turning it back on finds the chain already there */
+int portGfxSetMips(int on) {
+    sMipsOn = on != 0;
+    return sMipsOn;
+}
+
+/* --aniso: 0 or 1 = off, up to the GPU's maximum; only the sampler state changes, which setSampling's packed
+ * shadow picks up on the next draw of each texture */
+int portGfxSetAniso(int level) {
+    if (level < 0 || level > 16) {
+        portLog("PORT: ignoring aniso %d (0..16)", level);
+        return (int)sAniso;
+    }
+    sAnisoRequest = level;
+    updateAniso();
+    return (int)sAniso;
+}
+
+int portGfxMaxAniso(void) {
+    return (int)sAnisoMax;
+}
+
 void gfxGlStateReset(void) {
     glsReset();
+}
+
+/* a texture name is about to be deleted: the shadow must not skip rebinding whatever reuses the name */
+void gfxGlForgetTexture(GLuint tex) {
+    size_t i;
+    for (i = 0; i < sizeof sGls.tex / sizeof sGls.tex[0]; i++) {
+        if (sGls.tex[i] == tex) {
+            sGls.tex[i] = ~0u;
+        }
+    }
 }
 
 /* RDRAM and TMEM were replaced: cached textures and framebuffer images no longer match them */
@@ -214,6 +297,8 @@ void gfxBackendQsRestored(void) {
     sTargetIsDepth = 0;
     gfxInterpReset();
     gfxFbQsRestored();
+    gfxCombinerQsRestored();
+    gfxFbSnapReset(); /* the RDRAM the GPU copies stood for is gone; the effects fall back to its texels */
 }
 
 void gfxBackendInit(void) {
@@ -234,8 +319,16 @@ void gfxBackendInit(void) {
     if (sContext == NULL) {
         portAbort("PORT: GLES 3.0 context failed: %s", SDL_GetError());
     }
+    {
+        const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+        if (ext != NULL && strstr(ext, "texture_filter_anisotropic") != NULL) {
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &sAnisoMax);
+        }
+        updateAniso();
+    }
     glGenVertexArrays(1, &sVao);
     glGenBuffers(1, &sVbo);
+    glGenBuffers(1, &sNrmVbo);
     glBindVertexArray(sVao);
     glBindBuffer(GL_ARRAY_BUFFER, sVbo);
     glEnableVertexAttribArray(0);
@@ -256,6 +349,7 @@ void gfxBackendBeginTask(void) {
     SDL_GL_GetDrawableSize(sWindow, &w, &h);
     gfxFbSetWindowSize(w, h);
     sTaskSerial++;
+    gfxFbSnapBeginTask();
     sTarget = NULL;
     gGfxTargetWide = 1.0f;
     sTargetIsDepth = 0;
@@ -374,11 +468,11 @@ static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
     glGenTextures(1, &tex);
     glsBindTex(unit, tex);
     e = &sTexCache[sTexCount++];
+    memset(e, 0, sizeof *e); /* rows are recycled by a flush: nothing from the old texture may survive */
     e->key = key;
     e->tex = tex;
     e->w = w;
     e->h = h;
-    e->sampling = 0;
     e->pack = -1;
     for (s = texCacheSlot(key, w, h); sTexIndex[s] != 0; s = (s + 1) & (TEX_INDEX_SIZE - 1)) {
     }
@@ -386,11 +480,23 @@ static TexEntry *texCacheAdd(u64 key, u32 w, u32 h, int unit) {
     return e;
 }
 
+/* G_TF_BILERP / G_TF_AVERAGE sample linearly; G_TF_POINT is the RDP's nearest filter */
+static int texFilterLinear(const GfxState *st) {
+    return (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
+}
+
 /* wrap and filter of the texture bound to `unit`; `cache` holds what was last set on it (0 unknown). mipmapped: 0 none,
- * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips */
+ * 1 an N64 mip chain (bindMipTiles), 2 a pack replacement's GL mips, 3 levels generated for this texture. Anisotropy
+ * only means anything with mips, so a level-0 draw of the same texture resets it. Sampler state lives on the
+ * texture object, so a texture two tiles bind with different wrap, filter or mip eligibility re-issues its
+ * parameters on every draw that changes them; that was already so for wrap and filter. */
 static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipmapped, u32 *cache) {
-    int linear = (st->otherH & (3u << G_MDSFT_TEXTFILT)) != G_TF_POINT;
-    u32 packed = 1u | (u32)(t->cms & 3) << 1 | (u32)(t->cmt & 3) << 3 | (u32)linear << 5 | (u32)mipmapped << 6;
+    int linear = texFilterLinear(st);
+    float aniso = mipmapped != 0 ? sAniso : 1.0f;
+    /* aniso can be a half step on some GPUs (GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT is a float), so the key carries
+     * twice its value instead of truncating it */
+    u32 packed = 1u | (u32)(t->cms & 3) << 1 | (u32)(t->cmt & 3) << 3 | (u32)linear << 5 | (u32)mipmapped << 6 |
+                 (u32)(aniso * 2.0f) << 8;
     GLint minFilter = linear ? GL_LINEAR : GL_NEAREST;
     if (*cache == packed) {
         return;
@@ -398,7 +504,7 @@ static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipm
     *cache = packed;
     if (mipmapped == 1) {
         minFilter = linear ? GL_LINEAR_MIPMAP_NEAREST : GL_NEAREST_MIPMAP_NEAREST;
-    } else if (mipmapped == 2) {
+    } else if (mipmapped == 2 || mipmapped == 3) {
         minFilter = linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
     }
     glsUnit(unit);
@@ -406,6 +512,163 @@ static void setSampling(const GfxState *st, const GfxTile *t, int unit, int mipm
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode(t->cmt));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
+    if (sAnisoMax > 1.0f) {
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
+    }
+}
+
+/* A cutout texture: the tile's source format carries one bit of alpha, and the decoded texels are all either
+ * fully transparent or fully opaque, with both kinds present. Those are the textures an alpha test turns into a
+ * shape, so their levels need the coverage fix below; everything else keeps a plain box-filtered chain. The
+ * format test matters because I and IA decode alpha from intensity, where "all 0 or 255" is a two-tone picture,
+ * not a cutout, and rescaling its alpha would change what the combiner reads. The alpha test's reference is a
+ * draw parameter, not a texture one, so the texels are the only other signal there is. */
+static int cutoutTexture(const GfxState *st, const GfxTile *t, const u8 *px, u32 n) {
+    u32 tt = st->otherH & (3u << G_MDSFT_TEXTLUT);
+    u32 i, clear = 0, solid = 0;
+    int oneBitAlpha = (t->fmt == G_IM_FMT_RGBA && t->siz == G_IM_SIZ_16b) || (t->fmt == G_IM_FMT_CI && tt == G_TT_RGBA16);
+    if (!oneBitAlpha) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        u32 a = px[i * 4 + 3];
+        if (a <= 8) {
+            clear++;
+        } else if (a >= 247) {
+            solid++;
+        } else {
+            return 0;
+        }
+    }
+    return clear != 0 && solid != 0;
+}
+
+/* Box filter to half size. An odd axis leaves its last row or column out of the pairs, which is the right edge
+ * behaviour for a clamped axis; a repeating one is always a power of two here (tileMipsOk only allows a masked
+ * axis to repeat, and a mask gives 2^mask texels), so no pair ever needs to wrap. RGB is weighted by alpha: a
+ * cutout's transparent texels are usually black, and an unweighted average would darken every edge. */
+static void halveImage(const u8 *src, u32 w, u32 h, u8 *dst, u32 dw, u32 dh) {
+    u32 x, y, i;
+    for (y = 0; y < dh; y++) {
+        for (x = 0; x < dw; x++) {
+            u32 x0 = x * 2, y0 = y * 2, x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+            const u8 *p[4];
+            u32 a = 0, c[3] = { 0, 0, 0 };
+            p[0] = &src[(y0 * w + x0) * 4];
+            p[1] = &src[(y0 * w + x1) * 4];
+            p[2] = &src[(y1 * w + x0) * 4];
+            p[3] = &src[(y1 * w + x1) * 4];
+            for (i = 0; i < 4; i++) {
+                a += p[i][3];
+                c[0] += p[i][0] * p[i][3];
+                c[1] += p[i][1] * p[i][3];
+                c[2] += p[i][2] * p[i][3];
+            }
+            {
+                u8 *o = &dst[(y * dw + x) * 4];
+                for (i = 0; i < 3; i++) {
+                    o[i] = a != 0 ? (u8)(c[i] / a) : (u8)((p[0][i] + p[1][i] + p[2][i] + p[3][i]) / 4);
+                }
+                o[3] = (u8)(a / 4);
+            }
+        }
+    }
+}
+
+/* Scale a level's alpha so an alpha test keeps the same share of texels as level 0 (Castano's coverage-preserving
+ * mips): a box-filtered cutout otherwise loses alpha with every level, and foliage thins out and vanishes with
+ * distance. With alpha-to-coverage on (issue #31) the scaled alpha is what the fwidth sharpening sees, so the
+ * density holds there too.
+ * The coverage is preserved for a test at the half-way reference. `alphaMode` 1 tests against the blend colour's
+ * alpha, which is a draw parameter the cache miss cannot know and which the same texture may be drawn with more
+ * than once, so a reference far from 0.5 keeps less of its density than this restores.
+ * One pass: a 256-bin alpha histogram answers "how many texels pass at this scale" in constant time, since
+ * scaling by s passes exactly the texels with alpha >= 128 / s. */
+static void fixCoverage(u8 *px, u32 n, float want) {
+    u32 hist[256], i, target = (u32)(want * (float)n + 0.5f);
+    float lo = 0.0f, hi = 16.0f, scale;
+    if (target == 0 || target >= n) {
+        return;
+    }
+    memset(hist, 0, sizeof hist);
+    for (i = 0; i < n; i++) {
+        hist[px[i * 4 + 3]]++;
+    }
+    for (i = 255; i > 0; i--) { /* hist[v] becomes the texels with alpha >= v */
+        hist[i - 1] += hist[i];
+    }
+    for (i = 0; i < 12; i++) {
+        float s = (lo + hi) * 0.5f;
+        float need = s > 0.0f ? 128.0f / s : 1e9f; /* alpha this scale needs to reach the reference */
+        u32 pass = need > 255.0f ? 0 : hist[(u32)ceilf(need)];
+        if (pass < target) {
+            lo = s;
+        } else {
+            hi = s;
+        }
+    }
+    scale = (lo + hi) * 0.5f;
+    for (i = 0; i < n; i++) {
+        float a = (float)px[i * 4 + 3] * scale;
+        px[i * 4 + 3] = a >= 255.0f ? 255 : (u8)(a + 0.5f);
+    }
+}
+
+/* Mip levels for the texture bound to the active unit, whose level 0 is `img`; returns 1 when it has any. A
+ * cutout's chain is built here instead of by glGenerateMipmap: the GPU cannot restore its coverage. The chain
+ * runs to 1x1 and costs the usual third of the texture on top of it, which is 1 KB on DK64's typical 32x32
+ * RGBA8 decode; capping it would save a quarter of that and give up the levels the distant band samples. */
+static int texMipsGenerate(const GfxState *st, const GfxTile *t, const GfxTexImage *img) {
+    u32 w = img->width, h = img->height, n = w * h, level;
+    u32 i, solid = 0;
+    u8 *cur, *next;
+    float want;
+    if (w < 2 && h < 2) {
+        return 0;
+    }
+    if (!cutoutTexture(st, t, img->rgba, n)) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+        return 1;
+    }
+    if ((size_t)n * 8 > sMipGenCap) { /* two levels at a time; a level is at most a quarter of the one before */
+        u8 *p = realloc(sMipGen, (size_t)n * 8);
+        if (p == NULL) {
+            return 0;
+        }
+        sMipGen = p;
+        sMipGenCap = (size_t)n * 8;
+    }
+    for (i = 0; i < n; i++) {
+        if (img->rgba[i * 4 + 3] >= 128) {
+            solid++;
+        }
+    }
+    want = (float)solid / (float)n;
+    cur = sMipGen;
+    next = sMipGen + (size_t)n * 4;
+    memcpy(cur, img->rgba, (size_t)n * 4);
+    for (level = 1; w > 1 || h > 1; level++) {
+        u32 dw = w > 1 ? w / 2 : 1, dh = h > 1 ? h / 2 : 1;
+        u8 *tmp;
+        halveImage(cur, w, h, next, dw, dh);
+        fixCoverage(next, dw * dh, want);
+        glTexImage2D(GL_TEXTURE_2D, (GLint)level, GL_RGBA8, dw, dh, 0, GL_RGBA, GL_UNSIGNED_BYTE, next);
+        w = dw;
+        h = dh;
+        tmp = cur;
+        cur = next;
+        next = tmp;
+    }
+    return 1;
+}
+
+/* A tile may use generated mips only where GL's wrap modes reproduce the RDP's addressing on both axes: a masked
+ * axis repeats (or mirrors) exactly one decoded image (gfxTileWidth/Height return 2^mask, with the mask capped at
+ * 10 like the RDP's wrap counter, so the image is the period either way), and a clamped axis ends at its edge. An
+ * unmasked, unclamped axis has no period -- GL_REPEAT then tiles an image that does not tile, and a mip chain
+ * would smear the opposite edge across every minified texel -- so those tiles keep level 0, as they do today. */
+static int tileMipsOk(const GfxTile *t) {
+    return (t->masks != 0 || (t->cms & G_TX_CLAMP)) && (t->maskt != 0 || (t->cmt & G_TX_CLAMP));
 }
 
 /* tile's cached texture, decoded and uploaded (bound to `unit`) on a miss, which is also when packs are looked up
@@ -435,7 +698,9 @@ static int tileReplaced(const GfxState *st, int tile) {
     return e != NULL && gfxTexpackTexture(e->pack) != NULL;
 }
 
-static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, float *size) {
+/* allowMips: triangles only. Screen rects (the HUD, 2D overlays) draw a texture at a fixed size, where a mip would
+ * only blur it, and the N64 never minified them. */
+static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, float *size, int allowMips) {
     const GfxTile *t = &st->tiles[tile & 7];
     GfxTexImage img;
     TexEntry *e;
@@ -443,6 +708,20 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
     tileParamsFor(t, tileParams);
     size[0] = 1.0f;
     size[1] = 1.0f;
+    {
+        /* a tile of an RDRAM copy of a colour image: draw it from the GPU copy of that image (issue #35), with
+         * the tile's texture coordinates moved to its place in the copy. The copy is sampled bilinearly at render
+         * scale; the tile's own wrap and filter would only describe its 320x240 texels. */
+        GfxTileSource ts;
+        float origin[2];
+        GLuint snap;
+        if (gfxTmemTileSource(st, tile, &ts) && (snap = gfxFbSnapTile(&ts, origin, size)) != 0) {
+            glsBindTex(unit, snap);
+            tileParams[2] -= origin[0];
+            tileParams[3] -= origin[1];
+            return;
+        }
+    }
     e = tileEntry(st, tile, unit, &img);
     if (e == NULL) {
         glsBindTex(unit, sWhiteTex);
@@ -454,8 +733,20 @@ static void bindTile(const GfxState *st, int tile, int unit, float *tileParams, 
     size[1] = (float)img.height;
     r = gfxTexpackTexture(e->pack);
     if (r == NULL) {
+        /* levels are built the first time a draw that would sample them asks: a texture only ever bound by rects,
+         * by a point-filtered tile, by addressing GL cannot reproduce or replaced by a pack never pays for them.
+         * The chain is a property of the texture, the decision a property of the tile, so whichever tile missed
+         * first does not decide; `mipsTried` keeps a texture that cannot have them (too small, out of memory)
+         * from being decoded again on every draw. */
+        int mips = sMipsOn && allowMips && texFilterLinear(st) && tileMipsOk(t);
         glsBindTex(unit, e->tex);
-        setSampling(st, t, unit, 0, &e->sampling);
+        if (mips && !e->mips && !e->mipsTried) {
+            e->mipsTried = 1;
+            if (gfxTmemDecode(st, tile & 7, &img)) { /* the key matched, so TMEM still holds these texels */
+                e->mips = (u8)texMipsGenerate(st, t, &img);
+            }
+        }
+        setSampling(st, t, unit, mips && e->mips ? 3 : 0, &e->sampling);
         return;
     }
     glsBindTex(unit, r->tex);
@@ -562,7 +853,7 @@ static void scissorN64(s32 x0, s32 y0, s32 x1, s32 y1) {
     glsScissor(px0, (h - y1) * s, px1 - px0, (y1 - y0) * s);
 }
 
-static void applyState(const GfxState *st, int forRect, int tile) {
+static void applyState(const GfxState *st, int forRect, int tile, const GfxLit *lit) {
     GfxProgramKey key;
     GfxProgram *p;
     u32 cyc = (st->otherH >> G_MDSFT_CYCLETYPE) & 3;
@@ -574,6 +865,9 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     u32 fp = (blend1 >> 14) & 3, fa = (blend1 >> 10) & 3; /* cycle 1 P/A */
     float tile0[4], tile1[4], size0[2], size1[2], mipTile[8][4], mipSize[8][2];
     int t0 = forRect ? tile : st->texTile, maxLevel;
+    /* the blender the RDP asks for: IN*A_IN + MEM*(1-A) under FORCE_BL (GL_BLEND below) */
+    int blendOn = (om & FORCE_BL) && bp == G_BL_CLR_IN && ba == G_BL_A_IN && bm == G_BL_CLR_MEM && bb == G_BL_1MA &&
+                  cyc < 2;
     memset(&key, 0, sizeof key);
     key.combineHi = st->combineHi;
     key.combineLo = st->combineLo;
@@ -583,8 +877,17 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     } else if ((om & 3) == G_AC_DITHER || ((om & ALPHA_CVG_SEL) && (om & CVG_X_ALPHA) && !(om & FORCE_BL))) {
         key.alphaMode = cyc == 2 ? 1 : 2;
     }
+    /* with MSAA, an alpha-tested triangle turns its alpha into sample coverage instead of discarding whole pixels,
+     * so cutout edges (foliage, fences) are smoothed like geometry edges. Not on a blended draw, whose colour the
+     * sharpened alpha would then weight, and not on rects: the HUD keeps the exact cutout the game asked for. */
+    key.a2c = (u8)(key.alphaMode != 0 && gGfxAlphaCoverage && !blendOn && !forRect &&
+                   !(key.alphaMode == 1 && st->blend[3] == 0)); /* a reference of 0 is a test nothing fails */
     key.fogBlend = (st->geometry & G_FOG) && fp == G_BL_CLR_FOG && fa == G_BL_A_SHADE && cyc < 2;
     key.primDepth = (om & G_ZS_PRIM) != 0;
+    /* per-pixel lighting applies to the lit triangle batches gfx.c hands normals for; per-pixel fog to every
+     * triangle batch that mixes fog, rects keeping the shade alpha they are built with */
+    key.perPixelLight = lit != NULL;
+    key.perPixelFog = gGfxPerPixel && key.fogBlend && !forRect;
     /* texture LOD: the RDP computes it only in 2-cycle mode; a 1-cycle draw samples its render tile even with G_TL_LOD
      * left set by an earlier draw. Triangles only: rects have no per-pixel LOD. */
     maxLevel = 0;
@@ -606,6 +909,20 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     glsU1(p->uPrimLod, &p->cPrimLod, st->primLodFrac / 255.0f);
     glsU1(p->uAlphaRef, &p->cAlphaRef, st->blend[3] / 255.0f);
     glsU1(p->uPrimDepth, &p->cPrimDepth, (st->primDepth & 0x7FFF) / 32767.0f);
+    if (key.perPixelLight && p->cLightSerial != st->lightSerial) {
+        const GfxLights *l = lit->lights;
+        p->cLightSerial = st->lightSerial;
+        glUniform1i(p->uNumLights, l->count);
+        if (l->count > 0) {
+            glUniform3fv(p->uLightDir, l->count, &l->dir[0][0]);
+            glUniform3fv(p->uLightCol, l->count, &l->col[0][0]);
+        }
+        glUniform3fv(p->uAmbient, 1, l->ambient);
+    }
+    if (key.perPixelFog) {
+        float coef[2] = { (float)st->fogMul, (float)st->fogOff };
+        glsU2(p->uFogCoef, p->cFogCoef, coef);
+    }
     if (key.lod) {
         /* both texels come from the mip chain on unit 0; LOD counts tile0 texels per N64 pixel */
         glsU1(p->uLodScale, &p->cLodScale, (float)sTarget->scale);
@@ -613,7 +930,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         glUniform4fv(p->uMipTile, maxLevel + 1, &mipTile[0][0]);
         glUniform2fv(p->uMipSize, maxLevel + 1, &mipSize[0][0]);
     } else if (p->usesTex0 && (st->texOn || forRect)) {
-        bindTile(st, t0, 0, tile0, size0);
+        bindTile(st, t0, 0, tile0, size0, !forRect);
     } else {
         tile0[0] = tile0[1] = 1.0f;
         tile0[2] = tile0[3] = 0.0f;
@@ -621,7 +938,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
         glsBindTex(0, sWhiteTex);
     }
     if (p->usesTex1 && !key.lod && (st->texOn || forRect)) {
-        bindTile(st, (t0 + 1) & 7, 1, tile1, size1);
+        bindTile(st, (t0 + 1) & 7, 1, tile1, size1, !forRect);
     } else {
         tile1[0] = tile1[1] = 1.0f;
         tile1[2] = tile1[3] = 0.0f;
@@ -634,7 +951,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     glsU2(p->uSize1, p->cSize1, size1);
 
     /* blending: IN*A_IN + MEM*(1-A) under FORCE_BL */
-    if ((om & FORCE_BL) && bp == G_BL_CLR_IN && ba == G_BL_A_IN && bm == G_BL_CLR_MEM && bb == G_BL_1MA && cyc < 2) {
+    if (blendOn) {
         glsCap(GL_BLEND, &sGls.blend, 1);
         if (sGls.blendFunc != 1) {
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -643,6 +960,7 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     } else {
         glsCap(GL_BLEND, &sGls.blend, 0);
     }
+    glsCap(GL_SAMPLE_ALPHA_TO_COVERAGE, &sGls.alphaCoverage, key.a2c);
     /* depth */
     if (cyc >= 2) {
         glsCap(GL_DEPTH_TEST, &sGls.depthTest, 0);
@@ -681,9 +999,10 @@ static void applyState(const GfxState *st, int forRect, int tile) {
     }
 }
 
-static void draw(const GfxVtx *v, u32 count) {
+static void draw(const GfxVtx *v, u32 count, const GfxLit *lit) {
     glsBindGeometry();
     glBufferData(GL_ARRAY_BUFFER, count * sizeof(GfxVtx), v, GL_STREAM_DRAW);
+    glsNormals(lit != NULL ? lit->normal : NULL, count);
     glDrawArrays(GL_TRIANGLES, 0, count);
     if (sTarget != NULL) {
         gfxFbDrew(sTarget);
@@ -694,12 +1013,12 @@ static void draw(const GfxVtx *v, u32 count) {
     }
 }
 
-void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count) {
+void gfxBackendDrawTriangles(const GfxState *st, const GfxVtx *v, u32 count, const GfxLit *lit) {
     if (sTarget == NULL) {
         return;
     }
-    applyState(st, 0, st->texTile);
-    draw(v, count);
+    applyState(st, 0, st->texTile, lit);
+    draw(v, count, lit);
 }
 
 static void screenVtx(GfxVtx *o, float x, float y, float z, float s, float t, float r, float g, float b, float a) {
@@ -750,14 +1069,14 @@ void gfxBackendFillRect(const GfxState *st, float ulx, float uly, float lrx, flo
             lrx = (float)(sTarget->physW - sTarget->ox) / sTarget->scale;
         }
         /* rectangles have no shade on the RDP: a SHADE input reads 0 (the arcade's 1-cycle backdrop is black) */
-        applyState(st, 1, 0);
+        applyState(st, 1, 0, NULL);
         screenVtx(&q[0], ulx, uly, 0, 0, 0, 0, 0, 0, 0);
         screenVtx(&q[1], lrx, uly, 0, 0, 0, 0, 0, 0, 0);
         screenVtx(&q[2], ulx, lry, 0, 0, 0, 0, 0, 0, 0);
         q[3] = q[2];
         q[4] = q[1];
         screenVtx(&q[5], lrx, lry, 0, 0, 0, 0, 0, 0, 0);
-        draw(q, 6);
+        draw(q, 6, NULL);
     }
 }
 
@@ -770,7 +1089,7 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     }
     s1 = s + dsdx * (flip ? (lry - uly) : (lrx - ulx));
     t1 = t + dtdy * (flip ? (lrx - ulx) : (lry - uly));
-    applyState(st, 1, tile);
+    applyState(st, 1, tile, NULL);
     if (!flip) {
         screenVtx(&q[0], ulx, uly, 0, s, t, 0, 0, 0, 0);
         screenVtx(&q[1], lrx, uly, 0, s1, t, 0, 0, 0, 0);
@@ -784,7 +1103,7 @@ void gfxBackendTexRect(const GfxState *st, int tile, float ulx, float uly, float
     }
     q[3] = q[2];
     q[4] = q[1];
-    draw(q, 6);
+    draw(q, 6, NULL);
 }
 
 /* web/src/game/debug/api.ts frame grab: the canvas as just presented */
@@ -899,6 +1218,26 @@ EMSCRIPTEN_KEEPALIVE int port_debug_capture_height(void) {
 
 void gfxBackendCpuWrote(u32 addr, u32 len) {
     gfxFbCpuWrote(addr, len);
+    if (gfxFbSnapCpuWrote(addr, len)) {
+        glsReset(); /* an alpha refresh of a GPU copy drew with its own state */
+    }
+}
+
+/* the GPU-side framebuffer effects (issue #35): the game told the port what an RDRAM buffer it just filled is a
+ * copy of, so the port can keep the same pixels at render scale beside it */
+void gfxBackendFbSnapshot(u32 dst, u32 src, u32 len) {
+    gfxFbSnapOfImage(dst, src, len);
+    glsReset();
+}
+
+void gfxBackendFbSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH) {
+    gfxFbSnapSepia(dst, src, x, y, cols, rows, tileW, tileH);
+    glsReset();
+}
+
+void gfxBackendFbLerpWhite(u32 dst, u32 src, u32 len, float t) {
+    gfxFbSnapLerpWhite(dst, src, len, t);
+    glsReset();
 }
 
 void gfxBackendSyncRdram(u32 addr, u32 len) {

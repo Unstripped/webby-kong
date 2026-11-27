@@ -5,13 +5,21 @@
 // Primary: game_fps (images presented per second of game time). Fails when the frame-time p95 exceeds the budget,
 // the rendered image or the real-time movement speed drifts from the reference written by the first run, or a
 // presented image repeats its predecessor while the camera turns (a duplicated frame counted as new).
-// Usage: node tools/bench/run.mjs [--web build/web] [--rom decomp/donkey-kong.z64] [--ref build/bench/ref]
+// Usage: node tools/bench/run.mjs [--web build/web] [--rom decomp/donkey-kong.z64] [--ref <dir>]
 //                                 [--warm 600] [--measure 480] [--scenes japes,isles,...] [--update-ref]
+//                                 [--arg --flag value]... [--angle metal|d3d11|gl|default] [--allow-software]
+// Feature settings: each `--arg --flag value` is a port CLI flag appended after bench.html's defaults
+// (--drawdist 4 --scale 0 --msaa 4; the port's argument parsing is last-wins), e.g. `--arg --msaa 0`.
+// Refs default to build/bench/ref/<slug>, slug = sorted flags (`default`, `msaa-0`, `drawdist-2_msaa-0`); pass
+// `--ref build/bench/ref/default` to compare a feature config against the baseline refs.
+// Chrome: CHROME env, else Playwright Chromium / Chrome install paths. Fails on a software renderer (SwiftShader,
+// llvmpipe, Microsoft Basic Render) unless --allow-software. ANGLE default: metal (macOS), d3d11 (Windows).
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SCENES = {
   japes: 0x07, isles: 0x22, aztec: 0x26, factory: 0x1a, galleon: 0x1e, fungi: 0x30, caves: 0x48, castle: 0x57,
@@ -29,20 +37,46 @@ const opt = (name, def) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 ? argv[i + 1] : def;
 };
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const webDir = path.resolve(opt('web', path.join(root, 'build/web')));
 const romPath = path.resolve(opt('rom', path.join(root, 'decomp/donkey-kong.z64')));
-const refDir = path.resolve(opt('ref', path.join(root, 'build/bench/ref')));
 const warm = Number(opt('warm', 600));
 const measure = Number(opt('measure', 480));
 const sceneNames = opt('scenes', Object.keys(SCENES).join(',')).split(',');
 const updateRef = argv.includes('--update-ref');
+const programFiles = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
+// newest Playwright Chromium under <cache>/chromium-<rev>/<sub>*/<exe...>
+const playwrightChromium = (cache, sub, exe) => {
+  let dirs = [];
+  try { dirs = fs.readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)); } catch { /* no cache */ }
+  dirs.sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)));
+  return dirs.flatMap((d) => fs.readdirSync(path.join(cache, d)).filter((s) => s.startsWith(sub)).map((s) => path.join(cache, d, s, ...exe)));
+};
 const chromeCandidates = [
   process.env.CHROME,
+  ...(process.platform === 'win32' ? [
+    ...playwrightChromium(path.join(process.env.LOCALAPPDATA || '', 'ms-playwright'), 'chrome-win', ['chrome.exe']),
+    ...programFiles.map((b) => path.join(b, 'Google/Chrome/Application/chrome.exe')),
+    ...programFiles.map((b) => path.join(b, 'Google/Chrome SxS/Application/chrome.exe')),
+  ] : []),
+  ...(process.platform === 'linux' ? playwrightChromium(path.join(os.homedir(), '.cache/ms-playwright'), 'chrome-linux', ['chrome']) : []),
   path.join(os.homedir(), 'Library/Caches/ms-playwright/chromium-1254/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'),
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  ...(process.platform === 'linux' ? ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'] : []),
 ].filter(Boolean);
 const chromePath = chromeCandidates.find((p) => fs.existsSync(p));
+// ANGLE backend: metal on macOS, d3d11 on Windows, Chrome's default elsewhere; --angle default passes no flag
+const angle = opt('angle', { darwin: 'metal', win32: 'd3d11' }[process.platform] || 'default');
+const angleFlag = angle === 'default' ? [] : [`--use-angle=${angle}`];
+const allowSoftware = argv.includes('--allow-software');
+const SOFTWARE_RE = /swiftshader|microsoft basic render|llvmpipe|softpipe/i;
+// extra port CLI flags: repeatable `--arg --flag value`, appended after (overriding) the bench.html defaults
+const extraArgs = [];
+argv.forEach((a, i) => { if (a === '--arg') extraArgs.push(argv[i + 1], argv[i + 2]); });
+if (extraArgs.some((v) => v === undefined)) fail('--arg needs a flag and a value: --arg --msaa 0');
+const slug = extraArgs.length === 0 ? 'default' : Array.from({ length: extraArgs.length / 2 }, (_, i) => `${extraArgs[2 * i].replace(/^-+/, '')}-${extraArgs[2 * i + 1]}`)
+  .map((s) => s.replace(/[^A-Za-z0-9.]+/g, '-')).sort().join('_');
+const refDir = path.resolve(opt('ref', path.join(root, 'build/bench/ref', slug)));
 
 function fail(msg) {
   console.error(`bench: ${msg}`);
@@ -83,7 +117,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'dk64-bench-'));
 const chrome = spawn(chromePath, [
   '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run',
-  '--no-default-browser-check', '--window-size=1280,720', '--force-device-scale-factor=2', '--use-angle=metal',
+  '--no-default-browser-check', '--window-size=1280,720', '--force-device-scale-factor=2', ...angleFlag,
   '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
   '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
   '--disable-backgrounding-occluded-windows', '--mute-audio', 'about:blank',
@@ -123,7 +157,7 @@ const send = (method, params = {}, sessionId) => new Promise((resolve, reject) =
 });
 
 async function runScene(name) {
-  const url = `${origin}/bench.html?map=${SCENES[name]}&warm=${warm}&measure=${measure}`;
+  const url = `${origin}/bench.html?map=${SCENES[name]}&warm=${warm}&measure=${measure}&args=${encodeURIComponent(JSON.stringify(extraArgs))}`;
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   await send('Page.enable', {}, sessionId);
@@ -157,6 +191,7 @@ const allTotal = [], allCpu = [];
 const lines = [];
 let renderDiffMax = 0, motionErrMax = 0, renderer = '', framesAll = 0, fpsMin = Infinity;
 fs.mkdirSync(refDir, { recursive: true });
+console.log(`config: ${slug}; refs: ${refDir}${updateRef ? ' (updating)' : ''}`);
 const meanAbs = (a, b) => {
   let d = 0;
   for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
@@ -166,6 +201,7 @@ let smoothFail = 0, smoothChecked = 0;
 for (const name of sceneNames) {
   const r = await runScene(name);
   renderer = r.renderer;
+  if (SOFTWARE_RE.test(renderer) && !allowSoftware) fail(`scene ${name}: software renderer "${renderer}" (no GPU; --allow-software to run anyway)`);
   if (r.after.map !== SCENES[name]) fail(`scene ${name}: ended on map ${r.after.map}, want ${SCENES[name]}`);
   if (r.after.lastError) fail(`scene ${name}: lastError ${r.after.lastError}`);
   if (r.thumbs.some((t) => !t) || r.smooth.some((t) => !t)) fail(`scene ${name}: no capture`);

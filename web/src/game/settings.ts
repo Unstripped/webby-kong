@@ -1,4 +1,5 @@
-// Player settings (draw distance, render scale, MSAA, 60 fps, touch controller, 3D sound, audio rate, kong swap,
+// Player settings (draw distance, render scale, MSAA, cutout anti-aliasing, texture mips and anisotropy,
+// present pass, per-pixel lighting, Kong smoothing, 60 fps, touch controller, 3D sound, audio rate, kong swap,
 // Disco Chunky, right-stick camera):
 // stored in localStorage `dk64.settings`, a URL parameter overrides the stored value for that page load; the Esc menu
 // changes them live, except the audio rate, which the game reads at boot (it applies on the next load).
@@ -11,6 +12,9 @@ export interface SettingsValues {
   drawdist: number;
   scale: number;
   msaa: number;
+  a2c: number;
+  mips: number;
+  aniso: number;
   interp: number;
   touch: TouchMode;
   audio3d: number;
@@ -20,6 +24,12 @@ export interface SettingsValues {
   stickcam: number;
   camspeed: number;
   caminvert: number;
+  perpixel: number;
+  kongsmooth: number;
+  downsample: number;
+  sharpen: number;
+  fxaa: number;
+  dither: number;
 }
 
 export type SettingKey = keyof SettingsValues;
@@ -39,6 +49,9 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   drawdist: { def: 4, valid: isNum((v) => Number.isFinite(v) && v >= 1 && v <= 16), parse: num, fn: 'port_set_drawdist' },
   scale: { def: 0, valid: isNum((v) => Number.isInteger(v) && v >= 0 && v <= 8), parse: num, fn: 'port_set_scale' },
   msaa: { def: 4, valid: isNum((v) => [0, 1, 2, 4, 8].includes(v)), parse: num, fn: 'port_set_msaa' },
+  a2c: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_a2c' },
+  mips: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_mips' },
+  aniso: { def: 4, valid: isNum((v) => [0, 2, 4, 8, 16].includes(v)), parse: num, fn: 'port_set_aniso' },
   interp: { def: 1, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_interp' },
   touch: {
     def: 'auto',
@@ -53,6 +66,12 @@ const DEFS: { [K in SettingKey]: Def<SettingsValues[K]> } = {
   stickcam: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_stick_camera' },
   camspeed: { def: 5, valid: isNum((v) => Number.isInteger(v) && v >= 1 && v <= 10), parse: num, fn: 'port_set_camera_speed' },
   caminvert: { def: 0, valid: isNum((v) => [0, 1, 2, 3].includes(v)), parse: num, fn: 'port_set_camera_invert' },
+  perpixel: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_per_pixel' },
+  kongsmooth: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_kong_smooth' },
+  downsample: { def: 1, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_downsample' },
+  sharpen: { def: 0, valid: isNum((v) => Number.isInteger(v) && v >= 0 && v <= 10), parse: num, fn: 'port_set_sharpen' },
+  fxaa: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_fxaa' },
+  dither: { def: 0, valid: isNum((v) => v === 0 || v === 1), parse: num, fn: 'port_set_dither' },
 };
 
 const KEYS = Object.keys(DEFS) as SettingKey[];
@@ -124,11 +143,15 @@ export function set<K extends SettingKey>(key: K, value: SettingsValues[K]): Set
 export function args(): string[] {
   const v = values.value;
   return [
-    '--drawdist', String(v.drawdist), '--scale', String(v.scale), '--msaa', String(v.msaa),
+    '--drawdist', String(v.drawdist), '--scale', String(v.scale), '--msaa', String(v.msaa), '--a2c', String(v.a2c),
+    '--mips', String(v.mips), '--aniso', String(v.aniso),
     '--interp', String(v.interp), '--hrtf', String(v.audio3d), '--audio-rate', String(v.audiorate),
     '--kong-swap', String(v.kongswap), '--disco-chunky', String(v.discochunky),
     '--stick-camera', String(v.stickcam),
     '--camera-speed', String(v.camspeed), '--camera-invert', String(v.caminvert),
+    '--per-pixel', String(v.perpixel), '--kong-smooth', String(v.kongsmooth),
+    '--downsample', String(v.downsample), '--sharpen', String(v.sharpen),
+    '--fxaa', String(v.fxaa), '--dither', String(v.dither),
   ];
 }
 
@@ -138,6 +161,10 @@ export function started(): void {
 
 export function maxSamples(): number {
   return isStarted ? callNumber('port_gfx_max_samples') : 0;
+}
+
+export function maxAniso(): number {
+  return isStarted ? callNumber('port_gfx_max_aniso') : 0;
 }
 
 // the rate the running game uses: a quickload restores the rate its snapshot was made at

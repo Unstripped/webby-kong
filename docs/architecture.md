@@ -114,10 +114,104 @@ flowchart LR
   leave RDRAM, the colour images and the shared depth as the frame left them. Not in the headless build. Player
   setting (`--interp`, `?interp=`, Esc menu "Frame rate", `port_set_interp`: 0 = 30, 1/2/3 = up to 60/120/240):
   changing it drops the pending images; the next ones pair matrices from the next two game frames, never a stale one.
+- Present pass (`gfx_fb.c`, `presentImage`): the finished image reaches the canvas through full-screen shader
+  passes instead of one `glBlitFramebuffer`. The first pass resamples the image into the letterboxed canvas
+  rectangle: every destination pixel sums the source texels it covers, weighted by the area each covers of its
+  footprint (`downsample=1`, the default), which is the area filter a plain bilinear downsample of a larger image
+  is not; the footprint never falls below one texel, so an image smaller than its rectangle is resampled exactly
+  bilinearly. FXAA 3.11's console edge blend (`fxaa=1`) and AMD's CAS sharpening (`sharpen=1..10`) each add a pass
+  over what the pass before wrote into a canvas-sized ping-pong target, and the pass that writes the canvas adds
+  ordered 8×8 Bayer dither of half a least significant bit (`dither=1`) against banding from quantising the
+  filtered values — which hold more precision than the 8-bit image they came from — back to 8 bits. With every
+  option off the `GL_LINEAR` blit runs instead, so that output is the one from before the pass. The default is
+  identical to that blit wherever the image is exactly its rectangle's size (the usual case: the scale rounds the
+  canvas height up to a multiple of 240) and better where it is larger, which is the only case an area filter and
+  a bilinear one differ in; an image smaller than its rectangle is bilinear either way. The VI image and
+  the interpolated in-between images present through the same path, the programs compile when an option is set
+  (`postPrepare`), and the mapping the debug pixel probe reads (`sPresented`) is written as before; a canvas of no
+  size (minimised window) presents nothing.
+- GPU-side framebuffer effects (`gfx_fbsnap.c`, issue #35): the screen transition's and the screen wipe's freeze
+  frame (`fbCopySetAlpha`) and the camera's sepia photo (`playerViewCaptureSepiaPhoto`) are built by the CPU out
+  of a colour image the port had to sync back to RDRAM at the N64 size, and drawn back as 16-bit texture tiles, so
+  they used to show a 320x240 image at any render scale. The port now keeps a GPU copy of the same pixels at
+  render scale beside the RDRAM copy (hooks in patch 0027: `portGfxFbSnapshot`, `portGfxFbSepia`,
+  `portGfxFbLerpWhite`), and a tile whose texels came from one load out of such a range
+  (`gfxTmemTileSource`) is drawn from that copy, with the tile's texture coordinates remapped into it
+  (`gfxFbSnapTile`), sampled bilinearly. The sepia and fade-to-white copies are GPU passes of the game's own
+  5-bit arithmetic. The game's CPU path still runs and still fills its RDRAM buffer; the port only reads it.
+  - A copy is used only while the RDRAM bytes it stands for are still there: the port rehashes the range once per
+    gfx task and on every write the game reports. A write that changes colours (the pause menu's blur builds its
+    image that way) drops the copy, so that effect draws its own texels again, as before. A write that only
+    changes coverage bits — the transition's six-pixel mask strip — keeps the copy and refreshes its alpha from
+    RDRAM, so the tear line looks as it did.
+  - The 4:3 image alone is copied; the side areas of a widened image are blanked per task as they were, so
+    widescreen looks exactly as before (black beside the effect).
+  - A quickload drops every copy (`gfxFbSnapReset`): the restored RDRAM is the only thing that stands for those
+    buffers, so the effect falls back to its texels until the game makes a new copy.
+  - Each effect falls back the same way when there is nothing to copy: no colour image at that address, one never
+    drawn by the GPU, or RDRAM newer than it.
+  - The invariant: game state is untouched. The CPU path still computes every byte it did, and patch 0008 has
+    exactly four `portGfxSyncRdram` sites — `fbCopySetAlpha`, `transitionMaskFramebuffer`,
+    `playerViewCaptureSepiaPhoto` and `zbufferReadDepth` — of which only the last feeds game logic, and it reads
+    depth, which this does not touch. No game logic reads colour pixels, and the headless build (which has no
+    GPU copies at all) is bit-identical. What does change is the colour bytes a read of a colour image returns
+    once the port has drawn an improved image into it — as they already change with the render scale, MSAA,
+    alpha-to-coverage or mips. The case that exists today: the barrel's screen wipe copies the framebuffer twice,
+    at VI 347 and 353 of the kong swap barrel scenario, and the second copy reads back the freeze frame the first
+    one drew at render scale, so from VI 353 on its bytes differ from the nearest-upscaled 320x240 image's.
+    `port_debug_fb_gpu(0)` turns the GPU copies off for a run that is byte-identical again
+    ([debugging.md](debugging.md)).
 - Depth readback: the game reads the z-buffer every gameplay frame (`zbufferReadDepth`: sun and camera probes),
   one pixel per call, and syncs only that pixel (patch 0008). A shader converts the depth image to the RDP's 16-bit
   z format, two pixels per RGBA8 texel, which is read into a pixel-pack buffer at the end of each task and copied
   to host memory before the replay is queued, so those reads no longer wait for the GPU; each copies just its pixel.
+- Alpha-tested cutouts (foliage, fences, grates) under MSAA (`?a2c=`, Esc menu "Cutout edges", `--a2c`, default on):
+  the draw runs with `GL_SAMPLE_ALPHA_TO_COVERAGE` and the generated fragment shader turns the combined alpha into
+  coverage instead of discarding the fragment (`gfx_combiner.c` `build`, `gfx_gl.c` `applyState`). The threshold
+  test (`alphaMode` 1) keeps full coverage wherever the old test passed and ramps only below the reference, over
+  the one screen pixel its own derivative needs, so a cutout edge is smoothed without any pixel losing coverage it
+  had; the coverage modes (`alphaMode` 2, `G_AC_DITHER`/`CVG_X_ALPHA`) are sharpened the same way at a reference
+  of 0.5. Feeding their alpha to coverage directly is what the RDP does, but its partly covered band is one TMEM
+  texel of bilinear ramp wide, and here a texel covers up to six screen pixels, so it makes a magnified cutout
+  translucent (Isles palm fronds lose half their body); the sharpened ramp keeps that band one pixel wide.
+  Only triangles whose blender is off, and only when the test can fail (a
+  reference of 0 keeps the discard path): a blended draw would weight its colour by that alpha, and rects keep the
+  HUD's exact cutout. The alpha itself never leaves the GPU — RDRAM readbacks pack the colour image with the
+  coverage bit set and the blender never reads destination alpha — but depth does change: samples the old test
+  killed now pass, and the multisample depth resolve picks one implementation-defined sample, so the pixel
+  `zbufferReadDepth` reads near a cutout edge can be the cutout's instead of what is behind it. That is the same
+  uncertainty MSAA already puts on every geometry edge, and it is bounded by the one-sided ramp: coverage is only
+  ever added where the test failed. With MSAA off (`?msaa=0`) or `--a2c 0` the shader keeps the exact `discard`
+  and the output is unchanged.
+- Texture mips and anisotropy (`?mips=`, `?aniso=`, Esc menu, `--mips`/`--aniso`; default on and 4x): the first
+  draw that would sample them builds a cached texture's mip chain (`bindTile` -> `texMipsGenerate`), and
+  `setSampling` minifies those tiles with `GL_LINEAR_MIPMAP_LINEAR` plus `EXT_texture_filter_anisotropic`,
+  instead of aliasing level 0 at render scales up to 6. Building them lazily keeps a texture that is only ever a
+  rect, point-filtered, oddly addressed or replaced by a pack from paying for a chain nobody samples, and makes
+  the decision a property of the tile while the chain stays a property of the texture: the bench's Aztec scene
+  builds 143 chains with `glGenerateMipmap` and 245 cutout levels on the CPU, against 279 and 597 when every
+  upload generated them, and its first 600 VIs (the map load plus each texture's first draw) take about 2.13 s
+  with mips against 1.75 s without, with the steady frame unchanged at ~5 ms. A tile uses levels only
+  when it filters linearly (`G_TF_POINT` stays bit-exact), when it is a triangle (screen rects draw the HUD at a
+  fixed size) and when GL's wrap modes reproduce the RDP's addressing on both axes (`tileMipsOk`: each axis
+  masked, so one decoded image is exactly the repeat/mirror period, or clamped, so it ends at its edge; an
+  unmasked unclamped axis has no period and `GL_REPEAT` would smear the opposite edge into every minified texel).
+  The N64's own `G_TL_LOD` chains are untouched. A texture in a 1-bit-alpha format (RGBA16, or CI through an
+  RGBA16 TLUT) whose texels are all fully transparent or fully opaque is a cutout: its levels are box-filtered on
+  the CPU with alpha-weighted colour and each level's alpha rescaled so an alpha test at the half-way reference
+  keeps level 0's share of texels, otherwise foliage thins out and disappears with distance (and with
+  alpha-to-coverage on, that rescaled alpha is what the sharpening sees). `alphaMode` 1 tests against the blend
+  colour's alpha, which a cache miss cannot know, so a reference far from 0.5 is only partly restored. Everything
+  else uses `glGenerateMipmap`. Anisotropy also applies to texture-pack images, which carry their own mips.
+  Each chain runs to 1x1 and costs the usual third of the texture on top of it (about 1 KB for DK64's typical
+  32x32); the levels past the first are a quarter of that and are what the far distance samples, so they are
+  kept rather than capped with `GL_TEXTURE_MAX_LEVEL`.
+  How much this changes depends on the render scale, because a mip level is only reached where a surface is
+  minified: at the default scale (6 at 1440p) that is the distant band alone (0.03% of the bench scenes' pixels,
+  1.2% at `?scale=1`). Mipped alpha also moves the alpha test both ways at distance — a cutout can gain or lose
+  coverage, not only gain it as under alpha-to-coverage — so the depth `zbufferReadDepth` reads there changes
+  with it; the coverage rescale keeps the share of passing texels equal to level 0, and the bench's speed probe
+  (`motion_err`) stays at 0.0%.
 - IDO returned whatever was left in `$v0` from functions that fall off the end; those sites now return that
   value explicitly and game TUs build with `-Werror=return-type`.
 - Framebuffer readbacks write only the RDRAM range the game asked for: a colour image's height is not in the
@@ -139,6 +233,65 @@ flowchart LR
   distances, capped at each map's far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64
   behaviour, any value 1–16 sets the factor. Banana fairies keep the N64 spawn range: a spawned fairy starts the
   non-positional "fairy nearby" song, which would otherwise play from across the map.
+- Per-pixel lighting and fog (`--per-pixel`, `?perpixel=`, Esc menu "Per-pixel lighting", `port_set_per_pixel`;
+  off by default, the art was drawn for per-vertex shading): `loadVertices` normally sums the F3DEX2 lights per
+  vertex (the object-space normal against the lights `updateLights` moved into object space) and bakes
+  `z / w * fogMul + fogOff`, clamped to 0–255, into shade alpha. With the mode on a lit vertex also carries its
+  normal transformed by the modelview, and the light set goes in as uniforms in eye space — the space the RSP is
+  given the directions in, so one set serves a batch spanning several bone matrices — where the fragment shader
+  sums and clamps them; the RSP's own sum stays the vertex colour, which is what a triangle whose vertices were
+  not all loaded under `G_LIGHTING` is drawn from. The eye-space cosine equals the RSP's object-space one for a
+  rotation with uniform scale; non-uniform scale or shear in the modelview makes the two differ slightly (both
+  normalise, neither uses the inverse transpose). Fog is mixed from the fragment's own depth
+  (`2 * gl_FragCoord.z - 1` is the N64's `z / w` under the default depth range) with the same coefficients and
+  clamp, while shade alpha still carries the per-vertex fog value, so combiners that read SHADE alpha are
+  unaffected. The two differ where the per-vertex factor is clamped inside a triangle, where GL interpolates
+  shade alpha perspective-correct (the RDP and `gl_FragCoord.z` are screen-linear), and around the near plane: a
+  fragment exists only after clipping, so the `w < 0` sign flip the per-vertex formula needs has no per-fragment
+  counterpart. `G_TEXTURE_GEN` keeps its per-vertex object-space normal: it produces texture coordinates, not
+  shading. The light set and the fog coefficients are part of the batch state (`GfxState.lightSerial`,
+  `fogMul`/`fogOff`, all 0 while the mode is off) and are taken at G_VTX time, as hardware shades and fogs
+  vertices as they load, so a light or fog load ends the pending batch and the interpolation replays rebuild the
+  same state per draw; whether a batch is lit follows its vertices, not the geometry mode of the draw. Each
+  program key gains one bit per mode, so with the mode off exactly the same shaders are built and used as
+  before; the normals ride in their own vertex buffer (attribute 3, bound by name), enabled only for lit
+  batches. The headless backend ignores both.
+- Kong smoothing (`--kong-smooth`, `?kongsmooth=`, Esc menu "Kong smoothing", `port_set_kong_smooth`; off by
+  default, a prototype): the Kong models are 770–900 triangles each and every one of them is lit, so they carry
+  normals and suit automatic curved-surface subdivision. With the mode on, each lit triangle of a registered Kong
+  model becomes a PN triangle (Vlachos et al. 2001) — a cubic patch through its corners whose tangents follow
+  their normals — sampled on a 3×3 grid and emitted as 9 triangles through the usual batching path, so a Kong
+  costs about nine times its triangles (the batch flushes at its usual size, nothing grows). Positions and
+  normals are in eye space, because about a third of the Kong triangles mix vertices loaded under different bone
+  matrices (one `G_MTX` load per bone); the samples project with `R.proj`. Shade, texture coordinates and the fog
+  alpha are barycentric; with per-pixel lighting on the shading normal is the patch's own quadratic normal, which
+  is what makes the shading as round as the silhouette. `G_TEXTURE_GEN` draws keep their vertices (their texture
+  coordinates come from the normal, so moving them would slide the environment map), as does every unlit or
+  non-Kong draw and every rectangle. Decal draws are smoothed with the rest: their vertices come from the same
+  block under the same bone matrix, so they get the surface's own patch; left flat they sink into it (Lanky's
+  overall buttons disappear).
+  The N64 duplicates a vertex wherever texture coordinates or colours break; the duplicates' normals differ, so
+  the patches would crack along those seams. Within one `G_VTX` load — one bone matrix — the normals of equal
+  object-space positions are averaged and displace together, while shading keeps the originals. That is the
+  whole guarantee: duplicates split across two loads, as a bone seam or a decal in its own load can be, get a
+  weld each and may still part. Attributes are interpolated over displaced positions, so a texture swims
+  slightly against the original as the patch bends. The mode looks best with per-pixel lighting on, which rounds
+  the shading the same way the patch rounds the silhouette. Culling is decided once from the flat triangle and
+  the whole patch follows it, so a sample that curves past the silhouette is drawn rather than notching it.
+  Which models are Kongs comes from game code: `controllerAnimStateLoadAsset` names a model's vertex block —
+  what `renderActorDisplayList` binds to segment 3 — as it enters the model cache and `controllerAnimFreeModel`
+  unnames it as it leaves (the kong-model-registry patch, `portGfxKongModelLoaded`/`Freed`); a load of any other
+  model clears the address it lands on, so a free the patch never sees (a heap reset on a map change) cannot
+  leave a stale entry for a later model to inherit. `renderActorDisplayList` is the only producer of segment-3
+  vertex blocks, so every address the renderer can see has passed through that load. The renderer smooths the
+  `G_VTX` loads whose segment base matches. The table is port state: no RDRAM changes, so game logic and
+  quicksave determinism do not, and a kong swap, a Disco Chunky change or a quickload reach it through the same
+  cache calls. The interpolation replays smooth with the same tessellation, so in-between images line up with
+  their game frames.
+  Known coupling: the game reads the depth buffer every frame (`zbufferReadDepth`: camera probes around the
+  player, the sun, Banana Fairy photos), and smoothing moves Kong surfaces by small amounts, so those reads can
+  differ while the mode is on. Making it safe by default needs the game-visible depth to come from the original
+  geometry.
 - Audio rate (patch 0021): the synthesizer and the AI run at 22050 Hz (N64) or 44100 Hz (`--audio-rate`, Esc menu
   "Audio quality", default 44100 in the browser). Voice pitches are relative to 22050 Hz, so the resampler ratio
   is scaled by `22050 / outputRate`, unity-pitch voices included; frame sizes, AI thresholds, the command list and

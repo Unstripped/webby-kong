@@ -213,9 +213,8 @@ static int sEventCount;
 static u16 sHeldButtons;
 /* gPortHeadlessButtons lives in input.c */
 
-int portMainQsRanges(QsRange *out) {
+void portMainQsRanges(QsSink *out) {
     (void)out;
-    return 0;
 }
 
 /* snapshot bytes <-> wasm memory, in port_qs_table order (JS: the RDRAM range starts at address 0) */
@@ -320,6 +319,8 @@ int main(int argc, char **argv) {
             setAudioHrtf(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--disco-chunky") == 0 && a + 1 < argc) {
             gPortDiscoChunky = atoi(argv[++a]) != 0;
+        } else if (strcmp(argv[a], "--fb-hash") == 0) {
+            portGfxFbHashLog(1);
         } else if (strcmp(argv[a], "--progress") == 0) {
             progress = 1;
         }
@@ -327,7 +328,7 @@ int main(int argc, char **argv) {
     if (rom == NULL || !port_node_load_rom(rom)) {
         printf("usage: dk64_headless --rom <dk64-us.z64> [--frames N] [--input file] [--lax] [--trace mask] "
                "[--qs-save F --qs-load G] [--resume slot,kong,map,exit,hasPos,x,y,z,yaw] [--drawdist K] "
-               "[--audio-rate 22050|44100] [--hrtf 0|1] [--disco-chunky 0|1] [--progress]\n");
+               "[--audio-rate 22050|44100] [--hrtf 0|1] [--disco-chunky 0|1] [--fb-hash] [--progress]\n");
         return 2;
     }
     if (input != NULL) {
@@ -398,18 +399,17 @@ int main(int argc, char **argv) {
 static double sLastMs;
 static int sMenuPaused; /* Esc menu (web/src/game/menu/) open: the game is frozen */
 
-int portMainQsRanges(QsRange *out) {
-    out[0] = QS_RANGE(sAccumMs);
-    out[1] = QS_RANGE(sLastMs);
-    out[2] = QS_RANGE(gPortDrawDistance); /* launch config: a quickload keeps this run's value */
-    out[3] = QS_RANGE(sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
-    out[4] = QS_RANGE(gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
-    out[5] = QS_RANGE(gPortKongSwap);     /* setting: a quickload keeps it */
-    out[6] = QS_RANGE(gPortStickCamera);  /* settings: a quickload keeps them */
-    out[7] = QS_RANGE(gPortCameraSpeed);
-    out[8] = QS_RANGE(gPortCameraInvert);
-    out[9] = QS_RANGE(gPortDiscoChunky);  /* setting: a quickload keeps it */
-    return 10;
+void portMainQsRanges(QsSink *out) {
+    QS_KEEP(out, sAccumMs);
+    QS_KEEP(out, sLastMs);
+    QS_KEEP(out, gPortDrawDistance); /* launch config: a quickload keeps this run's value */
+    QS_KEEP(out, sMenuPaused);       /* UI state: F9 while the menu is open must not unfreeze or freeze */
+    QS_KEEP(out, gPortAudioHrtf);    /* setting: a quickload keeps it (the audio rate comes from the snapshot) */
+    QS_KEEP(out, gPortKongSwap);     /* setting: a quickload keeps it */
+    QS_KEEP(out, gPortStickCamera);  /* settings: a quickload keeps them */
+    QS_KEEP(out, gPortCameraSpeed);
+    QS_KEEP(out, gPortCameraInvert);
+    QS_KEEP(out, gPortDiscoChunky);  /* setting: a quickload keeps it */
 }
 
 /* JS menu: 1 stops stepping (no input poll, audio drain or present; audio starves to silence), 0 resumes */
@@ -424,10 +424,16 @@ EMSCRIPTEN_KEEPALIVE void port_set_paused(s32 paused) {
 EMSCRIPTEN_KEEPALIVE f32 port_set_drawdist(f32 k) { return setDrawDistance(k); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_scale(s32 scale) { return portGfxSetScale(scale); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_msaa(s32 msaa) { return portGfxSetMsaa(msaa); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_a2c(s32 on) { return portGfxSetAlphaToCoverage(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_mips(s32 on) { return portGfxSetMips(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_aniso(s32 level) { return portGfxSetAniso(level); }
+EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_aniso(void) { return portGfxMaxAniso(); }
 EMSCRIPTEN_KEEPALIVE s32 port_gfx_max_samples(void) { return portGfxMaxSamples(); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_audio_hrtf(s32 on) { return setAudioHrtf(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_audio_rate(void) { return gPortAudioRate; }
 EMSCRIPTEN_KEEPALIVE s32 port_set_interp(s32 on) { return portGfxSetInterp(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_per_pixel(s32 on) { return portGfxSetPerPixel(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_kong_smooth(s32 on) { return portGfxSetKongSmooth(on); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_kong_swap(s32 on) {
     gPortKongSwap = on != 0;
     return gPortKongSwap;
@@ -442,6 +448,13 @@ EMSCRIPTEN_KEEPALIVE s32 port_set_stick_camera(s32 on) {
 }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_speed(s32 v) { return setCameraSpeed(v); }
 EMSCRIPTEN_KEEPALIVE s32 port_set_camera_invert(s32 v) { return setCameraInvert(v); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_downsample(s32 mode) { return portGfxSetDownsample(mode); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_sharpen(s32 amount) { return portGfxSetSharpen(amount); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_fxaa(s32 on) { return portGfxSetFxaa(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_set_dither(s32 on) { return portGfxSetDither(on); }
+/* RDRAM verification of the GPU-side framebuffer effects (issue #35, docs/debugging.md) */
+EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_hash(s32 on) { return portGfxFbHashLog(on); }
+EMSCRIPTEN_KEEPALIVE s32 port_debug_fb_gpu(s32 on) { return portGfxFbGpu(on); }
 
 /* the animation frame's time (its start, vsync-aligned; document.timeline holds it during the frame), not the
  * callback's clock: callbacks start at varying points of the frame, and that jitter alone made one frame step two
@@ -470,6 +483,16 @@ int main(int argc, char **argv) {
             scale = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--msaa") == 0) {
             msaa = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--a2c") == 0) {
+            portGfxSetAlphaToCoverage(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--mips") == 0) {
+            portGfxSetMips(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--aniso") == 0) {
+            portGfxSetAniso(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--per-pixel") == 0) {
+            portGfxSetPerPixel(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--kong-smooth") == 0) {
+            portGfxSetKongSmooth(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--drawdist") == 0) {
             setDrawDistance(atof(argv[++a]));
         } else if (strcmp(argv[a], "--audio-rate") == 0) {
@@ -488,6 +511,18 @@ int main(int argc, char **argv) {
             setCameraSpeed(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--camera-invert") == 0) {
             setCameraInvert(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--downsample") == 0) {
+            portGfxSetDownsample(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--sharpen") == 0) {
+            portGfxSetSharpen(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--fxaa") == 0) {
+            portGfxSetFxaa(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--dither") == 0) {
+            portGfxSetDither(atoi(argv[++a]));
+        } else if (strcmp(argv[a], "--fb-hash") == 0) {
+            portGfxFbHashLog(atoi(argv[++a])); /* the browser main's flags all take a value */
+        } else if (strcmp(argv[a], "--fb-gpu") == 0) {
+            portGfxFbGpu(atoi(argv[++a]));
         } else if (strcmp(argv[a], "--save-file") == 0) {
             portSaveSetPath(argv[++a]); /* before portInit, which reads it */
         }

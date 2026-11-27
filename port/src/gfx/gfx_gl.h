@@ -8,10 +8,13 @@ typedef struct {
     GLuint prog;
     GLint uTex0, uTex1, uPrim, uEnv, uFog, uBlend, uPrimLod, uTile0, uTile1, uSize0, uSize1, uAlphaRef, uPrimDepth;
     GLint uLodScale, uMaxLevel, uMipTile, uMipSize;
+    GLint uLightDir, uLightCol, uAmbient, uNumLights, uFogCoef; /* per-pixel lighting and fog */
     u8 usesTex0, usesTex1;
     /* last values set (gfx_gl.c skips unchanged uniforms); NaN until first set */
     float cPrim[4], cEnv[4], cFog[4], cBlend[4], cTile0[4], cTile1[4], cSize0[2], cSize1[2];
-    float cPrimLod, cAlphaRef, cPrimDepth, cLodScale, cMaxLevel;
+    float cPrimLod, cAlphaRef, cPrimDepth, cLodScale, cMaxLevel, cFogCoef[2];
+    /* light set last uploaded: 0 is the empty one a new program's zeroed uniforms already hold */
+    u32 cLightSerial;
 } GfxProgram;
 
 typedef struct {
@@ -21,11 +24,35 @@ typedef struct {
     u8 fogBlend;   /* blender mixes fog by shade alpha in cycle 1 */
     u8 primDepth;  /* z source = primitive depth */
     u8 lod;        /* texture LOD: TEXEL0/TEXEL1 are per-pixel mip levels of uTex0 */
+    u8 a2c;        /* alpha test becomes sample coverage (GL_SAMPLE_ALPHA_TO_COVERAGE) instead of a discard */
+    u8 perPixelLight; /* the fragment sums the light set over its normal instead of taking vShade.rgb */
+    u8 perPixelFog;   /* fog comes from the fragment's depth instead of interpolated shade alpha */
 } GfxProgramKey;
 
 GfxProgram *gfxProgramGet(const GfxProgramKey *key);
 extern int gGfxProgramBuilt; /* gfxProgramGet compiled a program (left it current): set, cleared by gfx_gl.c */
 GLuint gfxCompileProgram(const char *vs, const char *fs);
+/* drop the cached programs built with alpha-to-coverage: the setting (or MSAA) turned it off or on */
+void gfxCombinerDropA2c(void);
+
+/* full-screen quad without a VBO (gfx_fb.c): gl_VertexID positions, vUv 0..1 */
+extern const char *gGfxQuadVs;
+extern GLuint gGfxQuadVao;
+
+/* GPU-side framebuffer effects (gfx_fbsnap.c): an RDRAM copy of a colour image that the game draws back as
+ * texture tiles is drawn from a GPU copy of that image at render scale instead of from its 320x240 texels. The
+ * RDRAM copy is left exactly as the game wrote it. */
+void gfxFbSnapOfImage(u32 dst, u32 src, u32 len); /* dst holds a copy of colour image src */
+/* dst holds `cols` x `rows` tiles of `tileW` x `tileH` sepia texels from (x, y) of colour image src */
+void gfxFbSnapSepia(u32 dst, u32 src, u32 x, u32 y, u32 cols, u32 rows, u32 tileW, u32 tileH);
+void gfxFbSnapLerpWhite(u32 dst, u32 src, u32 len, float t); /* dst holds src faded towards white by t */
+int gfxFbSnapCpuWrote(u32 addr, u32 len); /* the game wrote the range; 1 when the copy's alpha was redrawn */
+void gfxFbSnapBeginTask(void);                      /* each copy is re-checked against RDRAM once per task */
+/* the copy a tile's texels come from: its texture, the tile's origin and the copy's size in N64 pixels; 0 when
+ * the tile does not come from one (the caller decodes the texels as usual) */
+GLuint gfxFbSnapTile(const GfxTileSource *src, float *origin, float *size);
+void gfxFbSnapReset(void); /* RDRAM was replaced (quickload): no copy stands for it any more */
+void gfxFbSnapQsRanges(QsSink *out);
 
 /* framebuffers (gfx_fb.c) */
 typedef struct {
@@ -50,6 +77,7 @@ extern u32 gGfxDepthSerial; /* bumped by every depth write; gfxFbDepthPrefetch's
 extern GLuint gGfxDepthTex;
 extern u32 gGfxDepthW, gGfxDepthH;
 extern u32 gGfxScale; /* GL pixels per N64 pixel for images allocated now (follows the window height) */
+extern int gGfxAlphaCoverage; /* alpha-to-coverage is on for alpha-tested triangles: MSAA on and --a2c not 0 */
 
 void gfxFbInit(void);
 GfxFb *gfxFbFor(u32 addr, u32 width);
@@ -75,11 +103,13 @@ void gfxFbCpuWrote(u32 addr, u32 len);
 void gfxFbSyncRdram(u32 addr, u32 len);
 
 /* quicksave: host statics kept across a restore, and post-restore invalidation */
-int gfxFbQsRanges(QsRange *out);
-int gfxCombinerQsRanges(QsRange *out);
+void gfxFbQsRanges(QsSink *out);
+void gfxCombinerQsRanges(QsSink *out);
+void gfxCombinerQsRestored(void); /* after a restore every program uploads its light set again */
 void gfxFbQsRestored(void);
 /* gfx_gl.c for gfx_texpack.c: drop every cached texture (looked up again on next use); forget the GL state shadow
  * after GL calls made outside a frame */
 void gfxGlTexCacheFlush(void);
 void gfxGlStateReset(void);
+void gfxGlForgetTexture(GLuint tex); /* the name is about to go: the shadow must rebind whatever takes its place */
 #endif
