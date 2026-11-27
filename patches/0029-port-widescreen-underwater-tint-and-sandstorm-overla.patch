@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Michael Quinlan <mjquinlan2000@gmail.com>
+Date: Wed, 25 Nov 2026 15:00:33 -0700
+Subject: [PATCH] port: widescreen underwater tint and sandstorm overlay
+
+
+diff --git a/src/global/103AB0_view_effects.c b/src/global/103AB0_view_effects.c
+index ace95b0..38faa7c 100644
+--- a/src/global/103AB0_view_effects.c
++++ b/src/global/103AB0_view_effects.c
+@@ -574,6 +574,8 @@ Gfx *underwaterTintBuildDisplayList(Gfx *dl) {
+     CamState *camState;
+     Actor *camActor;
+     Vtx *vtx;
++    s16 left;
++    s16 right;
+     f32 depthDiff;
+     u8 drew;
+     u32 alphaBase;
+@@ -607,16 +609,19 @@ Gfx *underwaterTintBuildDisplayList(Gfx *dl) {
+             if (force != 0 || (gPlayerSlots[i].camHasWater != 0 && gPlayerSlots[i].eyeY < gPlayerSlots[i].camWaterY + 3.0f)) {
+                 vtx = heapAlloc(0x40);
+                 heapFreeDeferred(vtx);
+-                vtx[0].v.ob[0] = gPlayerSlots[i].rect[0];
++                left = gPlayerSlots[i].rect[0];
++                right = gPlayerSlots[i].rect[2];
++                portGfxWideClipX(&left, &right); // PORT: Hor+ widescreen: the tint covers the side areas too
++                vtx[0].v.ob[0] = left;
+                 vtx[0].v.ob[1] = gPlayerSlots[i].rect[1];
+                 vtx[0].v.ob[2] = -10;
+-                vtx[1].v.ob[0] = gPlayerSlots[i].rect[2];
++                vtx[1].v.ob[0] = right;
+                 vtx[1].v.ob[1] = gPlayerSlots[i].rect[1];
+                 vtx[1].v.ob[2] = -10;
+-                vtx[2].v.ob[0] = gPlayerSlots[i].rect[2];
++                vtx[2].v.ob[0] = right;
+                 vtx[2].v.ob[1] = gPlayerSlots[i].rect[3];
+                 vtx[2].v.ob[2] = -10;
+-                vtx[3].v.ob[0] = gPlayerSlots[i].rect[0];
++                vtx[3].v.ob[0] = left;
+                 vtx[3].v.ob[1] = gPlayerSlots[i].rect[3];
+                 vtx[3].v.ob[2] = -10;
+                 gDPPipeSync(dl++);
+diff --git a/src/global/90D80_render_callbacks.c b/src/global/90D80_render_callbacks.c
+index 1a4f489..ddb0305 100644
+--- a/src/global/90D80_render_callbacks.c
++++ b/src/global/90D80_render_callbacks.c
+@@ -271,6 +271,10 @@ Gfx *renderScrollingBackdropQuad(Gfx *glist, f32 *alpha) {
+     void *texBuf;
+     f32 alphaVal;
+     f32 scrollStep;
++    Vtx *quad;
++    s16 left;
++    s16 right;
++    s32 k;
+ 
+     alphaVal = *alpha;
+     scrollStep = gFrameDelta * 0.5;
+@@ -300,7 +304,26 @@ Gfx *renderScrollingBackdropQuad(Gfx *glist, f32 *alpha) {
+ 
+     gSPMatrix(glist++, &D_2000080, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+     gSPMatrix(glist++, &D_2000180, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+-    gSPVertex(glist++, osVirtualToPhysical(gBackdropQuadVtx), 4, 0);
++    // PORT: Hor+ widescreen: the backdrop covers the side areas too, its texture repeating at the N64 scale
++    // (2016 S units, 63 texels, per 320 units). The quad is drawn through whatever viewport the frame left set,
++    // which can be narrower than the screen, so it reaches twice the side area out; the scissor, widened by the
++    // renderer, cuts it at the image edge.
++    quad = gBackdropQuadVtx;
++    left = 0;
++    right = 320;
++    portGfxWideClipX(&left, &right);
++    if (left != 0 || right != 320) {
++        left *= 2;
++        right = 320 + (right - 320) * 2;
++        quad = heapAlloc(sizeof(gBackdropQuadVtx));
++        heapFreeDeferred(quad);
++        for (k = 0; k < 4; k++) {
++            quad[k] = gBackdropQuadVtx[k];
++            quad[k].v.ob[0] = (k == 0 || k == 3) ? left : right;
++            quad[k].v.tc[0] = quad[k].v.ob[0] * 2016 / 320;
++        }
++    }
++    gSPVertex(glist++, osVirtualToPhysical(quad), 4, 0);
+     gSP2Triangles(glist++, 0, 1, 2, 0, 0, 2, 3, 0);
+     gDPPipeSync(glist++);
+ 

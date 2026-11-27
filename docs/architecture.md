@@ -228,7 +228,9 @@ flowchart LR
   centred region. Once the side areas open, the game's overscan border around its viewport shows scene too, so
   every cull runs against the displayed span (`portGfxWideSpanX`), not the viewport: RSP x outcodes (trivial
   rejects, `G_CULLDL`), the map frustum and portal rects (`mapWideFactor`/`mapWideExtraF`, patches 0011 and
-  0013) and the screen bounds objects are culled against (`portGfxWideClipX`, patch 0013).
+  0013) and the screen bounds objects are culled against (`portGfxWideClipX`, patch 0013). Two full-screen
+  overlays drawn as 4:3 ortho quads are widened in game code (patch 0029): the underwater tint reaches the wide
+  edges, and the scrolling backdrop (Aztec sandstorm) repeats its texture at the N64 scale across the sides.
 - Draw distance: objects (trees, buildings, pickups, actors) draw and enemies spawn out to 4× the game's
   distances, capped at each map's far clip (patch 0016); `?drawdist=1` (headless `--drawdist 1`) restores N64
   behaviour, any value 1–16 sets the factor. Banana fairies keep the N64 spawn range: a spawned fairy starts the
